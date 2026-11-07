@@ -3,6 +3,9 @@
 
 package com.jetbrains.python.console
 
+import com.intellij.python.sdk.backend.PythonInterpreter
+import com.intellij.python.sdk.backend.addedPathFiles
+import com.intellij.python.sdk.backend.targetAdditionalData
 import com.intellij.execution.configurations.GeneralCommandLine
 import com.intellij.execution.target.TargetEnvironment
 import com.intellij.execution.target.value.TargetEnvironmentFunction
@@ -10,13 +13,11 @@ import com.intellij.execution.target.value.TraceableTargetEnvironmentFunction
 import com.intellij.execution.target.value.andThenJoinToString
 import com.intellij.execution.target.value.toLinkedSetFunction
 import com.intellij.lang.ASTNode
+import com.intellij.openapi.application.readAction
 import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.module.Module
-import com.intellij.openapi.module.ModuleManager
-import com.intellij.openapi.module.ModuleUtilCore
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.projectRoots.Sdk
-import com.intellij.openapi.roots.ModuleRootManager
 import com.intellij.openapi.util.Pair
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.psi.PsiElement
@@ -32,7 +33,9 @@ import com.jetbrains.python.remote.PythonRemoteInterpreterManager
 import com.jetbrains.python.run.PythonCommandLineState
 import com.jetbrains.python.run.toStringLiteral
 import com.jetbrains.python.sdk.PythonEnvUtil
-import com.jetbrains.python.sdk.legacy.PythonSdkUtil
+import com.intellij.python.pyproject.model.evolution.getInterpreter
+import com.intellij.python.sdk.backend.getSdkAPI
+import com.jetbrains.python.project.PyProject.Companion.asPyProject
 import com.jetbrains.python.target.PyTargetAwareAdditionalData
 import org.jetbrains.annotations.ApiStatus
 import java.util.function.Function
@@ -66,6 +69,11 @@ fun getPathMapper(project: Project,
     else -> null
   }
 }
+
+/** [getPathMapper] for [interpreter]: `null` for an interpreter that runs on no target. */
+@ApiStatus.Internal
+fun getPathMapper(project: Project, interpreter: PythonInterpreter, consoleSettings: PyConsoleSettings): PyRemotePathMapper? =
+  interpreter.targetAdditionalData?.let { getPathMapper(project, consoleSettings, it) }
 
 private fun getPathMapper(project: Project, consoleSettings: PyConsoleSettings, data: PyTargetAwareAdditionalData): PyRemotePathMapper {
   val remotePathMapper = appendBasicMappings(project, data)
@@ -114,63 +122,17 @@ private fun appendBasicMappings(project: Project, data: RemoteSdkProperties): Py
   return pathMapper
 }
 
-internal fun findPythonSdkAndModule(project: Project, contextModule: Module?): Pair<Sdk?, Module?> {
-  var sdk: Sdk? = null
-  var module: Module? = null
-  val settings = PyConsoleOptions.getInstance(project).pythonConsoleSettings
-  val sdkHome = settings.sdkHome
-  if (sdkHome != null) {
-    sdk = PythonSdkUtil.findSdkByPath(sdkHome)
-    val moduleName = settings.moduleName
-    if (moduleName != null) {
-      module = ModuleManager.getInstance(project).findModuleByName(moduleName)
-    }
-    else {
-      module = contextModule
-      if (module == null && ModuleManager.getInstance(project).modules.isNotEmpty()) {
-        module = ModuleManager.getInstance(project).modules[0]
-      }
-    }
-  }
-  if (sdk == null && settings.isUseModuleSdk) {
-    if (contextModule != null) {
-      module = contextModule
-    }
-    else {
-      val moduleName = settings.moduleName
-      if (moduleName != null) {
-        module = ModuleManager.getInstance(project).findModuleByName(moduleName)
-      }
-    }
-    if (module != null) {
-      if (PythonSdkUtil.findPythonSdk(module) != null) {
-        sdk = PythonSdkUtil.findPythonSdk(module)
-      }
-    }
-  }
-  else if (contextModule != null) {
-    if (module == null) {
-      module = contextModule
-    }
-    if (sdk == null) {
-      sdk = PythonSdkUtil.findPythonSdk(module)
-    }
-  }
-  if (sdk == null) {
-    for (m in ModuleManager.getInstance(project).modules) {
-      if (PythonSdkUtil.findPythonSdk(m) != null) {
-        sdk = PythonSdkUtil.findPythonSdk(m)
-        module = m
-        break
-      }
-    }
-  }
-  if (sdk == null) {
-    if (PythonSdkUtil.getAllSdks().size > 0) {
-      sdk = PythonSdkUtil.getAllSdks()[0] //take any python sdk
-    }
-  }
-  return Pair.create(sdk, module)
+/**
+ * The interpreter a console starts on, and the module it belongs to. Both `null` when the project offers neither.
+ *
+ * The interpreter is the one of the subproject the console runs in: [contextModule] when the caller names one, and
+ * otherwise the one [getModuleToStartConsole] names, which is the interpreter widget's own rule. One source for every
+ * surface, so the console, the widget and the packages tool window never disagree.
+ */
+internal suspend fun findPythonSdkAndModule(project: Project, contextModule: Module?): Pair<Sdk?, Module?> {
+  val module = contextModule ?: getModuleToStartConsole(project)
+  @Suppress("DEPRECATION") // The console runner still takes an Sdk.
+  return Pair.create(module?.asPyProject()?.getInterpreter()?.getSdkAPI(), module)
 }
 
 @ApiStatus.Internal
@@ -209,6 +171,14 @@ fun addDefaultEnvironments(sdk: Sdk,
                            envs: Map<String, String>): Map<String, String> {
   setCorrectStdOutEncoding(envs)
   PythonEnvUtil.initPythonPath(envs, true, PythonCommandLineState.getAddedPaths(sdk))
+  return envs
+}
+
+/** [addDefaultEnvironments] for [interpreter]. */
+@ApiStatus.Internal
+fun addDefaultEnvironments(interpreter: PythonInterpreter, envs: Map<String, String>): Map<String, String> {
+  setCorrectStdOutEncoding(envs)
+  PythonEnvUtil.initPythonPath(envs, true, PythonCommandLineState.getAddedPaths(interpreter.addedPathFiles))
   return envs
 }
 
@@ -269,25 +239,8 @@ internal fun getConsoleSdk(element: PsiElement): Sdk? {
   return containingFile?.getCopyableUserData(PydevConsoleRunner.CONSOLE_SDK)
 }
 
-internal fun getModuleToStartConsole(project: Project, moduleManager: ModuleManager): Module {
-  val selectedFiles = FileEditorManager.getInstance(project).getSelectedFiles()
-  val moduleForOpenedFile = selectedFiles.firstNotNullOfOrNull {
-    val isLocalFs = it.isInLocalFileSystem
-    if (!isLocalFs)
-      return@firstNotNullOfOrNull null
-    ModuleUtilCore.findModuleForFile(it, project)
-  }
-  if (moduleForOpenedFile != null) {
-    return moduleForOpenedFile
-  }
-
-  val projectLocalModule = moduleManager.modules.firstOrNull {
-    val roots = ModuleRootManager.getInstance(it).contentRoots
-    roots.all { it.isInLocalFileSystem }
-  }
-  if (projectLocalModule != null) {
-    return projectLocalModule
-  }
-
-  return moduleManager.modules.firstOrNull() ?: throw IllegalStateException("Module must not be null when running python console")
+@ApiStatus.Internal
+suspend fun getModuleToStartConsole(project: Project): Module? {
+  val selectedFile = readAction { FileEditorManager.getInstance(project).selectedFiles.firstOrNull() }
+  return resolveConsoleTarget(project, selectedFile)?.pyProject?.residesOnModule
 }

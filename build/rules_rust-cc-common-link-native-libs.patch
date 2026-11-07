@@ -1,0 +1,649 @@
+Pass the `#[link]` libraries and the allocator shim of a Rust link to `cc_common.link`.
+
+Under `experimental_use_cc_common_link`, rustc only emits an object. So the native libraries of the `#[link]`
+attributes never reach the linker, and neither does the allocator shim of rustc, which routes `__rust_alloc` to the
+`#[global_allocator]` of the crate graph or to the default allocator of std. rustc reads the libraries from the
+crate metadata, and it passes both only to the linker that it runs. No other tool can read them.
+
+So let rustc also link each `bin` and `cdylib` with `native_libs_recorder` as `--codegen=linker`. The recorder
+writes the libraries from a search path to a response file, and `cc_common.link` takes that file as `@<file>`. It
+copies the allocator shim, and on Windows each library that the link takes by path, to a directory that
+`cc_common.link` takes with the objects. The objects come before every archive, so the shim defines the allocator
+symbols before the link reads the archive of an unused crate with a `#[global_allocator]`. Such a link then needs no
+allocator library, and neither does the `CcInfo` of a library, so the link gets no second definition from a
+dependency. A `#[global_allocator]` thus needs no `experimental_use_global_allocator`.
+
+The `experimental_cc_common_link_native_libs_recorder` setting names the recorder, and `//rust/private/cc:empty`
+turns the feature off. The toolchain reads it, so that a library sees it too. The recorder would otherwise depend
+on itself, so it is built without the recorder and without `cc_common.link`: rustc links it and its tools itself.
+
+A `link.exe` link takes some libraries by path: an import library that rustc writes for a `raw-dylib` import in a
+temporary directory, or one that a build script finds, such as `windows.0.52.0.lib`. The recorder writes a copy of
+the first object as the link output, so rustc can strip it after the link. On Apple, rustc also runs `dsymutil` on
+a packed link output, so the action sets `split-debuginfo=unpacked` there. That does not change the object.
+diff --git a/rust/private/rustc.bzl b/rust/private/rustc.bzl
+--- a/rust/private/rustc.bzl
++++ b/rust/private/rustc.bzl
+@@ -2122,7 +2122,32 @@
+         emit.append("link")
+     if output_o:
+         emit.append(("obj", output_o))
++
++    # Under cc_common.link, rustc never links, so the libraries of the `#[link]` attributes never reach the linker.
++    # rustc reads them from the crate metadata, and it passes them only to the linker that it runs. So let rustc also
++    # link with a recorder, which writes them to a response file for cc_common.link.
++    native_libs = None
++    native_libs_link_output = None
++    native_libs_files = None
++    native_libs_recorder = None
++    if use_cc_common_link and crate_info.type in ("bin", "cdylib"):
++        native_libs_recorder = rust_toolchain._cc_common_link_native_libs_recorder
++    if native_libs_recorder:
++        native_libs = ctx.actions.declare_file(crate_info.output.basename + ".native_libs", sibling = crate_info.output)
++        native_libs_link_output = ctx.actions.declare_file(crate_info.output.basename + ".native_libs_link", sibling = crate_info.output)
++        emit.append(("link", native_libs_link_output))
+ 
++        # The recorder keeps a copy of each file that the link takes by path here: the allocator shim of rustc, and
++        # on Windows the import library of a `raw-dylib` import or one that a build script finds.
++        native_libs_files = ctx.actions.declare_directory(crate_info.output.basename + ".native_libs_files", sibling = crate_info.output)
++        compile_inputs = depset([native_libs_recorder], transitive = [compile_inputs])
++
++        # On Apple, rustc runs `dsymutil` on a packed link output, which the recorder does not link. The flag does not
++        # change the object: an Apple object keeps its debug info in both modes.
++        rust_flags = rust_flags + [("--codegen=linker=%s", native_libs_recorder)]
++        if rust_toolchain.target_os in ("darwin", "macos", "ios"):
++            rust_flags = rust_flags + ["--codegen=split-debuginfo=unpacked"]
++
+     # Declares the outputs of the rustc compile action.
+     # By default this is crate_info.output. If cc_common.link is used, this is
+     # output_o because cc_common.link produces crate_info.output.
+@@ -2268,6 +2293,10 @@
+ 
+     # this is the final list of env vars
+     env.update(env_from_args)
++    if native_libs:
++        env["RULES_RUST_NATIVE_LIBS"] = native_libs.path
++    if native_libs_files:
++        env["RULES_RUST_NATIVE_LIBS_FILES"] = native_libs_files.path
+ 
+     if build_metadata and inject_allow_features_guardrail:
+         # RUSTC_BOOTSTRAP=1 is required for -Zno-codegen on stable/beta rustc, and
+@@ -2297,6 +2326,10 @@
+     action_outputs = list(outputs)
+     if output_o and output_o not in action_outputs:
+         action_outputs.append(output_o)
++    if native_libs:
++        action_outputs.extend([native_libs, native_libs_link_output])
++    if native_libs_files:
++        action_outputs.append(native_libs_files)
+     if rustc_output:
+         action_outputs.append(rustc_output)
+     if profiling_dir:
+@@ -2408,8 +2441,11 @@
+         # Wrap the main `.o` file into a compilation output suitable for
+         # cc_common.link. The main `.o` file is useful in both PIC and non-PIC
+         # modes.
+-        cco_args["objects"] = depset([output_o])
+-        cco_args["pic_objects"] = depset([output_o])
++        #
++        # The files that the recorder copies come next: the allocator shim must define its symbols before the link
++        # reads an archive that defines them too, such as the one of an unused crate with a `#[global_allocator]`.
++        cco_args["objects"] = depset([output_o] + ([native_libs_files] if native_libs_files else []))
++        cco_args["pic_objects"] = depset([output_o] + ([native_libs_files] if native_libs_files else []))
+         if distributed_thin_lto:
+             cco_args["lto_compilation_context"] = cc_common.create_lto_compilation_context(
+                 objects = {
+@@ -2432,6 +2468,9 @@
+                 rust_toolchain,
+                 crate_info,
+                 link_std_dylib,
++                # The recorder keeps the allocator shim that rustc writes for the crate graph, so no allocator
++                # library is needed.
++                rustc_allocator_shim = native_libs != None,
+             ),
+             rust_toolchain.stdlib_linkflags,
+         ]
+@@ -2496,6 +2535,10 @@
+         # When rustc links a Windows cdylib, it writes its exported symbols to a `.def` file. Here rustc only emits
+         # the object, so generate the `.def` from it, as `cc_binary` does for `windows_export_all_symbols`.
+         additional_linker_inputs = []
++        user_link_flags = []
++        if native_libs:
++            additional_linker_inputs.append(native_libs)
++            user_link_flags.append("@" + native_libs.path)
+         if crate_info.type == "cdylib" and rust_toolchain.target_os == "windows":
+             def_file = cc_helper.generate_def_file(ctx, None, [output_o], crate_info.output.basename, cc_toolchain, feature_configuration)
+             if def_file:
+@@ -2513,6 +2556,7 @@
+             main_output = crate_info.output,
+             output_type = "executable" if crate_info.type == "bin" else "dynamic_library",
+             additional_inputs = additional_linker_inputs,
++            user_link_flags = user_link_flags,
+             additional_outputs = additional_linker_outputs,
+             variables_extension = variables_extension,
+         )
+@@ -2780,7 +2824,7 @@
+         return toolchain._experimental_use_allocator_libraries_with_mangled_symbols_setting
+     return bool(use_or_default)
+ 
+-def _get_std_and_alloc_info(ctx, toolchain, crate_info, link_std_dylib):
++def _get_std_and_alloc_info(ctx, toolchain, crate_info, link_std_dylib, rustc_allocator_shim = False):
+     # Handles standard libraries and allocator shims.
+     #
+     # The standard libraries vary across two dimensions:
+@@ -2798,6 +2842,11 @@
+     if link_std_dylib and not toolchain.libstd_dylib_and_allocator_ccinfo:
+         fail("link_std_dylib was requested but no std dylib is available for this toolchain target.")
+ 
++    # The link already gets the allocator shim of rustc, which routes the allocator symbols to the
++    # `#[global_allocator]` of the crate graph or to the default allocator of std.
++    if rustc_allocator_shim and not is_no_std(ctx, toolchain, crate_info.is_test):
++        return toolchain.libstd_dylib_ccinfo if link_std_dylib else toolchain.libstd_ccinfo
++
+     libs = None
+     attr_allocator_library = None
+     attr_global_allocator_library = None
+@@ -3052,7 +3101,15 @@
+ 
+     if crate_info.type in ("rlib", "lib"):
+         # We're an rlib or lib, which uses the default toolchain setting for std dylib linking.
+-        libstd_and_allocator_cc_info = _get_std_and_alloc_info(ctx, toolchain, crate_info, toolchain._link_std_dylib)
++        # A link with the recorder gets the allocator shim of rustc, so it must not get an allocator library from a
++        # dependency too.
++        libstd_and_allocator_cc_info = _get_std_and_alloc_info(
++            ctx,
++            toolchain,
++            crate_info,
++            toolchain._link_std_dylib,
++            rustc_allocator_shim = toolchain._cc_common_link_native_libs_recorder != None,
++        )
+         if libstd_and_allocator_cc_info:
+             # TODO: if we already have an rlib in our deps, we could skip this
+             cc_infos.append(libstd_and_allocator_cc_info)
+diff --git a/rust/private/toolchain.bzl b/rust/private/toolchain.bzl
+--- a/rust/private/toolchain.bzl
++++ b/rust/private/toolchain.bzl
+@@ -638,6 +638,8 @@
+         nostd_and_global_allocator_ccinfo = make_local_ccinfo(ctx.attr.global_allocator_library[CcInfo], "no_std_with_alloc", False),
+         libstd_dylib_and_allocator_ccinfo = make_local_ccinfo(ctx.attr.allocator_library[CcInfo], "std", True),
+         libstd_dylib_and_global_allocator_ccinfo = make_local_ccinfo(ctx.attr.global_allocator_library[CcInfo], "std", True),
++        libstd_ccinfo = make_local_ccinfo(CcInfo(), "std", False),
++        libstd_dylib_ccinfo = make_local_ccinfo(CcInfo(), "std", True),
+         make_libstd_and_allocator_ccinfo = make_ccinfo,
+         linker = sysroot.linker,
+         linker_preference = linker_preference,
+@@ -682,6 +684,7 @@
+         _pipelined_compilation = pipelined_compilation,
+         _link_std_dylib = _resolve_link_std_dylib(ctx),
+         _experimental_use_cc_common_link = _experimental_use_cc_common_link(ctx),
++        _cc_common_link_native_libs_recorder = ctx.attr._experimental_cc_common_link_native_libs_recorder[DefaultInfo].files_to_run.executable if _experimental_use_cc_common_link(ctx) else None,
+         _experimental_use_global_allocator = experimental_use_global_allocator,
+         _skip_fission_for_rust = ctx.attr._skip_fission_for_rust[BuildSettingInfo].value,
+         _experimental_use_coverage_metadata_files = ctx.attr._experimental_use_coverage_metadata_files[BuildSettingInfo].value,
+@@ -950,6 +953,11 @@
+         ),
+         "_experimental_use_coverage_metadata_files": attr.label(
+             default = Label("//rust/settings:experimental_use_coverage_metadata_files"),
++        ),
++        "_experimental_cc_common_link_native_libs_recorder": attr.label(
++            default = Label("//rust/settings:experimental_cc_common_link_native_libs_recorder"),
++            cfg = "exec",
++            doc = "The linker that rustc also runs for a `cc_common.link` target, to record its native inputs.",
+         ),
+         "_experimental_use_global_allocator": attr.label(
+             default = Label("//rust/settings:experimental_use_global_allocator"),
+diff --git a/rust/settings/BUILD.bazel b/rust/settings/BUILD.bazel
+--- a/rust/settings/BUILD.bazel
++++ b/rust/settings/BUILD.bazel
+@@ -148,3 +148,12 @@
+ zself_profile_events()
+ 
+ skip_fission_for_rust()
++
++# When this target is an executable, rustc also links each `cc_common.link` target with it as the linker. It must
++# write the native libraries of the link, one for each line, to the file that `RULES_RUST_NATIVE_LIBS` names, and the
++# link output. `cc_common.link` then reads that file as a response file. Point it at `//rust/private/cc:empty` to stop.
++label_flag(
++    name = "experimental_cc_common_link_native_libs_recorder",
++    build_setting_default = "//rust/private/native_libs_recorder",
++    visibility = ["//visibility:public"],
++)
+diff --git a/rust/private/native_libs_recorder/BUILD.bazel b/rust/private/native_libs_recorder/BUILD.bazel
+new file mode 100644
+--- /dev/null
++++ b/rust/private/native_libs_recorder/BUILD.bazel
+@@ -0,0 +1,20 @@
++load("//rust:defs.bzl", "rust_binary", "rust_test")
++load(":recorder.bzl", "native_libs_recorder")
++
++# The default of `//rust/settings:experimental_cc_common_link_native_libs_recorder`.
++native_libs_recorder(
++    name = "native_libs_recorder",
++    binary = ":native_libs_recorder_binary",
++    visibility = ["//visibility:public"],
++)
++
++rust_binary(
++    name = "native_libs_recorder_binary",
++    srcs = ["main.rs"],
++    edition = "2021",
++)
++
++rust_test(
++    name = "native_libs_recorder_test",
++    crate = ":native_libs_recorder_binary",
++)
+diff --git a/rust/private/native_libs_recorder/main.rs b/rust/private/native_libs_recorder/main.rs
+new file mode 100644
+--- /dev/null
++++ b/rust/private/native_libs_recorder/main.rs
+@@ -0,0 +1,356 @@
++//! A linker for `rustc` that links nothing: it writes the native inputs of the link to a response file.
++//!
++//! Under `cc_common.link`, `rustc` only emits an object, so the libraries of each `#[link]` attribute never reach the
++//! linker. `rustc` reads them from the metadata of the crates, and it passes them only to the linker that it runs.
++//! Only that link also gets the allocator shim of `rustc`, which routes `__rust_alloc` to the `#[global_allocator]`
++//! of the crate graph or to the default allocator of `std`. So `rules_rust` also lets `rustc` link with this program,
++//! and passes the response file to `cc_common.link`.
++//!
++//! The arguments are those of a `link.exe` or of a `cc` link, maybe in `@` response files. The program writes each
++//! library that the link takes from a search path, one for each line, to the file that `RULES_RUST_NATIVE_LIBS`
++//! names. `rustc` writes the allocator shim in its output directory, and a `link.exe` link takes some libraries by
++//! path: an import library that `rustc` writes for a `raw-dylib` import in a temporary directory, or one that a build
++//! script finds. The program copies each of these files to the directory that `RULES_RUST_NATIVE_LIBS_FILES` names,
++//! which `cc_common.link` takes with the objects of the link. `rustc` may strip the link output after the link, so the program writes a copy of the first
++//! object there.
++
++use std::path::Path;
++use std::process::ExitCode;
++use std::{env, fs};
++
++/// The variable that names the response file to write.
++const OUTPUT_ENV_VAR: &str = "RULES_RUST_NATIVE_LIBS";
++
++/// The variable that names the directory for the files that the link takes by path.
++const FILES_ENV_VAR: &str = "RULES_RUST_NATIVE_LIBS_FILES";
++
++/// The cc toolchain links its own unwinder and compiler runtime, and `rustc` names the GCC ones.
++const TOOLCHAIN_LIBRARIES: &[&str] = &["gcc", "gcc_eh", "gcc_s", "unwind"];
++
++fn main() -> ExitCode {
++    match run() {
++        Ok(()) => ExitCode::SUCCESS,
++        Err(error) => {
++            eprintln!("ERROR: native_libs_recorder: {error}");
++            ExitCode::FAILURE
++        }
++    }
++}
++
++fn run() -> Result<(), String> {
++    let output =
++        env::var_os(OUTPUT_ENV_VAR).ok_or_else(|| format!("{OUTPUT_ENV_VAR} is not set"))?;
++    let args = expand_response_files(env::args().skip(1))?;
++    let link = Link::parse(&args);
++    let files: Vec<&str> = link
++        .allocator_shim
++        .iter()
++        .chain(&link.library_files)
++        .copied()
++        .collect();
++    match env::var_os(FILES_ENV_VAR) {
++        Some(directory) => copy_files(&files, Path::new(&directory))?,
++        None if !files.is_empty() => {
++            return Err(format!(
++                "the link takes files by path, but {FILES_ENV_VAR} is not set"
++            ))
++        }
++        None => {}
++    }
++    let response_file: String = link
++        .libraries
++        .iter()
++        .map(|library| format!("{library}\n"))
++        .collect();
++    fs::write(&output, response_file)
++        .map_err(|e| format!("cannot write {}: {e}", Path::new(&output).display()))?;
++    match (link.output, link.object) {
++        (Some(link_output), Some(object)) => copy(Path::new(object), Path::new(link_output)),
++        (Some(link_output), None) => {
++            fs::write(link_output, "").map_err(|e| format!("cannot write {link_output}: {e}"))
++        }
++        (None, _) => Ok(()),
++    }
++}
++
++/// Copies each file to `directory`, once for each file name.
++fn copy_files(files: &[&str], directory: &Path) -> Result<(), String> {
++    fs::create_dir_all(directory)
++        .map_err(|e| format!("cannot create {}: {e}", directory.display()))?;
++    let mut copies = Vec::new();
++    for file in files {
++        let file = Path::new(file);
++        let name = file
++            .file_name()
++            .ok_or_else(|| format!("{} has no file name", file.display()))?;
++        let copy_path = directory.join(name);
++        if !copies.contains(&copy_path) {
++            copy(file, &copy_path)?;
++            copies.push(copy_path);
++        }
++    }
++    Ok(())
++}
++
++fn copy(from: &Path, to: &Path) -> Result<(), String> {
++    fs::copy(from, to)
++        .map(|_| ())
++        .map_err(|e| format!("cannot copy {} to {}: {e}", from.display(), to.display()))
++}
++
++/// Replaces each `@<file>` argument with the arguments of that file.
++fn expand_response_files(args: impl IntoIterator<Item = String>) -> Result<Vec<String>, String> {
++    let mut expanded = Vec::new();
++    for arg in args {
++        match arg.strip_prefix('@') {
++            Some(file) => {
++                let bytes = fs::read(file).map_err(|e| format!("cannot read {file}: {e}"))?;
++                expanded.extend(response_file_args(&decode(&bytes)));
++            }
++            None => expanded.push(arg),
++        }
++    }
++    Ok(expanded)
++}
++
++/// `rustc` writes the response file of a `link.exe` link in UTF-16 with a byte order mark, and the others in UTF-8.
++fn decode(bytes: &[u8]) -> String {
++    match bytes {
++        [0xFF, 0xFE, rest @ ..] => {
++            let units: Vec<u16> = rest
++                .chunks_exact(2)
++                .map(|pair| u16::from_le_bytes([pair[0], pair[1]]))
++                .collect();
++            String::from_utf16_lossy(&units)
++        }
++        _ => String::from_utf8_lossy(bytes).into_owned(),
++    }
++}
++
++/// `rustc` writes one argument on each line, in quotes when the argument needs them.
++fn response_file_args(text: &str) -> impl Iterator<Item = String> + '_ {
++    text.lines()
++        .map(str::trim)
++        .filter(|line| !line.is_empty())
++        .map(|line| {
++            line.strip_prefix('"')
++                .and_then(|line| line.strip_suffix('"'))
++                .unwrap_or(line)
++        })
++        .map(|line| line.replace("\\\"", "\"").replace("\\\\", "\\"))
++}
++
++/// `rustc` names each object of a codegen unit `<crate>.<crate>.<hash>-cgu.<n>.rcgu.o`, and the allocator shim
++/// `<crate>.<hash>.rcgu.o`.
++fn is_allocator_shim(arg: &str) -> bool {
++    let name = arg.rsplit(['/', '\\']).next().unwrap_or(arg);
++    name.ends_with(".rcgu.o") && !name.contains("-cgu.")
++}
++
++#[derive(Debug, PartialEq)]
++struct Link<'a> {
++    /// The library arguments for the cc link tool, in the order of the link.
++    libraries: Vec<String>,
++    /// The libraries that a `link.exe` link takes by path.
++    library_files: Vec<&'a str>,
++    allocator_shim: Option<&'a str>,
++    /// The first object file of the link.
++    object: Option<&'a str>,
++    output: Option<&'a str>,
++}
++
++impl<'a> Link<'a> {
++    fn parse(args: &'a [String]) -> Self {
++        let objects = || {
++            args.iter()
++                .map(String::as_str)
++                .filter(|arg| arg.ends_with(".o") || arg.ends_with(".obj"))
++        };
++        let mut link = Link {
++            libraries: Vec::new(),
++            library_files: Vec::new(),
++            allocator_shim: objects().find(|arg| is_allocator_shim(arg)),
++            object: objects().next(),
++            output: None,
++        };
++        if args.iter().any(|arg| starts_with_ignore_case(arg, "/OUT:")) {
++            link.parse_msvc(args);
++        } else {
++            link.parse_cc(args);
++        }
++        link
++    }
++
++    /// A `link.exe` link names a library from a search path by its bare file name, such as `ole32.lib`, and other
++    /// libraries by path.
++    fn parse_msvc(&mut self, args: &'a [String]) {
++        for arg in args {
++            if starts_with_ignore_case(arg, "/OUT:") {
++                self.output = Some(&arg["/OUT:".len()..]);
++            } else if arg.to_ascii_lowercase().ends_with(".lib") && !is_msvc_option(arg) {
++                if arg.contains(['/', '\\']) {
++                    self.library_files.push(arg);
++                } else {
++                    self.add(&[arg]);
++                }
++            }
++        }
++    }
++
++    /// A `cc` link names a shared library as `-l<name>`, and a macOS framework as `-framework <name>`. A library
++    /// after `-Bstatic` is an archive, and `rustc` already bundles each archive into the `rlib` that needs it.
++    fn parse_cc(&mut self, args: &'a [String]) {
++        let mut is_static = false;
++        let mut args = args.iter();
++        while let Some(arg) = args.next() {
++            match arg.as_str() {
++                "-o" => self.output = args.next().map(String::as_str),
++                "-Wl,-Bstatic" | "-Bstatic" => is_static = true,
++                "-Wl,-Bdynamic" | "-Bdynamic" => is_static = false,
++                "-framework" | "-weak_framework" => {
++                    if let Some(framework) = args.next() {
++                        self.add(&[arg, framework]);
++                    }
++                }
++                _ => {
++                    let name = arg.strip_prefix("-l").unwrap_or_default();
++                    if !name.is_empty() && !is_static && !TOOLCHAIN_LIBRARIES.contains(&name) {
++                        self.add(&[arg]);
++                    }
++                }
++            }
++        }
++    }
++
++    /// Adds the arguments of one library, unless the link already names it.
++    fn add(&mut self, library: &[&String]) {
++        let is_known = self
++            .libraries
++            .windows(library.len())
++            .any(|known| known.iter().eq(library.iter().copied()));
++        if !is_known {
++            self.libraries
++                .extend(library.iter().map(|arg| arg.to_string()));
++        }
++    }
++}
++
++/// A `link.exe` option, such as `/IMPLIB:<path>`. A Unix path starts with `/` too, but a `/` follows its first name.
++fn is_msvc_option(arg: &str) -> bool {
++    let Some(option) = arg.strip_prefix(['/', '-']) else {
++        return false;
++    };
++    let name = option.split(':').next().unwrap_or_default();
++    !name.is_empty() && name.chars().all(|c| c.is_ascii_alphanumeric())
++}
++
++fn starts_with_ignore_case(arg: &str, prefix: &str) -> bool {
++    arg.get(..prefix.len())
++        .is_some_and(|start| start.eq_ignore_ascii_case(prefix))
++}
++
++#[cfg(test)]
++mod test {
++    use super::{decode, response_file_args, Link};
++
++    fn strings(args: &[&str]) -> Vec<String> {
++        args.iter().map(|arg| arg.to_string()).collect()
++    }
++
++    #[test]
++    fn keeps_the_msvc_libraries_and_the_allocator_shim() {
++        let args = strings(&[
++            "/NOLOGO",
++            "C:\\tmp\\rustcXYZ\\symbols.o",
++            "bazel-out/bin/printenv.printenv.0123456789abcdef-cgu.0.rcgu.o",
++            "bazel-out/bin/printenv.atmb9y7hkwsnft6dfjydj9o2k.rcgu.o",
++            "bazel-out/bin/libwindows.rlib",
++            "ole32.lib",
++            "kernel32.lib",
++            "/LIBPATH:C:\\rust\\lib",
++            "ole32.lib",
++            "C:\\tmp\\rustcXYZ\\propsys.dll_imports.lib",
++            "/OUT:bazel-out/bin/printenv.exe",
++            "/IMPLIB:bazel-out/bin/printenv.dll.lib",
++            "/Users/me/out/m/lib/windows.0.52.0.lib",
++        ]);
++        assert_eq!(
++            Link::parse(&args),
++            Link {
++                libraries: strings(&["ole32.lib", "kernel32.lib"]),
++                library_files: vec![
++                    "C:\\tmp\\rustcXYZ\\propsys.dll_imports.lib",
++                    "/Users/me/out/m/lib/windows.0.52.0.lib"
++                ],
++                allocator_shim: Some("bazel-out/bin/printenv.atmb9y7hkwsnft6dfjydj9o2k.rcgu.o"),
++                object: Some("C:\\tmp\\rustcXYZ\\symbols.o"),
++                output: Some("bazel-out/bin/printenv.exe"),
++            }
++        );
++    }
++
++    #[test]
++    fn keeps_the_cc_shared_libraries_and_frameworks() {
++        let args = strings(&[
++            "-o",
++            "bazel-out/bin/printenv",
++            "bazel-out/bin/printenv.printenv.0123456789abcdef-cgu.0.rcgu.o",
++            "-Wl,-Bstatic",
++            "-lunwind",
++            "-lstatic_dep",
++            "-Wl,-Bdynamic",
++            "-lutil",
++            "-lgcc_s",
++            "-framework",
++            "Security",
++            "-framework",
++            "CoreFoundation",
++            "-framework",
++            "Security",
++            "-lutil",
++            "-liconv",
++        ]);
++        assert_eq!(
++            Link::parse(&args),
++            Link {
++                libraries: strings(&[
++                    "-lutil",
++                    "-framework",
++                    "Security",
++                    "-framework",
++                    "CoreFoundation",
++                    "-liconv"
++                ]),
++                library_files: Vec::new(),
++                allocator_shim: None,
++                object: Some("bazel-out/bin/printenv.printenv.0123456789abcdef-cgu.0.rcgu.o"),
++                output: Some("bazel-out/bin/printenv"),
++            }
++        );
++    }
++
++    #[test]
++    fn reads_a_utf16_response_file() {
++        let text: Vec<u8> = [0xFF, 0xFE]
++            .into_iter()
++            .chain(
++                "\"/OUT:a b.exe\"\nole32.lib\n"
++                    .encode_utf16()
++                    .flat_map(u16::to_le_bytes),
++            )
++            .collect();
++        assert_eq!(
++            response_file_args(&decode(&text)).collect::<Vec<_>>(),
++            ["/OUT:a b.exe", "ole32.lib"]
++        );
++    }
++
++    #[test]
++    fn reads_a_utf8_response_file() {
++        let text = b"-o\nout\\\\dir/printenv\n-lutil\n";
++        assert_eq!(
++            response_file_args(&decode(text)).collect::<Vec<_>>(),
++            ["-o", "out\\dir/printenv", "-lutil"]
++        );
++    }
++}
+diff --git a/rust/private/native_libs_recorder/recorder.bzl b/rust/private/native_libs_recorder/recorder.bzl
+new file mode 100644
+--- /dev/null
++++ b/rust/private/native_libs_recorder/recorder.bzl
+@@ -0,0 +1,48 @@
++"""The native libraries recorder, built without itself."""
++
++_RECORDER_SETTING = str(Label("//rust/settings:experimental_cc_common_link_native_libs_recorder"))
++
++_USE_CC_COMMON_LINK_SETTING = str(Label("//rust/settings:experimental_use_cc_common_link"))
++
++_USE_GLOBAL_ALLOCATOR_SETTING = str(Label("//rust/settings:experimental_use_global_allocator"))
++
++def _without_recorder_impl(_settings, _attr):
++    return {
++        _RECORDER_SETTING: str(Label("//rust/private/cc:empty")),
++        _USE_CC_COMMON_LINK_SETTING: False,
++        # The global allocator library needs `cc_common.link`, and the recorder has no `#[global_allocator]`.
++        _USE_GLOBAL_ALLOCATOR_SETTING: False,
++    }
++
++# Every Rust target depends on the recorder through the setting, so the recorder itself must not. Without the
++# recorder, a link through `cc_common.link` misses the `#[link]` libraries, so rustc links the recorder and its tools,
++# such as the process wrapper, itself.
++_without_recorder = transition(
++    implementation = _without_recorder_impl,
++    inputs = [],
++    outputs = [_RECORDER_SETTING, _USE_CC_COMMON_LINK_SETTING, _USE_GLOBAL_ALLOCATOR_SETTING],
++)
++
++def _native_libs_recorder_impl(ctx):
++    binary = ctx.executable.binary
++
++    # Bazel requires the executable of an `executable` rule to be generated by that rule, so it is symlinked.
++    executable = ctx.actions.declare_file("{}_/{}".format(ctx.label.name, binary.basename))
++    ctx.actions.symlink(output = executable, target_file = binary, is_executable = True)
++    return [DefaultInfo(files = depset([executable]), executable = executable)]
++
++native_libs_recorder = rule(
++    doc = "Builds the `rust_binary` of the recorder without the recorder and without `cc_common.link`.",
++    implementation = _native_libs_recorder_impl,
++    executable = True,
++    attrs = {
++        "binary": attr.label(
++            mandatory = True,
++            executable = True,
++            cfg = _without_recorder,
++        ),
++        "_allowlist_function_transition": attr.label(
++            default = "@bazel_tools//tools/allowlists/function_transition_allowlist",
++        ),
++    },
++)

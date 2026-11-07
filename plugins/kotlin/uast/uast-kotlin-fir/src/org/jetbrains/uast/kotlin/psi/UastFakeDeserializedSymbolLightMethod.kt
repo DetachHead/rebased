@@ -126,6 +126,8 @@ constructor(
         return _returnType
     }
 
+    override fun getContainingFile(): PsiFile? = super.getContainingFile() ?: context.containingFile
+
     private val _isSuspend = UastLazyPart<Boolean>()
 
     override fun isSuspendFunction(): Boolean =

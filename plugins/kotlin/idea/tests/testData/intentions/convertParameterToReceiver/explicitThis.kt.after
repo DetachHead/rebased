@@ -3,6 +3,6 @@ class A
 class B {
     val foo = 1
     fun A.test() {
-        this@B.foo
+        foo
     }
 }

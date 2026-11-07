@@ -312,7 +312,7 @@ public class ExtractMethodTest extends LightGroovyTestCase {
   }
 
   @Override
-  public final String getBasePath() {
-    return TestUtils.getTestDataPath() + "groovy/refactoring/extractMethod/";
+  public final String getTestDataPath() {
+    return TestUtils.getAbsoluteTestDataPath() + "groovy/refactoring/extractMethod/";
   }
 }

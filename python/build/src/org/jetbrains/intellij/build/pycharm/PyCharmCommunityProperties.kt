@@ -72,6 +72,9 @@ class PyCharmCommunityProperties(private val communityHome: Path) : PyCharmPrope
 
     // Module sets
     moduleSet(CommunityModuleSets.ideCommon())
+    // the bundled Compose plugin needs the Compose runtime
+    moduleSet(CommunityModuleSets.composeRuntime())
+    moduleSet(CommunityModuleSets.platformResourceDefaults())
     moduleSet(CommunityModuleSets.rdCommon())
 
     // PyCharm Core fragment (includes platformLangBaseFragment, module aliases, and pycharm-core.xml)
@@ -81,10 +84,11 @@ class PyCharmCommunityProperties(private val communityHome: Path) : PyCharmPrope
 
     allowMissingDependencies(knownMissingModuleDependencies)
     allowMissingDependencies("intellij.platform.commercial.dependencies")
+    allowMissingDependencies("intellij.libraries.kotlin.logging")
     bundledPlugins(productLayout.bundledPluginModules)
   }
 
-  override suspend fun copyAdditionalFiles(targetDir: Path, context: BuildContext) {
+  override fun copyAdditionalFiles(targetDir: Path, context: BuildContext) {
     super.copyAdditionalFiles(targetDir, context)
 
     val licenseTargetDir = targetDir.resolve("license")
@@ -123,7 +127,7 @@ class PyCharmCommunityProperties(private val communityHome: Path) : PyCharmPrope
 
     override fun getRootDirectoryName(appInfo: ApplicationInfoProperties, buildNumber: String): String = "PyCharm OSS.app"
 
-    override suspend fun copyAdditionalFiles(context: BuildContext, targetDir: Path, arch: JvmArchitecture) {
+    override fun copyAdditionalFiles(context: BuildContext, targetDir: Path, arch: JvmArchitecture) {
       super.copyAdditionalFiles(context, targetDir, arch)
       PyCharmBuildUtils.copySkeletons(context, targetDir, "skeletons-mac*.zip")
     }

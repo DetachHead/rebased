@@ -1,7 +1,7 @@
 class A {
     fun someOther() = false
 
-    private fun formatElement(element: PsiElement): String {
+    private fun formatElement(element: PsiElement): String? {
         var element: PsiElement = element
         element = JetPsiUtil.ascendIfPropertyAccessor(element)
         if (element is JetNamedFunction || element is JetProperty) {

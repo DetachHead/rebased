@@ -1,6 +1,10 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library", "jvm_provided_library")
 load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
+### auto-generated section `dev intellij.xml.emmet` start
+content_module_jar(module = ":emmet")
+### auto-generated section `dev intellij.xml.emmet` end
+
 ### auto-generated section `build intellij.xml.emmet` start
 jvm_provided_library(
     name = "platform_core_provided",
@@ -103,11 +107,6 @@ jvm_provided_library(
 )
 
 jvm_provided_library(
-    name = "platform_remote-topics_rpc-topics_provided",
-    lib = "//platform/remote-topics/shared:rpc-topics",
-)
-
-jvm_provided_library(
     name = "platform_project_project_provided",
     lib = "//platform/project/shared:project",
 )
@@ -139,6 +138,7 @@ jvm_library(
         "@lib//:kotlin-stdlib-provided",
         "//xml/xml-ui-common:ui-common",
         "//libraries/kotlinx/collections-immutable:libraries-kotlinx-collections-immutable",
+        "//platform/remote-topics/shared:rpc-topics",
         ":platform_core_provided",
         ":platform_analysis-impl_provided",
         ":xml_psi_provided",
@@ -159,13 +159,10 @@ jvm_library(
         ":platform_refactoring_provided",
         ":platform_util-ui_provided",
         ":platform_java-guiForms-rt_provided",
-        ":platform_remote-topics_rpc-topics_provided",
         ":platform_project_project_provided",
         ":libraries_kotlinx_serialization_core_provided",
     ],
 )
-
-content_module_jar(module = ":emmet")
 
 jvm_library(
     name = "emmet_test_lib",
@@ -223,7 +220,6 @@ jvm_library(
         "//platform/forms_rt:java-guiForms-rt",
         "//platform/forms_rt:java-guiForms-rt_test_lib",
         "//libraries/kotlinx/collections-immutable:libraries-kotlinx-collections-immutable_test_lib",
-        "//platform/remote-topics/shared:rpc-topics",
         "//platform/remote-topics/shared:rpc-topics_test_lib",
         "//platform/project/shared:project",
         "//platform/project/shared:project_test_lib",
@@ -241,7 +237,6 @@ exports_files(
         "resources/liveTemplates/html_xml.xml",
         "resources/liveTemplates/zen_html.xml",
         "resources/liveTemplates/zen_xsl.xml",
-        "module-content.yaml",
     ],
     visibility = ["//visibility:public"],
 )

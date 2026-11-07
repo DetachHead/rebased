@@ -1,6 +1,7 @@
 // Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.ide.scratch;
 
+import com.intellij.codeInsight.multiverse.EditorContextManager;
 import com.intellij.icons.AllIcons;
 import com.intellij.ide.actions.NewActionGroup;
 import com.intellij.ide.actions.NewFileActionWithCategory;
@@ -54,7 +55,7 @@ import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.util.text.NaturalComparator;
 import com.intellij.openapi.util.text.StringUtil;
-import com.intellij.openapi.vfs.LocalFileSystem;
+import com.intellij.openapi.vfs.StandardFileSystems;
 import com.intellij.openapi.vfs.VfsUtil;
 import com.intellij.openapi.vfs.VfsUtilCore;
 import com.intellij.openapi.vfs.VirtualFile;
@@ -62,7 +63,6 @@ import com.intellij.openapi.vfs.VirtualFileVisitor;
 import com.intellij.openapi.wm.ex.ProjectFrameCapabilitiesService;
 import com.intellij.openapi.wm.ex.ProjectFrameCapability;
 import com.intellij.pom.Navigatable;
-import com.intellij.psi.PsiDocumentManager;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiErrorElement;
 import com.intellij.psi.PsiFile;
@@ -129,12 +129,19 @@ public final class ScratchFileActions {
       String place = e.getPlace();
       Editor editor = e.getData(CommonDataKeys.EDITOR);
 
+      boolean isWelcomeProject = project != null &&
+                                 ProjectFrameCapabilitiesService.Companion.getInstanceSync()
+                                   .has(project, ProjectFrameCapability.WELCOME_EXPERIENCE);
       boolean enabled = project != null && (
         e.isFromActionToolbar() ||
-        ProjectFrameCapabilitiesService.Companion.getInstanceSync().has(project, ProjectFrameCapability.WELCOME_EXPERIENCE) ||
+        isWelcomeProject ||
         ActionPlaces.isMainMenuOrActionSearch(place) ||
         ActionPlaces.EDITOR_POPUP.equals(place) && hasSelection(editor) ||
         e.isFromContextMenu() && e.getData(LangDataKeys.IDE_VIEW) != null);
+
+      if (enabled && isWelcomeProject && ("popup@WeighingNewGroup".equals(place) || ActionPlaces.KEYBOARD_SHORTCUT.equals(place))) {
+        enabled = false;
+      }
 
       e.getPresentation().setEnabledAndVisible(enabled);
       updatePresentationTextAndIcon(e, e.getPresentation());
@@ -263,7 +270,7 @@ public final class ScratchFileActions {
     Editor editor = e.getData(CommonDataKeys.EDITOR);
     if (file == null && editor != null) {
       // see data provider in com.intellij.diff.tools.holders.TextEditorHolder
-      file = PsiDocumentManager.getInstance(project).getPsiFile(editor.getDocument());
+      file = EditorContextManager.getPsiFileForEditor(editor, project);
     }
     return createContext(project, file, editor, e.getDataContext());
   }
@@ -299,7 +306,7 @@ public final class ScratchFileActions {
         context.fileExtension = ScratchImplUtil.getFileTypeExtensions(fileType, true, FileTypeManager.getInstance()).first();
       }
     }
-    if (context.language != null) {
+    if (context.language != null && context.prepareText) {
       ScratchFileCreationHelper helper = ScratchFileCreationHelper.EXTENSION.forLanguage(context.language);
       if (StringUtil.isEmpty(context.text)) {
         helper.prepareText(project, context, dataContext);
@@ -522,7 +529,7 @@ public final class ScratchFileActions {
 
     private static @NotNull List<IdeDocumentHistoryImpl.PlaceInfo> getPlaces(@NotNull Project project, boolean changed) {
       String path = ScratchFileService.getInstance().getRootPath(ScratchRootType.getInstance());
-      VirtualFile rootDir = LocalFileSystem.getInstance().findFileByPath(path);
+      VirtualFile rootDir = StandardFileSystems.local().findFileByPath(path);
       if (rootDir == null || !rootDir.exists() || !rootDir.isDirectory()) return Collections.emptyList();
       Condition<? super VirtualFile> condition;
       if (!changed) {

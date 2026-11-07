@@ -17,6 +17,10 @@ jps_test(
 )
 ### skip generation section `test intellij.java.ui.tests`
 
+### auto-generated section `dev intellij.java.ui` start
+content_module_jar(module = ":ui")
+### auto-generated section `dev intellij.java.ui` end
+
 ### auto-generated section `build intellij.java.ui` start
 jvm_library(
     name = "ui",
@@ -34,6 +38,7 @@ jvm_library(
     resource_strip_prefix = "resources",
     resources = glob(
         ["resources/**/*"],
+        exclude = ["resources/**/icon-robots.txt"],
     ),
     visibility = ["//visibility:public"],
     deps = [
@@ -59,12 +64,12 @@ jvm_library(
         "//platform/projectModel-api:projectModel",
         "//platform/refactoring",
         "//platform/util/diff",
+        "//platform/util-ex",
         "//platform/util/progress",
         "//aether-dependency-resolver",
         "//platform/observable",
         "//platform/diff-api:diff",
         "//libraries/guava",
-        "//libraries/jna",
         "//platform/external-system-api:externalSystem",
         "//platform/external-system-impl:externalSystem-impl",
         "//libraries/stream",
@@ -91,17 +96,16 @@ jvm_library(
         "@lib//:slf4j-api",
         "//xml/xml-psi-api:psi",
         "//libraries/asm",
-        "//libraries/jackson/jackson",
-        "//libraries/jackson/databind",
+        "//libraries/jackson3/jackson:libraries-jackson3",
+        "//libraries/jackson3/databind",
         "//platform/forms_rt:java-guiForms-rt",
         "//java/java-frontback-psi-api:frontback-psi",
         "//libraries/kotlinx/collections-immutable:libraries-kotlinx-collections-immutable",
         "//jps/jps-builders:build",
         "//platform/lang-api:lang",
+        "//platform/execution-impl",
     ],
 )
-
-content_module_jar(module = ":ui")
 
 jvm_library(
     name = "ui_test_lib",
@@ -136,12 +140,12 @@ jvm_library(
         "//platform/projectModel-api:projectModel_test_lib",
         "//platform/refactoring:refactoring_test_lib",
         "//platform/util/diff:diff_test_lib",
+        "//platform/util-ex:util-ex_test_lib",
         "//platform/util/progress:progress_test_lib",
         "//aether-dependency-resolver:aether-dependency-resolver_test_lib",
         "//platform/observable:observable_test_lib",
         "//platform/diff-api:diff_test_lib",
         "//libraries/guava:guava_test_lib",
-        "//libraries/jna:jna_test_lib",
         "//platform/external-system-api:externalSystem_test_lib",
         "//platform/external-system-impl:externalSystem-impl_test_lib",
         "//libraries/stream:stream_test_lib",
@@ -167,13 +171,14 @@ jvm_library(
         "//java/java-syntax:syntax_test_lib",
         "//xml/xml-psi-api:psi_test_lib",
         "//libraries/asm:asm_test_lib",
-        "//libraries/jackson/jackson:jackson_test_lib",
-        "//libraries/jackson/databind:databind_test_lib",
+        "//libraries/jackson3/jackson:libraries-jackson3_test_lib",
+        "//libraries/jackson3/databind:databind_test_lib",
         "//platform/forms_rt:java-guiForms-rt_test_lib",
         "//java/java-frontback-psi-api:frontback-psi_test_lib",
         "//libraries/kotlinx/collections-immutable:libraries-kotlinx-collections-immutable_test_lib",
         "//jps/jps-builders:build_test_lib",
         "//platform/lang-api:lang_test_lib",
+        "//platform/execution-impl:execution-impl_test_lib",
     ],
 )
 ### auto-generated section `build intellij.java.ui` end
@@ -205,7 +210,7 @@ jvm_library(
         "//platform/structure-view-impl/plugin",
         "//platform/todo/plugin",
         "//platform/ide-core-impl",
-        "@lib//:kotlin-test",
+        "//libraries/kotlin/test:libraries-kotlinTest",
         "//platform/forms_rt:java-guiForms-rt",
     ],
 )
@@ -293,14 +298,20 @@ jvm_library(
         "//platform/backend/workspace:workspace_test_lib",
         "//platform/testFramework/junit5",
         "//platform/testFramework/junit5:junit5_test_lib",
-        "@lib//:kotlin-test",
+        "//libraries/kotlin/test:libraries-kotlinTest",
+        "//libraries/kotlin/test:libraries-kotlinTest_test_lib",
         "//platform/util",
         "//platform/util:util_test_lib",
         "//platform/util:util-ui",
         "//platform/util:util-ui_test_lib",
         "//platform/util-ex",
         "//platform/util-ex:util-ex_test_lib",
-        "@lib//:ktor-server-cio",
+        "//libraries/ktor/server-cio:libraries-ktor-server-cio",
+        "//libraries/ktor/server-cio:libraries-ktor-server-cio_test_lib",
+        "//libraries/ktor/client",
+        "//libraries/ktor/client:client_test_lib",
+        "//libraries/ktor/network-tls:libraries-ktor-network-tls",
+        "//libraries/ktor/network-tls:libraries-ktor-network-tls_test_lib",
         "//platform/testFramework/junit5/eel",
         "//platform/testFramework/junit5/eel:eel_test_lib",
         "//platform/eel-provider",
@@ -321,12 +332,10 @@ jvm_library(
         "//java/java-frontback-psi-api:frontback-psi_test_lib",
         "//libraries/junit4",
         "//libraries/junit4:junit4_test_lib",
-        "//libraries/junit5",
-        "//libraries/junit5:junit5_test_lib",
-        "//libraries/junit5-params",
-        "//libraries/junit5-params:junit5-params_test_lib",
-        "//libraries/misc/plugin",
-        "//libraries/misc/plugin:plugin_test_lib",
+        "//libraries/junit6",
+        "//libraries/junit6:junit6_test_lib",
+        "//libraries/junit6-params",
+        "//libraries/junit6-params:junit6-params_test_lib",
         "//libraries/lucene.common",
         "//libraries/lucene.common:lucene.common_test_lib",
         "//spellchecker/xml",

@@ -1,6 +1,6 @@
 # Module In Multiple Plugins Validation
 
-Entry point: `collectModulesInMultiplePlugins` in `platform/buildScripts/src/productLayout/ultimateGenerator.kt`.
+Entry point: `collectModulesInMultiplePlugins` in `platform/buildScripts/plugin-model/src/ultimateGenerator.kt`.
 This rule is no `PipelineNode`, so it has no `NodeId`.
 
 ## Overview
@@ -66,7 +66,7 @@ copy of `ModuleIncludeReasons`, which is internal to the `intellij.platform.buil
 ## Suppression and allowlists
 
 `ErrorCategory.MODULE_IN_MULTIPLE_PLUGINS` carries no `suppressionKey`. The allowlist is the whole suppression
-mechanism, and `KNOWN_MODULES_IN_MULTIPLE_PLUGINS` in `platform/buildScripts/src/productLayout/ultimateGenerator.kt`
+mechanism, and `KNOWN_MODULES_IN_MULTIPLE_PLUGINS` in `platform/buildScripts/plugin-model/src/ultimateGenerator.kt`
 holds it, beside the rule.
 
 The allowlist does not live in `platform/buildScripts/suppressions.json`, for three reasons.
@@ -88,7 +88,7 @@ The allowlist holds two groups, and the group of a name says which guard first s
 - `intellij.javaee.jax.ws.rt`, packed by `intellij.javaee.jax.rs` and `intellij.javaee.jax.ws`
 - `intellij.marketplace.statisticsCompat`, packed by `intellij.kmm.plugin` and `intellij.marketplace`
 - `intellij.libraries.kotlinc.kotlin.compiler.common`, packed by `intellij.kotlin.jsr223.plugin`,
-  `intellij.kotlin.plugin` and `kotlin.frontend.split`
+  `intellij.kotlin.plugin`
 
 ### The names outside the earlier guard's reach
 
@@ -103,10 +103,6 @@ entry, so an entry drains as the deprecation proceeds. The issue closes when the
 `intellij.appcode.swift`, `intellij.appcode.swiftDebugger`, `intellij.cidr.cocoa`, `intellij.cidr.cocoaCommon`,
 `intellij.cidr.cocoaDevices`, `intellij.cidr.cocoaDevices.debugging`, `intellij.cidr.plist`, `intellij.cidr.strings`,
 `intellij.cidr.xcodeModel.core`, `intellij.cidr.xctest`, `intellij.swbuild` and `intellij.swift.packageManager`.
-
-`kotlin.frontend.split` packs `intellij.kotlin.base.codeInsight.minimal` and `intellij.kotlin.highlighting.minimal`,
-which `intellij.kotlin.plugin` packs too. The frontend plugin and the backend plugin never share one classloader, so
-this pair is a distribution cost alone.
 
 `intellij.python.wsl` names a Windows-only plugin and a module of `intellij.python.plugin`, and each plugin packs the
 module.

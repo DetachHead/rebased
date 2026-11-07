@@ -3,7 +3,7 @@ package org.jetbrains.idea.dev.kotlin.internal
 
 import com.intellij.codeInspection.ProblemsHolder
 import com.intellij.dev.codeInsight.internal.GoodCodeRedVisitor
-import com.intellij.openapi.diagnostic.rethrowControlFlowException
+import com.intellij.diagnostic.rethrowControlFlowException
 import com.intellij.psi.PsiElementVisitor
 import com.intellij.psi.PsiFile
 import org.jetbrains.kotlin.analysis.api.components.KaDiagnosticCheckerFilter

@@ -15,6 +15,7 @@ import com.intellij.openapi.project.DumbService
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.project.waitForSmartMode
+import com.intellij.platform.backend.observation.Observation
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.awaitCancellation
@@ -56,6 +57,7 @@ private val DEFAULT_ALLOWED_TOOLS: Set<String> = setOf(
 
 private const val PROJECT_INIT_TIMEOUT_SECONDS_PROPERTY = "idea.mcp.server.project.init.timeout.seconds"
 private const val SMART_MODE_TIMEOUT_SECONDS_PROPERTY = "idea.mcp.server.smart.mode.timeout.seconds"
+private const val PROJECT_CONFIGURATION_TIMEOUT_SECONDS_PROPERTY = "idea.mcp.server.project.configuration.timeout.seconds"
 
 internal class McpServerHeadlessStarter : ModernApplicationStarter() {
   override val isHeadless: Boolean = true
@@ -75,7 +77,11 @@ internal class McpServerHeadlessStarter : ModernApplicationStarter() {
 
     val projectInitTimeout = timeoutFromProperty(PROJECT_INIT_TIMEOUT_SECONDS_PROPERTY, 10.minutes)
     val smartModeTimeout = timeoutFromProperty(SMART_MODE_TIMEOUT_SECONDS_PROPERTY, 30.minutes)
-    System.err.println("MCP headless startup timeouts: projectInitialization=$projectInitTimeout, smartMode=$smartModeTimeout")
+    val projectConfigurationTimeout = timeoutFromProperty(PROJECT_CONFIGURATION_TIMEOUT_SECONDS_PROPERTY, 30.minutes)
+    System.err.println(
+      "MCP headless startup timeouts: projectInitialization=$projectInitTimeout, smartMode=$smartModeTimeout, " +
+      "projectConfiguration=$projectConfigurationTimeout"
+    )
 
     val invocationMode = parseInvocationMode(actualArgs) ?: McpSessionInvocationMode.VIA_ROUTER
     McpToolFilterSettings.getInstance().invocationMode = invocationMode
@@ -111,7 +117,8 @@ internal class McpServerHeadlessStarter : ModernApplicationStarter() {
     }
 
     waitForSmartMode(projects, smartModeTimeout)
-    System.err.println("Projects are smart, starting MCP server after ${formatElapsed(startedAt)}...")
+    waitForProjectConfiguration(projects, projectConfigurationTimeout)
+    System.err.println("Projects are configured, starting MCP server after ${formatElapsed(startedAt)}...")
 
     try {
       McpServerService.getInstance().start()
@@ -256,6 +263,30 @@ internal class McpServerHeadlessStarter : ModernApplicationStarter() {
       System.err.println("Error: timed out after $timeout waiting for smart mode.")
       projects.forEach { project ->
         System.err.println("Project smart mode state after timeout: ${describeProjectState(project)}")
+      }
+      throw e
+    }
+  }
+
+  private suspend fun waitForProjectConfiguration(projects: List<Project>, timeout: Duration) {
+    val waitStartedAt = System.currentTimeMillis()
+    try {
+      withTimeout(timeout) {
+        projects.forEach { project ->
+          System.err.println("Waiting for project configuration: ${describeProjectState(project)}")
+          Observation.awaitConfiguration(project) { message ->
+            System.err.println("Project configuration of ${project.name}: $message")
+          }
+          System.err.println(
+            "Project configuration finished for ${project.name} in ${formatElapsed(waitStartedAt)}: ${describeProjectState(project)}"
+          )
+        }
+      }
+    }
+    catch (e: TimeoutCancellationException) {
+      System.err.println("Error: timed out after $timeout waiting for project configuration.")
+      projects.forEach { project ->
+        System.err.println("Project state after project configuration timeout: ${describeProjectState(project)}")
       }
       throw e
     }

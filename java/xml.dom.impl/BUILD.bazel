@@ -1,6 +1,10 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
 load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
+### auto-generated section `dev intellij.java.xml.dom.impl` start
+content_module_jar(module = ":xml.dom.impl")
+### auto-generated section `dev intellij.java.xml.dom.impl` end
+
 ### auto-generated section `build intellij.java.xml.dom.impl` start
 jvm_library(
     name = "xml.dom.impl",
@@ -41,14 +45,11 @@ jvm_library(
         "//java/java-indexing-api:indexing",
         "//java/java-indexing-impl:indexing-impl",
         "//java/java-psi-api:psi",
-        "//java/jsp-spi",
         "//xml/impl",
         "//xml/dom-impl",
         "//xml/xml-psi-api:psi",
     ],
 )
-
-content_module_jar(module = ":xml.dom.impl")
 
 jvm_library(
     name = "xml.dom.impl_test_lib",
@@ -83,7 +84,6 @@ jvm_library(
         "//java/java-indexing-api:indexing_test_lib",
         "//java/java-indexing-impl:indexing-impl_test_lib",
         "//java/java-psi-api:psi_test_lib",
-        "//java/jsp-spi:jsp-spi_test_lib",
         "//xml/impl:impl_test_lib",
         "//xml/dom-impl:dom-impl_test_lib",
         "//xml/xml-psi-api:psi_test_lib",
@@ -95,6 +95,7 @@ jvm_library(
 exports_files(
     [
         "intellij.java.xml.dom.impl.iml",
+        "resources/intellij.java.xml.dom.impl.analyzer.xml",
         "resources/intellij.java.xml.dom.impl.xml",
     ],
     visibility = ["//visibility:public"],

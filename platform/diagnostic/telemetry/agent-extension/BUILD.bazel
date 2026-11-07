@@ -1,6 +1,5 @@
 load("@community//build:tests-options.bzl", "jps_test")
 load("@rules_jvm//:jvm.bzl", "jvm_library", "jvm_provided_library")
-load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 jps_test(
     name = "diagnostic-telemetry-agent-extension-tests_test",
@@ -45,8 +44,6 @@ jvm_library(
     ],
 )
 
-content_module_jar(module = ":diagnostic-telemetry-agent-extension")
-
 jvm_library(
     name = "diagnostic-telemetry-agent-extension_test_lib",
     testonly = True,
@@ -62,14 +59,11 @@ jvm_library(
         ":diagnostic-telemetry-agent-extension",
         "//libraries/opentelemetry:opentelemetry_test_lib",
         "//libraries/jetbrains/annotations:annotations_test_lib",
-        "//libraries/junit5",
-        "//libraries/junit5:junit5_test_lib",
         "//libraries/opentelemetry-exporter-otlp-common:opentelemetry-exporter-otlp-common_test_lib",
         "//libraries/jackson3/jackson:libraries-jackson3_test_lib",
         "//libraries/opentelemetry-sdk-autoconfigure-spi",
         "//libraries/opentelemetry-sdk-autoconfigure-spi:opentelemetry-sdk-autoconfigure-spi_test_lib",
         "//libraries/jackson3/databind:databind_test_lib",
-        "@lib//:kotlin-stdlib",
     ],
 )
 ### auto-generated section `build intellij.platform.diagnostic.telemetry.agent.extension` end
@@ -79,7 +73,6 @@ exports_files(
     [
         "intellij.platform.diagnostic.telemetry.agent.extension.iml",
         "resources/intellij.platform.diagnostic.telemetry.agent.extension.xml",
-        "module-content.yaml",
     ],
     visibility = ["//visibility:public"],
 )
@@ -119,8 +112,8 @@ jvm_library(
         "//libraries/opentelemetry:opentelemetry_test_lib",
         "//libraries/jetbrains/annotations",
         "//libraries/jetbrains/annotations:annotations_test_lib",
-        "//libraries/junit5",
-        "//libraries/junit5:junit5_test_lib",
+        "//libraries/junit6",
+        "//libraries/junit6:junit6_test_lib",
         "//libraries/opentelemetry-exporter-otlp-common",
         "//libraries/opentelemetry-exporter-otlp-common:opentelemetry-exporter-otlp-common_test_lib",
         "//libraries/jackson3/jackson:libraries-jackson3",

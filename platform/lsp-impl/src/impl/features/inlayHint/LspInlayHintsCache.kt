@@ -7,6 +7,7 @@ import com.intellij.platform.lsp.impl.aggregateToPullResult
 import com.intellij.platform.lsp.impl.features.inlayCommon.LspInlayApplier
 import com.intellij.platform.lsp.impl.features.highlightingCommon.LspHighlightingCache
 import com.intellij.platform.lsp.impl.features.highlightingCommon.LspPullResult
+import com.intellij.platform.lsp.impl.supportsInlayHints
 import org.eclipse.lsp4j.InlayHint
 import org.eclipse.lsp4j.InlayHintParams
 import org.eclipse.lsp4j.Range

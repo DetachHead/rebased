@@ -5,11 +5,12 @@ import com.intellij.database.vfs.fragment.CsvTableDataFragmentFile;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.fileEditor.FileDocumentManager;
-import com.intellij.openapi.fileEditor.impl.FileEditorManagerImpl;
+import com.intellij.openapi.fileEditor.FileEditorManagerKeys;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.util.Function;
+import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -20,7 +21,7 @@ import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 
-public class GridDataHookUpManager {
+public class GridDataHookUpManager implements Disposable {
   private final Project myProject;
   private final Set<HookUpReference> myHookUps;
   private final Object myLock;
@@ -61,10 +62,19 @@ public class GridDataHookUpManager {
   }
 
   public @Nullable GridDataHookUp<GridRow, GridColumn> acquire(@NotNull GridDataHookUpManager.HookUpHandle handle, @NotNull Disposable parent) {
+    return acquire(handle, null, parent);
+  }
+
+  public @Nullable GridDataHookUp<GridRow, GridColumn> acquire(@NotNull GridDataHookUpManager.HookUpHandle handle,
+                                                               @Nullable VirtualFile editorFile,
+                                                               @NotNull Disposable parent) {
     synchronized (myLock) {
-      if (handle.myRef == null || handle.myRef.myReferenceCount <= 0) return null;
-      Disposer.register(parent, createHookUpReferenceDisposable(handle.myRef));
-      return handle.myRef.myHookUp;
+      HookUpReference ref = handle.myRef;
+      if (ref == null) return null;
+      if (ref.myReferenceCount <= 0 && (editorFile == null || !ref.myParked)) return null;
+      ref.myParked = false;
+      Disposer.register(parent, createHookUpReferenceDisposable(ref, editorFile));
+      return ref.myHookUp;
     }
   }
 
@@ -80,8 +90,9 @@ public class GridDataHookUpManager {
     }
   }
 
-  private Disposable createHookUpReferenceDisposable(final @NotNull HookUpReference ref) {
-    if (!isClosingToReopen(ref)) {
+  private Disposable createHookUpReferenceDisposable(final @NotNull HookUpReference ref, final @Nullable VirtualFile editorFile) {
+    boolean parkable = ref.isReusable() || editorFile != null;
+    if (parkable || !isClosingToReopen(ref, editorFile)) {
       ref.myReferenceCount++;
     }
     return new Disposable() {
@@ -90,10 +101,14 @@ public class GridDataHookUpManager {
       @Override
       public void dispose() {
         if (!myDisposed.compareAndSet(false, true)) return;
-        if (isClosingToReopen(ref)) return;
+        if (!parkable && isClosingToReopen(ref, editorFile)) return;
 
         synchronized (myLock) {
-          if (--ref.myReferenceCount <= 0) {
+          if (--ref.myReferenceCount > 0) return;
+          if (parkable && isClosingToReopen(ref, editorFile)) {
+            ref.myParked = true;
+          }
+          else {
             Disposer.dispose(ref);
             myHookUps.remove(ref);
           }
@@ -102,9 +117,19 @@ public class GridDataHookUpManager {
     };
   }
 
-  private static boolean isClosingToReopen(@NotNull HookUpReference ref) {
-    VirtualFile file = GridUtil.getVirtualFile(ref.myHookUp);
-    return file != null && file.getUserData(FileEditorManagerImpl.CLOSING_TO_REOPEN) == Boolean.TRUE;
+  private static boolean isClosingToReopen(@NotNull HookUpReference ref, @Nullable VirtualFile editorFile) {
+    VirtualFile file = editorFile != null ? editorFile : GridUtil.getVirtualFile(ref.myHookUp);
+    return file != null && file.getUserData(FileEditorManagerKeys.CLOSING_TO_REOPEN) == Boolean.TRUE;
+  }
+
+  @Override
+  public void dispose() {
+    List<HookUpReference> parked;
+    synchronized (myLock) {
+      parked = ContainerUtil.filter(myHookUps, ref -> ref.myParked);
+      parked.forEach(myHookUps::remove);
+    }
+    parked.forEach(Disposer::dispose);
   }
 
   public <F extends VirtualFile, H extends GridDataHookUp<GridRow, GridColumn>> H getOrCreateHookUp(final @NotNull F file,
@@ -112,32 +137,58 @@ public class GridDataHookUpManager {
                                                                                                     @NotNull Disposable parent) {
     synchronized (myLock) {
       H hookUp = hookUpFactory.fun(file);
-      HookUpReference ref = new HookUpReference(hookUp);
+      HookUpReference ref = new HookUpReference(hookUp, null);
       myHookUps.add(ref);
-      Disposer.register(parent, createHookUpReferenceDisposable(ref));
+      Disposer.register(parent, createHookUpReferenceDisposable(ref, null));
       //noinspection unchecked
       return (H)ref.myHookUp;
     }
   }
 
+  public <F extends VirtualFile, H extends GridDataHookUp<GridRow, GridColumn>> H getOrReuseHookUp(final @NotNull F file,
+                                                                                                   @NotNull Class<H> hookUpClass,
+                                                                                                   @NotNull Function<F, H> hookUpFactory,
+                                                                                                   @NotNull Disposable parent) {
+    synchronized (myLock) {
+      HookUpReference ref = ContainerUtil.find(myHookUps, r -> r.myParked && r.myReuseClass == hookUpClass &&
+                                                               file.equals(GridUtil.getVirtualFile(r.myHookUp)));
+      if (ref != null) {
+        ref.myParked = false;
+      }
+      else {
+        ref = new HookUpReference(hookUpFactory.fun(file), hookUpClass);
+        myHookUps.add(ref);
+      }
+      Disposer.register(parent, createHookUpReferenceDisposable(ref, null));
+      return hookUpClass.cast(ref.myHookUp);
+    }
+  }
+
   public <T extends GridDataHookUp<GridRow, GridColumn>> T registerHookUp(T hookUp, @NotNull Disposable parent) {
     synchronized (myLock) {
-      HookUpReference ref = new HookUpReference(hookUp);
+      HookUpReference ref = new HookUpReference(hookUp, null);
       myHookUps.add(ref);
-      Disposer.register(parent, createHookUpReferenceDisposable(ref));
+      Disposer.register(parent, createHookUpReferenceDisposable(ref, null));
       return hookUp;
     }
   }
 
   private static class HookUpReference implements Disposable {
     private final GridDataHookUp<GridRow, GridColumn> myHookUp;
+    private final @Nullable Class<?> myReuseClass;
     private int myReferenceCount = 0;
+    private boolean myParked;
 
-    private HookUpReference(GridDataHookUp<GridRow, GridColumn> hookUp) {
+    private HookUpReference(GridDataHookUp<GridRow, GridColumn> hookUp, @Nullable Class<?> reuseClass) {
       myHookUp = hookUp;
+      myReuseClass = reuseClass;
       if (myHookUp instanceof Disposable) {
         Disposer.register(this, (Disposable)myHookUp);
       }
+    }
+
+    private boolean isReusable() {
+      return myReuseClass != null;
     }
 
     @Override

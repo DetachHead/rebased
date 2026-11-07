@@ -92,6 +92,7 @@ import org.jetbrains.jps.model.serialization.java.JpsJavaModelSerializerExtensio
 import org.jetbrains.jps.model.serialization.java.JpsJavaModelSerializerExtension.JAVA_RESOURCE_ROOT_ID
 import org.jetbrains.jps.model.serialization.java.JpsJavaModelSerializerExtension.JAVA_TEST_RESOURCE_ROOT_ID
 import org.jetbrains.jps.model.serialization.java.JpsJavaModelSerializerExtension.MODULE_LANGUAGE_LEVEL_ATTRIBUTE
+import org.jetbrains.jps.model.serialization.java.JpsJavaModelSerializerExtension.PACKAGE_MATCHES_DIRECTORY_ATTRIBUTE
 import org.jetbrains.jps.model.serialization.java.JpsJavaModelSerializerExtension.PRODUCTION_MODULE_NAME_ATTRIBUTE
 import org.jetbrains.jps.model.serialization.java.JpsJavaModelSerializerExtension.RELATIVE_OUTPUT_PATH_ATTRIBUTE
 import org.jetbrains.jps.model.serialization.java.JpsJavaModelSerializerExtension.SCOPE_ATTRIBUTE
@@ -134,9 +135,10 @@ private const val MODULE_ROOT_MANAGER_COMPONENT_NAME = "NewModuleRootManager"
 private const val ADDITIONAL_MODULE_ELEMENTS_COMPONENT_NAME = "AdditionalModuleElements"
 internal const val URL_ATTRIBUTE = "url"
 internal const val DUMB_ATTRIBUTE = "dumb"
-private val STANDARD_MODULE_OPTIONS = setOf(
+internal val STANDARD_MODULE_OPTIONS = setOf(
   "type", "external.system.id", "external.system.module.version", "external.linked.project.path", "external.linked.project.id",
-  "external.root.project.path", "external.system.module.group", "external.system.module.type"
+  "external.root.project.path", "external.system.module.group", "external.system.module.type",
+  SerializationConstants.IS_MAVEN_MODULE_IML_ATTRIBUTE
 )
 private val MODULE_OPTIONS_TO_CHECK = setOf(
   "external.system.module.version", "external.linked.project.path", "external.linked.project.id",
@@ -677,7 +679,7 @@ internal open class ModuleImlFileEntitiesSerializer(internal val modulePath: Mod
       val isDumb = contentElement.getAttributeValue(DUMB_ATTRIBUTE).toBoolean()
       val contentRoot = alreadyLoadedContentRoots[contentRootUrlString]
       if (contentRoot == null) {
-        val contentRootUrl = contentRootUrlString.let { virtualFileManager.getOrCreateFromUrl(it) }
+        val contentRootUrl = contentRootUrlString.let { virtualFileManager.storeAndGet(it) }
         val excludePatterns = contentElement.getChildren(EXCLUDE_PATTERN_TAG).map { it.getAttributeValue(EXCLUDE_PATTERN_ATTRIBUTE) }
         val source = if (isDumb) OrphanageWorkerEntitySource else contentRootEntitySource
         ContentRootEntity(contentRootUrl, excludePatterns, source) {
@@ -726,7 +728,7 @@ internal open class ModuleImlFileEntitiesSerializer(internal val modulePath: Mod
   ): List<ExcludeUrlEntityBuilder> {
     return contentElement
       .getChildren(EXCLUDE_FOLDER_TAG)
-      .map { virtualFileManager.getOrCreateFromUrl(it.getAttributeValueStrict(URL_ATTRIBUTE)) }
+      .map { virtualFileManager.storeAndGet(it.getAttributeValueStrict(URL_ATTRIBUTE)) }
       .map { exclude ->
         ExcludeUrlEntity(exclude, entitySource)
       }
@@ -744,7 +746,7 @@ internal open class ModuleImlFileEntitiesSerializer(internal val modulePath: Mod
                  ?: (if (isTestSource) JAVA_TEST_ROOT_TYPE_ID else JAVA_SOURCE_ROOT_TYPE_ID)
 
       val sourceRoot = SourceRootEntity(
-        url = virtualFileManager.getOrCreateFromUrl(sourceRootElement.getAttributeValueStrict(URL_ATTRIBUTE)),
+        url = virtualFileManager.storeAndGet(sourceRootElement.getAttributeValueStrict(URL_ATTRIBUTE)),
         rootTypeId = sourceRootTypes[type]!!,
         entitySource = sourceRootSource
       )
@@ -753,8 +755,10 @@ internal open class ModuleImlFileEntitiesSerializer(internal val modulePath: Mod
       if (type == JAVA_SOURCE_ROOT_TYPE_ID || type == JAVA_TEST_ROOT_TYPE_ID) {
         val generated = sourceRootElement.getAttributeValue(IS_GENERATED_ATTRIBUTE)?.toBoolean() ?: false
         val packagePrefix = sourceRootElement.getAttributeValue(PACKAGE_PREFIX_ATTRIBUTE) ?: ""
+        val packageMatchesDirectory = sourceRootElement.getAttributeValue(PACKAGE_MATCHES_DIRECTORY_ATTRIBUTE)?.toBoolean() ?: true
         JavaSourceRootPropertiesEntity(generated, packagePrefix, sourceRootSource) {
           this.sourceRoot = sourceRoot
+          this.packageMatchesDirectory = packageMatchesDirectory
         }
       }
       else if (type == JAVA_RESOURCE_ROOT_ID || type == JAVA_TEST_RESOURCE_ROOT_ID) {
@@ -1098,7 +1102,11 @@ internal open class ModuleImlFileEntitiesSerializer(internal val modulePath: Mod
     }
     optionsMap["type"] = moduleType
     if (customImlData != null) {
-      optionsMap.putAll(customImlData.customModuleOptions)
+      for ((key, value) in customImlData.customModuleOptions) {
+        if (key !in STANDARD_MODULE_OPTIONS) {
+          optionsMap[key] = value
+        }
+      }
     }
     val componentTag = JDomSerializationUtil.createComponentElement(DEPRECATED_MODULE_MANAGER_COMPONENT_NAME)
     for ((name, value) in optionsMap) {
@@ -1147,6 +1155,9 @@ internal open class ModuleImlFileEntitiesSerializer(internal val modulePath: Mod
       }
       if (javaRootProperties.generated) {
         sourceRootTag.setAttribute(IS_GENERATED_ATTRIBUTE, true.toString())
+      }
+      if (!javaRootProperties.packageMatchesDirectory) {
+        sourceRootTag.setAttribute(PACKAGE_MATCHES_DIRECTORY_ATTRIBUTE, false.toString())
       }
     }
 
@@ -1266,7 +1277,7 @@ internal open class ModuleListSerializerImpl(override val fileUrl: String,
   override fun loadFileList(reader: JpsFileContentReader, virtualFileManager: VirtualFileUrlManager): List<Pair<VirtualFileUrl, String?>> {
     val moduleManagerTag = reader.loadComponent(fileUrl, componentName) ?: return emptyList()
     return ModulePath.getPathsToModuleFiles(moduleManagerTag).map {
-      virtualFileManager.getOrCreateFromUrl("file://${it.path}") to it.group
+      virtualFileManager.storeAndGet("file://${it.path}") to it.group
     }
   }
 

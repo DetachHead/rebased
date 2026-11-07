@@ -1,8 +1,14 @@
 // Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.plugins.gradle.execution.test.producer
 
+import com.intellij.execution.Location
+import com.intellij.execution.PsiLocation
 import com.intellij.execution.actions.ConfigurationContext
 import com.intellij.execution.junit2.PsiMemberParameterizedLocation
+import com.intellij.openapi.actionSystem.ActionPlaces
+import com.intellij.openapi.actionSystem.CommonDataKeys
+import com.intellij.openapi.actionSystem.impl.SimpleDataContext
+import com.intellij.openapi.util.Key
 import com.intellij.openapi.util.Ref
 import com.intellij.psi.PsiClass
 import com.intellij.psi.PsiDirectory
@@ -171,6 +177,29 @@ class GradleTestRunConfigurationProducerTest : GradleTestRunConfigurationProduce
   }
 
   @Test
+  fun `test existing configuration lookup for a module-less directory context does not fail`() {
+    val projectData = generateAndImportTemplateProject()
+    runReadActionAndWait {
+      val directory = projectData["project"].root
+      // Reproduces IDEA-384446: producers such as the JS/Node test-run producers build a
+      // ConfigurationContext from a project and a directory location, but without a module in the
+      // data context (see JsTestsRunConfigurationProducerTest). The existing-configuration lookup
+      // must tolerate the missing module instead of throwing a NullPointerException.
+      val dataContext = SimpleDataContext.builder()
+        .add(CommonDataKeys.PROJECT, myProject)
+        .add(Location.DATA_KEY, PsiLocation.fromPsiElement<PsiElement>(directory))
+        .build()
+      val context = ConfigurationContext.getFromContext(dataContext, ActionPlaces.UNKNOWN)
+      assertNull("The reproduction requires a context without a module", context.module)
+      // The base producer is instantiated directly on purpose: the registry may return a Kotlin-MPP
+      // subclass that guards against a null module itself, which would hide the regression in the
+      // base producer named by the IDEA-384446 stack trace.
+      val producer = AllInDirectoryGradleConfigurationProducer()
+      assertNull(producer.findExistingConfiguration(context))
+    }
+  }
+
+  @Test
   fun `test producer choosing per run`() {
     currentExternalProjectSettings.isResolveModulePerSourceSet = false
     currentExternalProjectSettings.testRunner = TestRunner.CHOOSE_PER_TEST
@@ -227,6 +256,176 @@ class GradleTestRunConfigurationProducerTest : GradleTestRunConfigurationProduce
     assertGutterRunActionsSize(projectData["project"]["TestCase"]["test1"].element, 2)
     //assertGutterRunActionsSize(projectData["project"]["org.example.TestCaseWithMain"].element, 2)
     assertGutterRunActionsSize(projectData["project"]["org.example.TestCaseWithMain"]["test2"].element, 2)
+  }
+
+  @Test
+  fun `test configuration with one of multiple test tasks reuses edited configuration`() {
+    currentExternalProjectSettings.isResolveModulePerSourceSet = false
+    val projectData = generateAndImportTemplateProject()
+    val testClass = projectData["project"]["AutomationTestCase"].element
+    val existingTaskConfiguration = createAndAddRunConfiguration(""":automationTest --tests "AutomationTestCase"""")
+    existingTaskConfiguration.name = "Custom automation tests"
+    existingTaskConfiguration.settings.scriptParameters = "-Dfoo=bar"
+
+    runReadActionAndWait {
+      val context = getContextByLocation(testClass)
+      val producer = getConfigurationProducer<TestClassGradleConfigurationProducer>()
+      producer.setTestTasksChooser { it == "automationTest" }
+      assertNull(producer.findExistingConfiguration(context))
+
+      val configurationFromContext = getConfigurationFromContext(context)
+      val configuration = configurationFromContext.configuration as GradleRunConfiguration
+      assertNotSame(existingTaskConfiguration, configuration)
+      assertEquals("AutomationTestCase", configuration.name)
+      producer.onFirstRun(configurationFromContext, context) {}
+      assertSame(existingTaskConfiguration, configurationFromContext.configuration)
+      assertEquals("Custom automation tests", configurationFromContext.configuration.name)
+      assertEquals("-Dfoo=bar", existingTaskConfiguration.settings.scriptParameters)
+    }
+  }
+
+  @Test
+  fun `test configuration uses selected task first`() {
+    currentExternalProjectSettings.isResolveModulePerSourceSet = false
+    val projectData = generateAndImportTemplateProject()
+
+    runReadActionAndWait {
+      val nonDefaultContext = getContextByLocation(projectData["project"].root.subDirectory("automation"))
+      val nonDefaultConfiguration = getConfigurationFromContext(nonDefaultContext)
+      val producer = nonDefaultConfiguration.configurationProducer as AllInDirectoryGradleConfigurationProducer
+      assertEquals("Tests in 'project'", nonDefaultConfiguration.configuration.name)
+      producer.setTestTasksChooser { it == "automationTest" }
+      producer.onFirstRun(nonDefaultConfiguration, nonDefaultContext) {}
+      assertEquals("automationTest in [:]", nonDefaultConfiguration.configuration.name)
+
+      val testClass = projectData["project"]["AutomationTestCase"]
+      val classContext = getContextByLocation(testClass.element)
+      val classConfiguration = getConfigurationFromContext(classContext)
+      val classProducer = classConfiguration.configurationProducer as TestClassGradleConfigurationProducer
+      classProducer.setTestTasksChooser { it == "automationTest" }
+      classProducer.onFirstRun(classConfiguration, classContext) {}
+      assertEquals("automationTest for AutomationTestCase", classConfiguration.configuration.name)
+
+      val methodContext = getContextByLocation(testClass["test1"].element)
+      val methodConfiguration = getConfigurationFromContext(methodContext)
+      val methodProducer = methodConfiguration.configurationProducer as TestMethodGradleConfigurationProducer
+      methodProducer.setTestTasksChooser { it == "automationTest" }
+      methodProducer.onFirstRun(methodConfiguration, methodContext) {}
+      assertEquals("automationTest for AutomationTestCase.test1", methodConfiguration.configuration.name)
+
+      val patternContext = getContextByLocation(testClass["test1"].element, testClass["test2"].element)
+      val patternConfiguration = getConfigurationFromContext(patternContext)
+      val patternProducer = patternConfiguration.configurationProducer as PatternGradleConfigurationProducer
+      patternProducer.setTestTasksChooser { it == "automationTest" }
+      patternProducer.onFirstRun(patternConfiguration, patternContext) {}
+      assertEquals("automationTest for AutomationTestCase.test1 and 1 more", patternConfiguration.configuration.name)
+
+      val defaultContext = getContextByLocation(projectData["project"].root.subDirectory("src", "test"))
+      val defaultConfiguration = getConfigurationFromContext(defaultContext)
+      val defaultProducer = defaultConfiguration.configurationProducer as AllInDirectoryGradleConfigurationProducer
+      defaultProducer.setTestTasksChooser { it == "test" }
+      defaultProducer.onFirstRun(defaultConfiguration, defaultContext) {}
+      assertEquals("Tests in 'project'", defaultConfiguration.configuration.name)
+    }
+  }
+
+  @Test
+  fun `test pattern configuration reuses edited configuration after task selection`() {
+    currentExternalProjectSettings.isResolveModulePerSourceSet = false
+    val projectData = generateAndImportTemplateProject()
+    val testClass = projectData["project"]["AutomationTestCase"]
+    val existingTaskConfiguration = createAndAddRunConfiguration(
+      """:automationTest --tests "AutomationTestCase.test1" --tests "AutomationTestCase.test2""""
+    )
+    existingTaskConfiguration.name = "Custom automation tests"
+    existingTaskConfiguration.settings.scriptParameters = "-Dfoo=bar"
+
+    runReadActionAndWait {
+      val context = getContextByLocation(testClass["test1"].element, testClass["test2"].element)
+      val producer = getConfigurationProducer<PatternGradleConfigurationProducer>()
+      producer.setTestTasksChooser { it == "automationTest" }
+
+      val configurationFromContext = getConfigurationFromContext(context)
+      assertNotSame(existingTaskConfiguration, configurationFromContext.configuration)
+      producer.onFirstRun(configurationFromContext, context) {}
+
+      assertSame(existingTaskConfiguration, configurationFromContext.configuration)
+      assertEquals("Custom automation tests", configurationFromContext.configuration.name)
+      assertEquals("-Dfoo=bar", existingTaskConfiguration.settings.scriptParameters)
+    }
+  }
+
+  @Test
+  fun `test configuration with multiple selected test tasks does not reuse a partial configuration`() {
+    currentExternalProjectSettings.isResolveModulePerSourceSet = false
+    val projectData = generateAndImportTemplateProject()
+    val testClass = projectData["project"]["AutomationTestCase"].element
+    val partialConfiguration = createAndAddRunConfiguration(""":automationTest --tests "AutomationTestCase"""")
+
+    runReadActionAndWait {
+      val context = getContextByLocation(testClass)
+      val producer = getConfigurationProducer<TestClassGradleConfigurationProducer>()
+      producer.setTestTasksChooser { true }
+
+      val configurationFromContext = getConfigurationFromContext(context)
+      producer.onFirstRun(configurationFromContext, context) {}
+
+      assertNotSame(partialConfiguration, configurationFromContext.configuration)
+      val configuration = configurationFromContext.configuration as GradleRunConfiguration
+      assertContainsElements(configuration.settings.taskNames, ":autoTest", ":automationTest")
+      assertEquals("--continue", configuration.settings.scriptParameters)
+      assertEquals("autoTest and 1 more for AutomationTestCase", configuration.name)
+    }
+  }
+
+
+  @Test
+  fun `test existing configuration is not renamed by a producer that selects test tasks itself`() {
+    currentExternalProjectSettings.isResolveModulePerSourceSet = false
+    val projectData = generateAndImportTemplateProject()
+    val testClass = projectData["project"]["AutomationTestCase"].element
+    val existingConfiguration = createAndAddRunConfiguration(""":automationTest --tests "AutomationTestCase"""")
+    existingConfiguration.name = "Custom automation tests"
+
+    runReadActionAndWait {
+      val context = getContextByLocation(testClass)
+      val producer = SelfManagedTestTasksClassGradleConfigurationProducer()
+
+      // This is what the gutter and the Run action do on every update, without running anything.
+      val configurationFromContext = requireNotNull(producer.findOrCreateConfigurationFromContext(context))
+
+      assertSame(existingConfiguration, configurationFromContext.configuration)
+      assertEquals("Custom automation tests", existingConfiguration.name)
+    }
+  }
+
+  @Test
+  fun `test producer does not reuse a configuration it does not recognize`() {
+    currentExternalProjectSettings.isResolveModulePerSourceSet = false
+    val projectData = generateAndImportTemplateProject()
+    val testClass = projectData["project"]["TestCase"].element
+    // The same tasks and arguments the producer generates, but without the producer's own marker.
+    val foreignConfiguration = createAndAddRunConfiguration(""":test --tests "TestCase"""")
+
+    runReadActionAndWait {
+      val context = getContextByLocation(testClass)
+      val producer = MarkedTestClassGradleConfigurationProducer()
+      // A single test task, so nothing is deferred and the plain existing configuration lookup applies.
+      // It rejects the foreign configuration, because the producer does not recognize it.
+      assertNull(producer.findExistingConfiguration(context))
+
+      val configurationFromContext = requireNotNull(producer.createConfigurationFromContext(context))
+      val createdConfiguration = configurationFromContext.configuration as GradleRunConfiguration
+      assertTrue(createdConfiguration.getUserData<Boolean>(MarkedTestClassGradleConfigurationProducer.MARKER) == true)
+
+      producer.onFirstRun(configurationFromContext, context) {}
+
+      // Matching task tokens alone must not be enough to substitute the foreign configuration,
+      // otherwise the run silently loses the producer's own configuration data.
+      assertNotSame(foreignConfiguration, configurationFromContext.configuration)
+      val runConfiguration = configurationFromContext.configuration as GradleRunConfiguration
+      assertTrue(runConfiguration.getUserData<Boolean>(MarkedTestClassGradleConfigurationProducer.MARKER) == true)
+    }
   }
 
   @Test
@@ -459,6 +658,43 @@ class GradleTestRunConfigurationProducerTest : GradleTestRunConfigurationProduce
 
       assertFalse(classConfigProducer.isConfigurationFromContext(classConfiguration, methodContext))
       assertFalse(methodConfigProducer.isConfigurationFromContext(methodConfiguration, classContext))
+    }
+  }
+
+
+  /**
+   * Mimics the Kotlin multiplatform producers, which run their own test task chooser in [onFirstRun]
+   * and therefore keep the base existing-configuration lookup enabled.
+   */
+  private class SelfManagedTestTasksClassGradleConfigurationProducer : TestClassGradleConfigurationProducer() {
+    override fun usesBaseTestTasksChooser(): Boolean = false
+  }
+
+  /**
+   * Mimics the Android screenshot test producers, whose configurations are identified by their own
+   * transient data rather than by the task tokens alone.
+   */
+  private class MarkedTestClassGradleConfigurationProducer : TestClassGradleConfigurationProducer() {
+
+    override fun doSetupConfigurationFromContext(
+      configuration: GradleRunConfiguration,
+      context: ConfigurationContext,
+      sourceElement: Ref<PsiElement>,
+    ): Boolean {
+      val configured = super.doSetupConfigurationFromContext(configuration, context, sourceElement)
+      if (configured) {
+        configuration.putUserData<Boolean>(MARKER, true)
+      }
+      return configured
+    }
+
+    override fun doIsConfigurationFromContext(
+      configuration: GradleRunConfiguration,
+      context: ConfigurationContext,
+    ): Boolean = configuration.getUserData<Boolean>(MARKER) == true && super.doIsConfigurationFromContext(configuration, context)
+
+    companion object {
+      val MARKER: Key<Boolean> = Key.create("GradleTestRunConfigurationProducerTest.marker")
     }
   }
 }

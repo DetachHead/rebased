@@ -3,9 +3,9 @@
 
 package org.jetbrains.intellij.build.productLayout.pipeline
 
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.coroutineScope
+import com.intellij.platform.buildScripts.concurrency.SharedTaskOwner
+import com.intellij.platform.buildScripts.concurrency.Subtask
+import com.intellij.platform.buildScripts.concurrency.taskScope
 import org.jetbrains.intellij.build.productLayout.cleanupOrphanedModuleSetFiles
 import org.jetbrains.intellij.build.productLayout.discovery.GenerationResult
 import org.jetbrains.intellij.build.productLayout.discovery.ModuleSetGenerationConfig
@@ -24,14 +24,12 @@ import org.jetbrains.intellij.build.productLayout.model.error.FileDiff
 import org.jetbrains.intellij.build.productLayout.model.error.ValidationError
 import org.jetbrains.intellij.build.productLayout.stats.DependencyGenerationResult
 import org.jetbrains.intellij.build.productLayout.stats.GenerationStats
-import org.jetbrains.intellij.build.productLayout.stats.GenerationTiming
 import org.jetbrains.intellij.build.productLayout.stats.ModuleSetFileResult
 import org.jetbrains.intellij.build.productLayout.stats.ModuleSetGenerationResult
 import org.jetbrains.intellij.build.productLayout.stats.PluginDependencyGenerationResult
 import org.jetbrains.intellij.build.productLayout.stats.ProductGenerationResult
 import org.jetbrains.intellij.build.productLayout.stats.SuppressionConfigStats
 import org.jetbrains.intellij.build.productLayout.stats.TestPluginGenerationResult
-import org.jetbrains.intellij.build.productLayout.stats.recordGenerationTiming
 import org.jetbrains.intellij.build.productLayout.validator.CommunityLibraryLicenseValidator
 import org.jetbrains.intellij.build.productLayout.validator.ContentModuleBackingValidator
 import org.jetbrains.intellij.build.productLayout.validator.ContentModuleCopyConflictValidator
@@ -39,9 +37,7 @@ import org.jetbrains.intellij.build.productLayout.validator.ContentModuleDepende
 import org.jetbrains.intellij.build.productLayout.validator.ContentModuleDependencyValidator
 import org.jetbrains.intellij.build.productLayout.validator.ContentModulePluginDependencyValidator
 import org.jetbrains.intellij.build.productLayout.validator.EmbeddedContentModuleDependencyValidator
-import org.jetbrains.intellij.build.productLayout.validator.ImplicitEmbeddedContentModuleValidator
 import org.jetbrains.intellij.build.productLayout.validator.LibraryLicenseValidator
-import org.jetbrains.intellij.build.productLayout.validator.LibraryModuleValidator
 import org.jetbrains.intellij.build.productLayout.validator.PluginContentDependencyValidator
 import org.jetbrains.intellij.build.productLayout.validator.PluginContentDuplicatesValidator
 import org.jetbrains.intellij.build.productLayout.validator.PluginContentStructureValidator
@@ -49,12 +45,14 @@ import org.jetbrains.intellij.build.productLayout.validator.PluginDependencyDecl
 import org.jetbrains.intellij.build.productLayout.validator.PluginDescriptorIdConflictValidator
 import org.jetbrains.intellij.build.productLayout.validator.PluginPluginDependencyValidator
 import org.jetbrains.intellij.build.productLayout.validator.ProductModuleSetValidator
+import org.jetbrains.intellij.build.productLayout.validator.RestrictedModuleActivationValidator
 import org.jetbrains.intellij.build.productLayout.validator.SelfContainedModuleSetValidator
 import org.jetbrains.intellij.build.productLayout.validator.SuppressionConfigValidator
 import org.jetbrains.intellij.build.productLayout.validator.TestLibraryScopeValidator
 import org.jetbrains.intellij.build.productLayout.validator.TestPluginPluginDependencyValidator
 import org.jetbrains.intellij.build.productLayout.validator.UnusedEmbeddedLibraryModuleValidator
 import org.jetbrains.intellij.build.productLayout.validator.UnusedSharedLibraryModuleValidator
+import org.jetbrains.intellij.build.buildSpan
 import java.nio.file.Path
 
 /**
@@ -142,7 +140,7 @@ internal class GenerationPipeline(
    *        Generation nodes always run. Pass empty set to skip all validation.
    * @return Result with errors, diffs, and statistics
    */
-  suspend fun execute(
+  fun execute(
     config: ModuleSetGenerationConfig,
     commitChanges: Boolean = true,
     updateSuppressions: Boolean = false,
@@ -150,45 +148,39 @@ internal class GenerationPipeline(
   ): GenerationResult {
     val startTime = System.currentTimeMillis()
 
-    // The five stages are sequential, so this list is what says which one owns the run's time. Without it a caller sees
-    // one total, and `nodeTimings` covers only the EXECUTE stage.
-    val stageTimings = ArrayList<GenerationTiming>(5)
-    // The steps of the BUILD_MODEL stage. They nest inside the `build model` stage, so they travel in their own list.
-    val phaseTimings = ArrayList<GenerationTiming>(23)
-    return coroutineScope {
+    return SharedTaskOwner("product model").use { owner ->
       // Stage 1: DISCOVER - Scan DSL definitions
-      val discovery = recordGenerationTiming("discover", stageTimings) { discover(config) }
+      val discovery = buildSpan("discover") { discover(config) }
 
       // Stage 2: BUILD_MODEL - Create caches and compute shared values
       // ModelBuildingStage has its own ErrorSink for xi:include errors discovered during extraction
       val modelBuildingErrorSink = ErrorSink()
-      val model = recordGenerationTiming("build model", stageTimings) {
+      val model = buildSpan("build model") {
         ModelBuildingStage.execute(
+          owner = owner,
           discovery = discovery,
           config = config,
-          scope = this,
           updateSuppressions = updateSuppressions,
           commitChanges = commitChanges,
           errorSink = modelBuildingErrorSink,
-          phaseTimings = phaseTimings,
         )
       }
 
       // Stage 3: EXECUTE - Run compute nodes in dependency order
-      val ctx = recordGenerationTiming("execute nodes", stageTimings) { executeNodes(model, validationFilter) }
+      val ctx = buildSpan("execute nodes") { executeNodes(model, validationFilter) }
 
       // Stage 4: AGGREGATE - Collect errors, diffs, and tracking maps
-      val aggregated = recordGenerationTiming("aggregate", stageTimings) { aggregate(ctx, model, modelBuildingErrorSink) }
+      val aggregated = buildSpan("aggregate") { aggregate(ctx, model, modelBuildingErrorSink) }
 
       // Stage 5: OUTPUT - Cleanup orphans and commit or return diffs
-      val outputResult = recordGenerationTiming("output", stageTimings) {
+      val outputResult = buildSpan("output") {
         output(aggregated.errors, model, commitChanges, aggregated.trackingMaps)
       }
 
       // Build final stats including deleted files (after cleanup)
       val stats = buildStats(ctx, System.currentTimeMillis() - startTime, outputResult.deletedModuleSetFiles, model.fileUpdater.getDiffs())
 
-      GenerationResult(errors = aggregated.errors, diffs = aggregated.diffs, stats = stats.copy(stageTimings = stageTimings, phaseTimings = phaseTimings))
+      GenerationResult(errors = aggregated.errors, diffs = aggregated.diffs, stats = stats)
     }
   }
 
@@ -199,7 +191,7 @@ internal class GenerationPipeline(
    *
    * Delegates to [DiscoveryStage] for actual implementation.
    */
-  private suspend fun discover(config: ModuleSetGenerationConfig): DiscoveryResult {
+  private fun discover(config: ModuleSetGenerationConfig): DiscoveryResult {
     return DiscoveryStage.execute(config)
   }
 
@@ -208,59 +200,61 @@ internal class GenerationPipeline(
   /**
    * Stage 3: Executes compute nodes in dependency order with maximum parallelism.
    *
-   * Uses slot dependencies to determine execution order. Nodes with no required slots
-   * run immediately (level 0). A node starts when all its required slots are published.
+   * Every active node gets its own task. A node starts when all its active producers end.
+   * A producer that the [validationFilter] removes does not hold back the node.
    *
    * @param model The shared generation model
    * @param validationFilter If non-null, only runs validation nodes with matching names.
    *        Generation nodes always run. Pass empty set to skip all validation.
    * @return The compute context containing all slot values and errors
    */
-  private suspend fun executeNodes(
+  private fun executeNodes(
     model: GenerationModel,
     validationFilter: Set<String>?,
   ): ComputeContextImpl {
-    return coroutineScope {
-      // Filter nodes based on validationFilter
-      val activeNodes = nodes.filter { node ->
-        node.id.category != NodeCategory.VALIDATION ||
-        validationFilter == null ||
-        node.id.name in validationFilter
-      }
+    // Filter nodes based on validationFilter
+    val activeNodes = nodes.filter { node ->
+      node.id.category != NodeCategory.VALIDATION ||
+      validationFilter == null ||
+      node.id.name in validationFilter
+    }
 
-      // Create context and initialize all slots
-      val ctx = ComputeContextImpl(model)
-      initializeSlots(ctx, activeNodes)
+    // Create context and initialize all slots
+    val ctx = ComputeContextImpl(model)
+    initializeSlots(ctx, activeNodes)
 
-      val sorted = topologicalSort(activeNodes)
+    val sorted = topologicalSort(activeNodes)
+    val activeIds = activeNodes.mapTo(HashSet()) { it.id }
 
-      // Group nodes by "level" (nodes at same level can run in parallel)
-      val levels = computeLevels(sorted)
-
-      for (level in levels) {
-        // Run all nodes at this level in parallel
-        level.map { node ->
-          async {
-            val nodeCtx = ctx.forNode(node.id)
-            val startEpochMs = System.currentTimeMillis()
-            val startNano = System.nanoTime()
-            try {
-              node.execute(nodeCtx)
-            }
-            finally {
-              // in a `finally`, so a node that throws still reports how long it took before it did
-              ctx.nodeTimings.add(GenerationTiming(
-                name = node.id.name,
-                startEpochMs = startEpochMs,
-                durationMs = (System.nanoTime() - startNano) / 1_000_000,
-              ))
-            }
-            ctx.finalizeNodeErrors(node.id)
+    taskScope {
+      val tasks = HashMap<NodeId, Subtask<Unit>>()
+      for (node in sorted) {
+        val producers = node.requires.mapNotNullTo(LinkedHashSet()) { slot -> producerOf(slot)?.takeIf { it in activeIds } }
+        val producerTasks = producers.map { producerId ->
+          checkNotNull(tasks.get(producerId)) { "Node '${node.id.name}' is forked before its producer '${producerId.name}'" }
+        }
+        tasks.put(node.id, fork(node.id.name) {
+          for (producerTask in producerTasks) {
+            producerTask.await()
           }
-        }.awaitAll()
+          buildSpan(node.id.name) { span ->
+            span.setAttribute("category", node.id.category.name)
+            node.execute(ctx.forNode(node.id))
+          }
+          ctx.finalizeNodeErrors(node.id)
+        })
       }
+      join()
+    }
 
-      ctx
+    return ctx
+  }
+
+  /** Returns the ID of the node that produces [slot], or null when no node produces it. */
+  private fun producerOf(slot: DataSlot<*>): NodeId? {
+    return when (slot) {
+      is ErrorSlot -> slot.generatorId
+      else -> slotProducers.get(slot)?.id
     }
   }
 
@@ -284,35 +278,6 @@ internal class GenerationPipeline(
   }
 
   /**
-   * Computes execution levels for parallel execution.
-   * Nodes at the same level have no dependencies on each other.
-   */
-  private fun computeLevels(sorted: List<PipelineNode>): List<List<PipelineNode>> {
-    val levels = ArrayList<ArrayList<PipelineNode>>()
-    val nodeLevels = HashMap<NodeId, Int>()
-
-    for (node in sorted) {
-      // Find max level of dependencies
-      val depLevel = node.requires.maxOfOrNull { slot ->
-        when (slot) {
-          is ErrorSlot -> nodeLevels.get(slot.generatorId) ?: 0
-          else -> slotProducers.get(slot)?.let { nodeLevels.get(it.id) } ?: 0
-        }
-      } ?: -1
-
-      val myLevel = depLevel + 1
-      nodeLevels.put(node.id, myLevel)
-
-      while (levels.size <= myLevel) {
-        levels.add(ArrayList())
-      }
-      levels.get(myLevel).add(node)
-    }
-
-    return levels
-  }
-
-  /**
    * Topological sort of nodes based on slot dependencies.
    * @param nodesToSort List of nodes to sort (maybe filtered)
    * @throws IllegalStateException if circular dependency detected
@@ -333,10 +298,7 @@ internal class GenerationPipeline(
 
       // Visit dependencies (nodes that produce required slots)
       for (slot in node.requires) {
-        val depNode = when (slot) {
-          is ErrorSlot -> nodeMap.get(slot.generatorId)
-          else -> slotProducers.get(slot)?.let { nodeMap.get(it.id) }
-        }
+        val depNode = producerOf(slot)?.let { nodeMap.get(it) }
         if (depNode != null) {
           visit(depNode)
         }
@@ -450,10 +412,10 @@ internal class GenerationPipeline(
     // Get errors for specific nodes
     val productModuleDepErrors = ctx.getNodeErrors(NodeIds.PRODUCT_MODULE_DEPS)
     val pluginValidationErrors = ctx.getNodeErrors(NodeIds.PLUGIN_VALIDATION) +
-      ctx.getNodeErrors(NodeIds.PLUGIN_CONTENT_STRUCTURE_VALIDATION) +
-      ctx.getNodeErrors(NodeIds.CONTENT_MODULE_PLUGIN_DEPENDENCY_VALIDATION) +
-      ctx.getNodeErrors(NodeIds.PLUGIN_PLUGIN_VALIDATION) +
-      ctx.getNodeErrors(NodeIds.PLUGIN_DEPENDENCY_DECLARATION_VALIDATION)
+                                 ctx.getNodeErrors(NodeIds.PLUGIN_CONTENT_STRUCTURE_VALIDATION) +
+                                 ctx.getNodeErrors(NodeIds.CONTENT_MODULE_PLUGIN_DEPENDENCY_VALIDATION) +
+                                 ctx.getNodeErrors(NodeIds.PLUGIN_PLUGIN_VALIDATION) +
+                                 ctx.getNodeErrors(NodeIds.PLUGIN_DEPENDENCY_DECLARATION_VALIDATION)
 
     // Build module set results grouped by label
     val moduleSetResults = moduleSetsOutput?.let { output ->
@@ -494,7 +456,6 @@ internal class GenerationPipeline(
       },
       durationMs = durationMs,
       fileUpdaterDiffs = fileUpdaterDiffs,
-      nodeTimings = ctx.nodeTimings.sortedBy(GenerationTiming::startEpochMs),
     )
   }
 
@@ -541,8 +502,7 @@ internal class GenerationPipeline(
      * Creates a pipeline with the default set of compute nodes.
      *
      * Execution order is inferred from [PipelineNode.requires] and [PipelineNode.produces].
-     * Nodes with no requirements run first (level 0). Nodes run as soon as their
-     * required slots are published.
+     * Nodes with no requirements run first. A node runs as soon as its producers end.
      */
     fun default(): GenerationPipeline {
       return GenerationPipeline(
@@ -568,6 +528,7 @@ internal class GenerationPipeline(
           SelfContainedModuleSetValidator,
           ContentModuleBackingValidator,
           EmbeddedContentModuleDependencyValidator,
+          RestrictedModuleActivationValidator,
           UnusedEmbeddedLibraryModuleValidator,
           UnusedSharedLibraryModuleValidator,
           LibraryLicenseValidator,
@@ -578,8 +539,6 @@ internal class GenerationPipeline(
           PluginDescriptorIdConflictValidator,
           ContentModuleDependencyValidator,
           ContentModuleDependencyDeclarationValidator,
-          LibraryModuleValidator,
-          ImplicitEmbeddedContentModuleValidator,
         )
       )
     }

@@ -3,7 +3,6 @@ package com.intellij.ide.impl
 
 import com.intellij.CommonBundle
 import com.intellij.configurationStore.ProjectStorePathManager
-import com.intellij.configurationStore.runInAutoSaveDisabledMode
 import com.intellij.configurationStore.saveSettings
 import com.intellij.execution.wsl.WslPath.Companion.isWslUncPath
 import com.intellij.featureStatistics.fusCollectors.LifecycleUsageTriggerCollector
@@ -11,9 +10,10 @@ import com.intellij.ide.GeneralLocalSettings
 import com.intellij.ide.GeneralSettings
 import com.intellij.ide.IdeBundle
 import com.intellij.ide.RecentProjectsManager
+import com.intellij.ide.SaveAndSyncHandler
 import com.intellij.ide.actions.OpenFileAction
 import com.intellij.ide.highlighter.ProjectFileType
-import com.intellij.ide.trustedProjects.TrustedFiles
+import com.intellij.ide.TrustedFiles
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.ApplicationNamesInfo
 import com.intellij.openapi.application.EDT
@@ -39,7 +39,7 @@ import com.intellij.openapi.util.SystemInfoRt
 import com.intellij.openapi.util.io.FileUtil
 import com.intellij.openapi.util.io.FileUtilRt
 import com.intellij.openapi.util.text.StringUtil
-import com.intellij.openapi.vfs.LocalFileSystem
+import com.intellij.openapi.vfs.StandardFileSystems
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.openapi.wm.IdeFrame
 import com.intellij.openapi.wm.ToolWindowId
@@ -533,7 +533,7 @@ object ProjectUtil {
    * behavior and should only be used in special cases, when we know that the user definitely expects it.
    */
   @JvmStatic
-  @RequiresEdt
+  @RequiresEdt(generateAssertion = false /* IJPL-115548 */)
   fun focusProjectWindow(project: Project?, stealFocusIfAppInactive: Boolean = false) {
     LOG.trace { "focusProjectWindow: project=$project stealFocusIfAppInactive=$stealFocusIfAppInactive" }
 
@@ -624,7 +624,7 @@ object ProjectUtil {
         }
       }
       else {
-        val virtualFile = LocalFileSystem.getInstance().refreshAndFindFileByPath(FileUtilRt.toSystemIndependentName(file.toString()))
+        val virtualFile = StandardFileSystems.local().refreshAndFindFileByPath(FileUtilRt.toSystemIndependentName(file.toString()))
         if (virtualFile != null && virtualFile.isValid) {
           TrustedFiles.markExternallyOpened(virtualFile)
           OpenFileAction.openFileAsync(virtualFile, projectToClose)
@@ -670,7 +670,7 @@ object ProjectUtil {
   }
 
   @JvmStatic
-  @RequiresEdt
+  @RequiresEdt(generateAssertion = false /* IJPL-115548 */)
   fun openOrCreateProject(name: String, file: Path): Project? = runWithModalProgressBlocking(ModalTaskOwner.guess(), "") {
     openOrCreateProjectInner(name, file)
   }
@@ -794,7 +794,7 @@ object ProjectUtil {
     })
 
     try {
-      runInAutoSaveDisabledMode {
+      SaveAndSyncHandler.getInstance().withDisabledAutoSave {
         saveSettings(componentManager = newProject, forceSavingAllSettings = true)
       }
       PlatformProjectOpenProcessor.runDirectoryProjectConfigurators(

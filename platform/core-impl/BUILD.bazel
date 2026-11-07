@@ -1,5 +1,19 @@
+load("@community//build:tests-options.bzl", "jps_test")
 load("@rules_jvm//:jvm.bzl", "jvm_library")
 load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
+
+jps_test(
+    name = "core-impl-tests_test",
+    timeout = "moderate",
+    tags = ["community-aggregator"],
+    runtime_deps = [":core-impl-tests_test_lib"],
+)
+
+### skip generation section `test intellij.platform.core.impl.tests`
+
+### auto-generated section `dev intellij.platform.core.impl` start
+content_module_jar(module = ":core-impl")
+### auto-generated section `dev intellij.platform.core.impl` end
 
 ### auto-generated section `build intellij.platform.core.impl` start
 jvm_library(
@@ -41,20 +55,12 @@ jvm_library(
         "//platform/util/coroutines",
         "//platform/util/multiplatform",
         "//platform/util/base",
+        "//platform/productMode",
         "//platform/pluginSystem/parser/impl",
         "//platform/syntax/syntax-api:syntax",
         "//platform/eel",
         "//libraries/kotlinx/collections-immutable:libraries-kotlinx-collections-immutable",
         "//platform/eel-nioFs",
-    ],
-)
-
-content_module_jar(
-    module = ":core-impl",
-    modules_after = [
-        # do not sort,
-        "//platform/pluginSystem/parser/impl",
-        "//platform/syntax/syntax-api:syntax",
     ],
 )
 
@@ -90,6 +96,7 @@ jvm_library(
         "//platform/util/coroutines:coroutines_test_lib",
         "//platform/util/multiplatform:multiplatform_test_lib",
         "//platform/util/base:base_test_lib",
+        "//platform/productMode:productMode_test_lib",
         "//platform/pluginSystem/parser/impl:impl_test_lib",
         "//platform/syntax/syntax-api:syntax_test_lib",
         "//platform/eel:eel_test_lib",
@@ -105,8 +112,65 @@ exports_files(
         "intellij.platform.core.impl.iml",
         "resources/META-INF/CoreImpl.analyzer.xml",
         "resources/intellij.platform.core.impl.xml",
-        "module-content.yaml",
     ],
     visibility = ["//visibility:public"],
 )
 ### auto-generated section `iml intellij.platform.core.impl` end
+
+### auto-generated section `build intellij.platform.core.impl.tests` start
+jvm_library(
+    name = "core-impl-tests",
+    srcs = glob(
+        [],
+        allow_empty = True,
+    ),
+    module_name = "intellij.platform.core.impl.tests",
+    visibility = ["//visibility:public"],
+)
+
+jvm_library(
+    name = "core-impl-tests_test_lib",
+    testonly = True,
+    srcs = glob(
+        [
+            "testSrc/**/*.kt",
+            "testSrc/**/*.java",
+            "testSrc/**/*.form",
+        ],
+        allow_empty = True,
+    ),
+    associates = [
+        "//platform/core-impl",
+        "//platform/core-impl:core-impl_test_lib",
+    ],
+    visibility = ["//visibility:public"],
+    runtime_deps = [":core-impl-tests"],
+    deps = [
+        # do not sort,
+        "@lib//:kotlin-stdlib",
+        "//platform/core-api:core",
+        "//platform/core-api:core_test_lib",
+        "//platform/util",
+        "//platform/util:util_test_lib",
+        "//platform/util-ex",
+        "//platform/util-ex:util-ex_test_lib",
+        "//libraries/junit6",
+        "//libraries/junit6:junit6_test_lib",
+        "//platform/testFramework/junit5",
+        "//platform/testFramework/junit5:junit5_test_lib",
+        "//platform/testFramework/common",
+        "//platform/testFramework/common:common_test_lib",
+        "//libraries/kotlinx/coroutines/core",
+        "//libraries/kotlinx/coroutines/core:core_test_lib",
+    ],
+)
+### auto-generated section `build intellij.platform.core.impl.tests` end
+
+### auto-generated section `iml intellij.platform.core.impl.tests` start
+exports_files(
+    [
+        "intellij.platform.core.impl.tests.iml",
+    ],
+    visibility = ["//visibility:public"],
+)
+### auto-generated section `iml intellij.platform.core.impl.tests` end

@@ -2,29 +2,30 @@
 package com.intellij.python.junit5Tests.env.packaging
 
 import com.intellij.openapi.application.ApplicationManager
-import com.intellij.openapi.projectRoots.Sdk
 import com.intellij.python.junit5Tests.framework.env.PyEnvTestCase
-import com.intellij.python.junit5Tests.framework.env.pySdkFixture
+import com.intellij.python.junit5Tests.framework.env.pyInterpreterFixture
 import com.intellij.python.test.env.junit5.pyUvVenvFixture
 import com.intellij.testFramework.common.timeoutRunBlocking
-import com.intellij.python.junit5Tests.framework.pyModuleFixture
+import com.intellij.python.junit5Tests.framework.pyProjectFixture
 import com.intellij.testFramework.junit5.fixture.projectFixture
 import com.intellij.testFramework.junit5.fixture.tempPathFixture
 import com.jetbrains.python.getOrThrow
 import com.jetbrains.python.packaging.common.PythonPackageManagementListener
 import com.jetbrains.python.packaging.management.PythonPackageManager
+import com.jetbrains.python.sdk.uv.UvMode
 import kotlinx.coroutines.CompletableDeferred
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 import kotlin.io.path.writeText
 import kotlin.time.Duration.Companion.minutes
+import com.intellij.python.sdk.backend.PythonInterpreter
 
 @PyEnvTestCase
 class UvPackageManagerTest {
   private val tempPathFixture = tempPathFixture()
   private val projectFixture = projectFixture()
-  private val moduleFixture = projectFixture.pyModuleFixture(tempPathFixture, addPathToSourceRoot = true)
-  private val sdkFixture = pySdkFixture().pyUvVenvFixture(addToSdkTable = true, moduleFixture = moduleFixture)
+  private val pyProjectFixture = projectFixture.pyProjectFixture(tempPathFixture)
+  private val sdkFixture = projectFixture.pyInterpreterFixture().pyUvVenvFixture(pyProjectFixture = pyProjectFixture, mode = UvMode.Project)
 
   @Test
   fun outdatedPackageWithExtrasTest(): Unit = timeoutRunBlocking(1.minutes) {
@@ -38,12 +39,12 @@ class UvPackageManagerTest {
       ]
     """.trimIndent())
 
-    val manager = PythonPackageManager.forSdk(projectFixture.get(), sdkFixture.get())
+    val manager = PythonPackageManager.forPythonInterpreter(projectFixture.get(), sdkFixture.get())
 
     val httpxOutdated = CompletableDeferred<Unit>()
     val connection = ApplicationManager.getApplication().messageBus.connect()
     connection.subscribe(PythonPackageManager.PACKAGE_MANAGEMENT_TOPIC, object : PythonPackageManagementListener {
-      override fun outdatedPackagesChanged(sdk: Sdk) {
+      override fun outdatedPackagesChanged(interpreter: PythonInterpreter) {
         if (manager.listOutdatedPackagesSnapshot().values.any { it.name == "httpx" }) {
           httpxOutdated.complete(Unit)
         }

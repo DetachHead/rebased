@@ -1,6 +1,7 @@
 // Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.python.console
 
+import com.intellij.python.sdk.backend.getSdkAPI
 import com.intellij.execution.target.TargetEnvironment
 import com.intellij.execution.target.value.TargetEnvironmentFunction
 import com.intellij.execution.target.value.constant
@@ -8,22 +9,25 @@ import com.intellij.execution.target.value.getRelativeTargetPath
 import com.intellij.execution.target.value.getTargetEnvironmentValueForLocalPath
 import com.intellij.execution.target.value.joinToStringFunction
 import com.intellij.execution.target.value.targetPath
+import com.intellij.openapi.application.readAction
 import com.intellij.openapi.diagnostic.Logger
+import com.intellij.openapi.progress.runBlockingMaybeCancellable
 import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.module.Module
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.projectRoots.Sdk
 import com.intellij.openapi.roots.ModuleRootManager
 import com.intellij.openapi.roots.ProjectRootManager
-import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.util.PathMapper
+import com.intellij.util.concurrency.annotations.RequiresBackgroundThread
 import com.intellij.util.SystemProperties
+import com.intellij.python.sdk.backend.PythonInterpreter
+import com.intellij.python.sdk.backend.targetEnvironmentRequest
 import com.jetbrains.python.console.PyConsoleOptions.PyConsoleSettings
 import com.jetbrains.python.debugger.PyDebuggerOptionsProvider
 import com.jetbrains.python.remote.PyRemotePathMapper
 import com.jetbrains.python.run.EnvironmentController
 import com.jetbrains.python.run.PlainEnvironmentController
-import com.jetbrains.python.run.PythonInterpreterTargetEnvironmentFactory.Companion.findPythonTargetInterpreter
 import com.jetbrains.python.run.PythonRunConfiguration
 import com.jetbrains.python.run.collectPythonPath
 import com.jetbrains.python.run.toStringLiteral
@@ -34,7 +38,8 @@ import java.nio.file.Path
 import java.util.function.Function
 import kotlin.io.path.exists
 
-open class PydevConsoleRunnerFactory : PythonConsoleRunnerFactory() {
+@ApiStatus.Internal
+open class PydevConsoleRunnerFactory : PyConsoleRunnerFactoryAsync() {
   @ApiStatus.Experimental
   protected sealed class ConsoleParameters(val project: Project,
                                            val sdk: Sdk?,
@@ -43,7 +48,10 @@ open class PydevConsoleRunnerFactory : PythonConsoleRunnerFactory() {
                                            open val workingDir: String?,
                                            val envs: Map<String, String>,
                                            val consoleType: PyConsoleType,
-                                           val settingsProvider: PyConsoleSettings)
+                                           val settingsProvider: PyConsoleSettings) {
+    @ApiStatus.Internal
+    var module: Module? = null
+  }
 
   @ApiStatus.Experimental
   protected class ConstantConsoleParameters(project: Project,
@@ -68,9 +76,26 @@ open class PydevConsoleRunnerFactory : PythonConsoleRunnerFactory() {
     constructor(project: Project, sdk: Sdk?, workingDirFunction: TargetEnvironmentFunction<String>?, envs: Map<String, String>,
                 consoleType: PyConsoleType, settingsProvider: PyConsoleSettings, setupScript: TargetEnvironmentFunction<String>)
       : this(project, sdk, null, workingDirFunction, envs, consoleType, settingsProvider, setupScript)
+
+    @Suppress("DEPRECATION") // The console runner still takes an Sdk.
+    constructor(project: Project, interpreter: PythonInterpreter, workingDirFunction: TargetEnvironmentFunction<String>?,
+                envs: Map<String, String>, consoleType: PyConsoleType, settingsProvider: PyConsoleSettings,
+                setupScript: TargetEnvironmentFunction<String>)
+      : this(project, interpreter.getSdkAPI(), null, workingDirFunction, envs, consoleType, settingsProvider, setupScript)
   }
 
-  protected open fun createConsoleParameters(project: Project, contextModule: Module?): ConsoleParameters {
+  /**
+   * @deprecated override [createConsoleParametersAsync]. This one blocks, and choosing the interpreter waits for the
+   * project model.
+   *
+   * Nothing inside this repository calls it, so an override here no longer decides what a console runs on.
+   */
+  @Deprecated("Blocks. Override createConsoleParametersAsync.", ReplaceWith("createConsoleParametersAsync(project, contextModule)"))
+  @RequiresBackgroundThread(generateAssertion = false /* IJPL-115548 */)
+  protected open fun createConsoleParameters(project: Project, contextModule: Module?): ConsoleParameters =
+    runBlockingMaybeCancellable { createConsoleParametersAsync(project, contextModule) }
+
+  protected open suspend fun createConsoleParametersAsync(project: Project, contextModule: Module?): ConsoleParameters {
     val sdkAndModule = findPythonSdkAndModule(project, contextModule)
     val module = sdkAndModule.second
     val sdk = sdkAndModule.first
@@ -78,29 +103,36 @@ open class PydevConsoleRunnerFactory : PythonConsoleRunnerFactory() {
     val pathMapper = getPathMapper(project, sdk, settingsProvider)
     val envs = settingsProvider.envs.toMutableMap()
     putIPythonEnvFlag(project, envs)
-    val workingDirFunction = getWorkingDirFunction(project, module, pathMapper, settingsProvider)
-    val setupScriptFunction = createSetupScriptFunction(project, module, workingDirFunction, pathMapper, settingsProvider)
+    // Both read the module's content and source roots, and this now runs on a background thread rather than on the
+    // EDT, which held read access on its own. This read action is what the former runReadActionBlocking around the
+    // whole creation stood for.
+    val (workingDirFunction, setupScriptFunction) = readAction {
+      val workingDir = getWorkingDirFunction(project, module, pathMapper, settingsProvider)
+      workingDir to createSetupScriptFunction(project, module, workingDir, pathMapper, settingsProvider)
+    }
     return TargetedConsoleParameters(project, sdk, workingDirFunction, envs, PyConsoleType.PYTHON, settingsProvider, setupScriptFunction)
+      .also { it.module = module }
   }
 
-  override fun createConsoleRunner(project: Project, contextModule: Module?): PydevConsoleRunner {
+  override suspend fun createConsoleRunnerAsync(project: Project, contextModule: Module?): PydevConsoleRunner {
     val module = PyConsoleCustomizer.EP_NAME.extensionList.firstNotNullOfOrNull { it.guessConsoleModule(project, contextModule) }
-    return when (val consoleParameters = createConsoleParameters(project, module)) {
+    return when (val consoleParameters = createConsoleParametersAsync(project, module)) {
       is ConstantConsoleParameters -> PydevConsoleRunnerImpl(project, consoleParameters.sdk, consoleParameters.consoleType,
                                                              consoleParameters.workingDir,
                                                              consoleParameters.envs, consoleParameters.settingsProvider,
                                                              *consoleParameters.setupFragment)
       is TargetedConsoleParameters -> PydevConsoleRunnerImpl(project, consoleParameters.sdk, consoleParameters.consoleType,
-                                                             consoleParameters.consoleType.title,
+                                                             consoleTabTitle(project, consoleParameters.module,
+                                                                             consoleParameters.consoleType.title),
                                                              consoleParameters.workingDirFunction,
                                                              consoleParameters.envs, consoleParameters.settingsProvider,
                                                              consoleParameters.setupScript)
     }
   }
 
-  override fun createConsoleRunnerWithFile(project: Project, config: PythonRunConfiguration): PydevConsoleRunner {
-    val consoleParameters = createConsoleParameters(project, config.module)
-    val sdk = if (config.sdk != null) config.sdk else consoleParameters.sdk
+  override suspend fun createConsoleRunnerWithFileAsync(project: Project, config: PythonRunConfiguration): PydevConsoleRunner {
+    val consoleParameters = createConsoleParametersAsync(project, config.module)
+    val sdk = config.sdk ?: consoleParameters.sdk
     val consoleEnvs = mutableMapOf<String, String>()
     consoleEnvs.putAll(consoleParameters.envs)
     consoleEnvs.putAll(config.envs)
@@ -182,7 +214,7 @@ open class PydevConsoleRunnerFactory : PythonConsoleRunnerFactory() {
       }
       val projectRoots = ProjectRootManager.getInstance(project).contentRoots
       for (root in projectRoots) {
-        if (root.fileSystem is LocalFileSystem) {
+        if (root.isInLocalFileSystem) {
           // we can't start Python Console in remote folder without additional connection configurations
           return root.path
         }
@@ -209,12 +241,12 @@ open class PydevConsoleRunnerFactory : PythonConsoleRunnerFactory() {
 
     fun createSetupScriptWithHelpersAndProjectRoot(project: Project,
                                                    projectRoot: String,
-                                                   sdk: Sdk,
+                                                   interpreter: PythonInterpreter,
                                                    settingsProvider: PyConsoleSettings): TargetEnvironmentFunction<String> {
       val paths = ArrayList<Function<TargetEnvironment, String>>()
       paths.add(getTargetEnvironmentValueForLocalPath(Path.of(projectRoot)))
 
-      val targetEnvironmentRequest = findPythonTargetInterpreter(sdk, project)
+      val targetEnvironmentRequest = interpreter.targetEnvironmentRequest(project)
       val communityHelpers = targetEnvironmentRequest.preparePyCharmHelpers().helpers.find { it.localPath.endsWith("helpers") }
       if (communityHelpers != null) {
         for (helper in listOf("pycharm", "pydev")) {

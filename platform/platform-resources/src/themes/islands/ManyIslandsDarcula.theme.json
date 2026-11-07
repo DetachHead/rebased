@@ -50,7 +50,21 @@
 
     "SelectionActive": "#304c80",
     "SelectionActiveLight": "#304c80",
-    "SelectionInactive": "#474A4D"
+    "SelectionInactive": "#474A4D",
+
+    "toggle-on-bg": "SelectionActive",
+    "toggle-off-bg": "#FFFFFF29",
+    "toggle-off-border": "BorderTransparent",
+    "toggle-on-border": "ComponentBorderFocus",
+    "toggle-on-disabled-bg": "#43494A",
+    "toggle-off-disabled-bg": "#43494A",
+    "toggle-on-disabled-border": "#545556",
+    "toggle-off-disabled-border": "#545556",
+    "toggle-focus-border": "ComponentBorderFocus",
+    "toggle-on-notch": "#DFE1E5",
+    "toggle-off-notch": "#CED0D6",
+    "toggle-on-disabled-notch": "#606060",
+    "toggle-off-disabled-notch": "#606060"
   },
 
   "ui": {
@@ -423,7 +437,6 @@
     "DragAndDrop.borderColor": "Blue6",
     "TipOfTheDay.Image.borderColor": "Gray3",
     "OnePixelDivider.background": "BorderDark",
-    "OnOffButtonUI": "com.intellij.ide.ui.laf.darcula.ui.IslandsOnOffButtonUI",
     "Plugins.SectionHeader.background": "Gray1.5",
     "Debugger.EvaluateExpression.background": "Gray3",
     "NewUiOnboarding.Dialog.background": "PanelBackground",

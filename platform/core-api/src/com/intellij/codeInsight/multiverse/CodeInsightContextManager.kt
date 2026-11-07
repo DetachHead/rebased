@@ -34,16 +34,22 @@ interface CodeInsightContextManager {
    *
    * @see CodeInsightContextProvider
    */
-  @RequiresReadLock
-  @RequiresBackgroundThread
+  @RequiresReadLock(generateAssertion = false /* IJPL-115548 */)
+  @RequiresBackgroundThread(generateAssertion = false /* IJPL-115548 */)
   fun getCodeInsightContexts(file: VirtualFile): List<CodeInsightContext>
 
-  @RequiresReadLock
-  @RequiresBackgroundThread
+  @RequiresReadLock(generateAssertion = false /* IJPL-115548 */)
+  @RequiresBackgroundThread(generateAssertion = false /* IJPL-115548 */)
   fun getPreferredContext(file: VirtualFile): CodeInsightContext
 
-  @RequiresReadLock
-  @RequiresBackgroundThread
+  /** Runs [block] on the provider that owns [file]. `null` when nobody owns it, or when the provider threw. */
+  @Internal
+  @RequiresReadLock(generateAssertion = false /* IJPL-115548 */)
+  @RequiresBackgroundThread(generateAssertion = false /* IJPL-115548 */)
+  fun <T> withOwnerOf(file: VirtualFile, block: (CodeInsightContextProvider) -> T): T?
+
+  @RequiresReadLock(generateAssertion = false /* IJPL-115548 */)
+  @RequiresBackgroundThread(generateAssertion = false /* IJPL-115548 */)
   fun getCodeInsightContext(fileViewProvider: FileViewProvider): CodeInsightContext
 
   /**
@@ -54,7 +60,7 @@ interface CodeInsightContextManager {
    * @return the context associated with [fileViewProvider] or [anyContext] if it's not *yet* associated with any context
    */
   @Internal
-  @RequiresReadLock
+  @RequiresReadLock(generateAssertion = false /* IJPL-115548 */)
   fun getCodeInsightContextRaw(fileViewProvider: FileViewProvider): CodeInsightContext
 
   @TestOnly
@@ -71,6 +77,6 @@ interface CodeInsightContextManager {
  * Synchronous listener notifying about changes in the codeinsight-context model
  */
 interface CodeInsightContextChangeListener : EventListener {
-  @RequiresWriteLock
+  @RequiresWriteLock(generateAssertion = false /* IJPL-115548 */)
   fun contextsChanged()
 }

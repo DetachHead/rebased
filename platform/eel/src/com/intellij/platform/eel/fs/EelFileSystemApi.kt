@@ -258,6 +258,16 @@ interface EelFileSystemApi {
     val autoCloseAfterLastChunk: Boolean get() = false
 
     /**
+     * When enabled, the implementation closes its internal file descriptor as soon as a read reaches the end of the file.
+     * It reopens the file and restores the cursor position if the caller uses the file again.
+     * This differs from [autoCloseAfterLastChunk], which closes the descriptor and never reopens the file.
+     *
+     * `null` means that the caller did not specify the behavior, so the implementation uses its own default.
+     */
+    @EelDelicateApi
+    val autoCloseAfterEof: Boolean? get() = null
+
+    /**
      * An optimization suitable for reading into memory.
      * It allows aborting the reading fast if the whole file content
      * won't fit into some buffer.
@@ -529,6 +539,9 @@ interface EelFileSystemApi {
     val truncateExisting: Boolean get() = true
     val creationMode: FileWriterCreationMode get() = FileWriterCreationMode.ALLOW_CREATE
 
+    /** Creates missing parent directories before opening the file. */
+    val createParents: Boolean get() = false
+
     interface Builder {
       /**
        * Whether to append new data to the end of file.
@@ -547,6 +560,9 @@ interface EelFileSystemApi {
        * Default: [FileWriterCreationMode.ONLY_OPEN_EXISTING]
        */
       fun creationMode(v: FileWriterCreationMode): Builder
+
+      /** Creates missing parent directories before opening the file. The default is `false`. */
+      fun createParents(v: Boolean): Builder
 
       fun build(): WriteOptions
     }

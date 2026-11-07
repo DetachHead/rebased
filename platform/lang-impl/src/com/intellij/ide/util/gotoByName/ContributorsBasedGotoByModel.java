@@ -1,6 +1,8 @@
 // Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.ide.util.gotoByName;
 
+import com.intellij.concurrency.ConcurrencyUtils;
+import com.intellij.concurrency.ConcurrentCollectionFactory;
 import com.intellij.concurrency.JobLauncher;
 import com.intellij.diagnostic.PluginException;
 import com.intellij.ide.util.NavigationItemListCellRenderer;
@@ -27,7 +29,6 @@ import com.intellij.util.ArrayUtilRt;
 import com.intellij.util.Processor;
 import com.intellij.util.Processors;
 import com.intellij.util.TimeoutUtil;
-import com.intellij.util.containers.CollectionFactory;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.indexing.FindSymbolParameters;
 import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
@@ -80,7 +81,7 @@ public abstract class ContributorsBasedGotoByModel implements ChooseByNameModelE
     return false;
   }
 
-  private final ConcurrentMap<ChooseByNameContributor, IntSet> myContributorToItsSymbolsMap = CollectionFactory.createConcurrentWeakMap();
+  private final ConcurrentMap<ChooseByNameContributor, IntSet> myContributorToItsSymbolsMap = ConcurrentCollectionFactory.createConcurrentWeakMap();
 
   @Override
   public void processNames(@NotNull Processor<? super String> nameProcessor, @NotNull FindSymbolParameters parameters) {
@@ -109,7 +110,7 @@ public abstract class ContributorsBasedGotoByModel implements ChooseByNameModelE
         return true;
       }
     };
-    if (!JobLauncher.getInstance().invokeConcurrentlyUnderContextProgress(contributors, processor)) {
+    if (!ConcurrencyUtils.runWithIndicatorOrContextCancellation(_->JobLauncher.getInstance().invokeConcurrentlyUnderContextProgress(contributors, processor))) {
       throw new ProcessCanceledException();
     }
     if (indicator != null) {
@@ -184,8 +185,11 @@ public abstract class ContributorsBasedGotoByModel implements ChooseByNameModelE
     List<NavigationItem> items = Collections.synchronizedList(new ArrayList<>());
 
     Processor<ChooseByNameContributor> processor = contributor ->
+    {
       processContributorForName(contributor, applicable.get(contributor), parameters, canceled, items);
-    if (!JobLauncher.getInstance().invokeConcurrentlyUnderProgress(new ArrayList<>(applicable.keySet()), canceled, processor)) {
+      return true;
+    };
+    if (!ConcurrencyUtils.runWithIndicatorOrContextCancellation(_->JobLauncher.getInstance().invokeConcurrentlyUnderContextProgress(new ArrayList<>(applicable.keySet()), processor))) {
       canceled.cancel();
     }
     canceled.checkCanceled(); // if parallel job execution was canceled because of PCE, rethrow it from here
@@ -195,13 +199,13 @@ public abstract class ContributorsBasedGotoByModel implements ChooseByNameModelE
     return ArrayUtil.toObjectArray(items);
   }
 
-  private boolean processContributorForName(@NotNull ChooseByNameContributor contributor,
+  private void processContributorForName(@NotNull ChooseByNameContributor contributor,
                                             @NotNull String name,
                                             @NotNull FindSymbolParameters parameters,
                                             @NotNull ProgressIndicator canceled,
                                             @NotNull List<? super NavigationItem> items) {
     if (myProject.isDisposed()) {
-      return true;
+      return;
     }
     try {
       boolean searchInLibraries = parameters.isSearchInLibraries();
@@ -222,7 +226,6 @@ public abstract class ContributorsBasedGotoByModel implements ChooseByNameModelE
     catch (Throwable ex) {
       LOG.error(ex);
     }
-    return true;
   }
 
   @ApiStatus.Internal
@@ -237,7 +240,9 @@ public abstract class ContributorsBasedGotoByModel implements ChooseByNameModelE
       ((ChooseByNameContributorEx)contributor).processElementsWithName(name, item -> {
         canceled.checkCanceled();
         count[0]++;
-        if (acceptItem(item)) items.add(item);
+        if (acceptItem(item)) {
+          items.add(item);
+        }
         return true;
       }, parameters);
     }

@@ -24,12 +24,12 @@ import kotlin.math.roundToInt
  *
  * Calling this also triggers a server request when the cache is stale (see [LspDocumentColorCache]).
  */
-@RequiresBackgroundThread
-@RequiresReadLock
+@RequiresBackgroundThread(generateAssertion = false /* IJPL-115548 */)
+@RequiresReadLock(generateAssertion = false /* IJPL-115548 */)
 internal fun collectColorInlayItems(project: Project, virtualFile: VirtualFile): List<LspInlayItem> {
   return LspClientManagerImpl.getInstanceImpl(project)
     .getClientsWithThisFileOpen(virtualFile)
-    .flatMap { it.getColorInfos(virtualFile) }
+    .flatMap { it.highlightingCacheRegistry.documentColorCache.getHighlightings(virtualFile) }
     .mapNotNull { cached ->
       val r: Int = (cached.highlightingInfo.red * 255).roundToInt()
       val g: Int = (cached.highlightingInfo.green * 255).roundToInt()

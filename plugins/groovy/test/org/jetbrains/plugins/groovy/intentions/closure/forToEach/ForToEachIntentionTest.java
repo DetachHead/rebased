@@ -10,8 +10,8 @@ public class ForToEachIntentionTest extends GrIntentionTestCase {
   }
 
   @Override
-  protected String getBasePath() {
-    return TestUtils.getTestDataPath() + "intentions/ForToEach/";
+  protected String getTestDataPath() {
+    return TestUtils.getAbsoluteTestDataPath() + "intentions/ForToEach/";
   }
 
   public void testForToEachOnRangeWithoutParentheses() {

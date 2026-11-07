@@ -22,8 +22,8 @@ import org.jetbrains.plugins.groovy.util.TestUtils;
  */
 public class CreateParameterForFieldTest extends GrIntentionTestCase {
   @Override
-  protected String getBasePath() {
-    return TestUtils.getTestDataPath() + "intentions/createParameterForField/";
+  protected String getTestDataPath() {
+    return TestUtils.getAbsoluteTestDataPath() + "intentions/createParameterForField/";
   }
 
   public void testFromConstructor() { doTest(); }

@@ -30,6 +30,7 @@ import org.jetbrains.kotlin.psi.KtLambdaExpression
 import org.jetbrains.kotlin.psi.KtProperty
 import org.jetbrains.kotlin.psi.KtPsiUtil
 import org.jetbrains.kotlin.psi.KtScriptInitializer
+import org.jetbrains.kotlin.psi.KtSuperTypeCallEntry
 import org.jetbrains.kotlin.psi.KtTypeAlias
 import org.jetbrains.kotlin.psi.psiUtil.containingClassOrObject
 import org.jetbrains.kotlin.psi.psiUtil.getParentOfTypesAndPredicate
@@ -137,6 +138,13 @@ abstract class OptInGeneralUtilsBase {
 
         val containingDeclarationCandidate = findContainingDeclarationCandidate(containingDeclaration)
         result.add(containingDeclarationCandidate)
+        if (containingDeclaration is KtClass && containingDeclaration.superTypeListEntries.any { it is KtSuperTypeCallEntry }) {
+            val constructor = containingDeclaration.primaryConstructor ?: containingDeclaration
+            val constructorCandidate = CandidateData(constructor, AddAnnotationFix.Kind.Constructor)
+            if (result.none { it.element == constructorCandidate.element && it.kind == constructorCandidate.kind }) {
+                result.add(constructorCandidate)
+            }
+        }
         if (containingDeclaration is KtCallableDeclaration) {
             findContainingClassOrObjectCandidate(containingDeclaration)?.addTo(result)
         }

@@ -25,19 +25,19 @@
     <orderEntry type="sourceFolder" forTests="false" />
     <orderEntry type="module-library" exported="">
       <library name="kotlinc.analysis-api-impl-base" type="repository">
-        <properties include-transitive-deps="false" maven-id="org.jetbrains.kotlin:analysis-api-impl-base-for-ide:2.5.0-dev-6438">
+        <properties include-transitive-deps="false" maven-id="org.jetbrains.kotlin:analysis-api-impl-base-for-ide:2.5.0-dev-9507">
           <verification>
-            <artifact url="file://$MAVEN_REPOSITORY$/org/jetbrains/kotlin/analysis-api-impl-base-for-ide/2.5.0-dev-6438/analysis-api-impl-base-for-ide-2.5.0-dev-6438.jar">
-              <sha256sum>66128133c8d1c5e831152d2593c5742965f09e5885f52293ba2d3b9c99c041a3</sha256sum>
+            <artifact url="file://$MAVEN_REPOSITORY$/org/jetbrains/kotlin/analysis-api-impl-base-for-ide/2.5.0-dev-9507/analysis-api-impl-base-for-ide-2.5.0-dev-9507.jar">
+              <sha256sum>cc4b632c4a7154c2b3e9b415027077d322540f4d56a53b8f5d895810db868ab3</sha256sum>
             </artifact>
           </verification>
         </properties>
         <CLASSES>
-          <root url="jar://$MAVEN_REPOSITORY$/org/jetbrains/kotlin/analysis-api-impl-base-for-ide/2.5.0-dev-6438/analysis-api-impl-base-for-ide-2.5.0-dev-6438.jar!/" />
+          <root url="jar://$MAVEN_REPOSITORY$/org/jetbrains/kotlin/analysis-api-impl-base-for-ide/2.5.0-dev-9507/analysis-api-impl-base-for-ide-2.5.0-dev-9507.jar!/" />
         </CLASSES>
         <JAVADOC />
         <SOURCES>
-          <root url="jar://$MAVEN_REPOSITORY$/org/jetbrains/kotlin/analysis-api-impl-base-for-ide/2.5.0-dev-6438/analysis-api-impl-base-for-ide-2.5.0-dev-6438-sources.jar!/" />
+          <root url="jar://$MAVEN_REPOSITORY$/org/jetbrains/kotlin/analysis-api-impl-base-for-ide/2.5.0-dev-9507/analysis-api-impl-base-for-ide-2.5.0-dev-9507-sources.jar!/" />
         </SOURCES>
       </library>
     </orderEntry>
@@ -45,5 +45,6 @@
     <orderEntry type="module" module-name="intellij.libraries.kotlinc.kotlin.compiler.common" scope="RUNTIME" />
     <orderEntry type="module" module-name="intellij.libraries.kotlinc.analysis.api" scope="RUNTIME" />
     <orderEntry type="module" module-name="intellij.libraries.kotlinc.analysis.api.platform.interface" scope="RUNTIME" />
+    <orderEntry type="module" module-name="intellij.libraries.kotlinc.kotlin.compiler.ir" scope="RUNTIME" />
   </component>
 </module>

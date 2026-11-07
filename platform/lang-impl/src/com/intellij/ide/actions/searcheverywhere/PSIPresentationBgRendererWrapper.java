@@ -11,6 +11,8 @@ import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.actionSystem.DataSink;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.progress.ProgressIndicator;
+import com.intellij.openapi.project.IndexNotReadyException;
+import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.util.Pair;
@@ -18,6 +20,8 @@ import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.platform.backend.navigation.NavigationTarget;
 import com.intellij.platform.backend.presentation.TargetPresentation;
 import com.intellij.psi.PsiElement;
+import com.intellij.psi.PsiFileSystemItem;
+import com.intellij.psi.util.PsiAwareObject;
 import com.intellij.ui.ColoredListCellRenderer;
 import com.intellij.ui.SimpleTextAttributes;
 import com.intellij.ui.paint.PaintUtil;
@@ -48,6 +52,7 @@ import java.awt.Insets;
 import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
+import java.util.concurrent.CancellationException;
 import java.util.function.BiConsumer;
 import java.util.function.BiFunction;
 import java.util.function.Function;
@@ -178,12 +183,12 @@ public final class PSIPresentationBgRendererWrapper implements WeightedSearchEve
   private static FoundItemDescriptor<Object> element2presentation(FoundItemDescriptor<Object> elementDescriptor,
                                                                   Function<? super PsiElement, ? extends TargetPresentation> psiPresentationCalculator) {
     if (elementDescriptor.getItem() instanceof PsiItemWithSimilarity<?> itemWithSimilarity) {
-      TargetPresentation presentation = calcPresentation(itemWithSimilarity.getValue(), psiPresentationCalculator);
+      TargetPresentation presentation = calcPresentationSafely(itemWithSimilarity.getValue(), psiPresentationCalculator);
       PsiItemWithSimilarity<?> newItemWithSimilarity = new PsiItemWithSimilarity<>(itemWithSimilarity.getValue(), itemWithSimilarity.getSimilarityScore());
       return new FoundItemDescriptor<>(new ItemWithPresentation<>(newItemWithSimilarity, presentation), elementDescriptor.getWeight());
     }
 
-    TargetPresentation presentation = calcPresentation(elementDescriptor.getItem(), psiPresentationCalculator);
+    TargetPresentation presentation = calcPresentationSafely(elementDescriptor.getItem(), psiPresentationCalculator);
 
     if (elementDescriptor.getItem() instanceof PsiElement psi) {
       return new FoundItemDescriptor<>(new PsiItemWithPresentation(psi, presentation), elementDescriptor.getWeight());
@@ -195,6 +200,25 @@ public final class PSIPresentationBgRendererWrapper implements WeightedSearchEve
     }
 
     return new FoundItemDescriptor<>(new ItemWithPresentation<>(elementDescriptor.getItem(), presentation), elementDescriptor.getWeight());
+  }
+
+  /**
+   * A presentation failure of one item must not abort the whole search:
+   * the item degrades to a name-only presentation instead.
+   */
+  private static TargetPresentation calcPresentationSafely(Object item,
+                                                           Function<? super PsiElement, ? extends TargetPresentation> psiPresentationCalculator) {
+    try {
+      return calcPresentation(item, psiPresentationCalculator);
+    }
+    catch (CancellationException | IndexNotReadyException e) {
+      throw e;
+    }
+    catch (Throwable e) {
+      LOG.warnWithDebug("Cannot compute the presentation for " + item.getClass().getName() + ": " + e.getMessage(), e);
+      @NlsSafe String text = item instanceof PsiFileSystemItem fileSystemItem ? fileSystemItem.getName() : item.toString();
+      return TargetPresentation.builder(text).icon(IconUtil.getEmptyIcon(false)).presentation();
+    }
   }
 
   private static TargetPresentation calcPresentation(Object item, Function<? super PsiElement, ? extends TargetPresentation> psiPresentationCalculator) {
@@ -471,6 +495,14 @@ public final class PSIPresentationBgRendererWrapper implements WeightedSearchEve
     if (o instanceof ItemWithPresentation<?> wp) return toPsi(wp.getItem());
     if (o instanceof PsiElementNavigationItem en) return en.getTargetElement();
     return null;
+  }
+
+  /** {@link #toPsi(Object)}, or the element of a {@link PsiAwareObject} item (an item that is no PSI wrapper). Call it in a read action. */
+  @ApiStatus.Internal
+  public static @Nullable PsiElement toPsi(Object o, @NotNull Project project) {
+    PsiElement psi = toPsi(o);
+    if (psi != null) return psi;
+    return getItem(o) instanceof PsiAwareObject aware ? aware.findElement(project) : null;
   }
 
   public WeightedSearchEverywhereContributor<Object> getDelegate() {

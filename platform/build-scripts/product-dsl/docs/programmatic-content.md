@@ -59,7 +59,6 @@ override fun getProductContentModules(): ProductModulesContentSpec {
   return productModules {
     // XML includes (optional - can also be defined in plugin.xml manually)
     // Specify module name and resource path within that module
-    deprecatedInclude("intellij.java.ide.resources", "META-INF/JavaIdePlugin.xml")
     deprecatedInclude("intellij.gateway", "META-INF/Gateway.xml")
     
     // Include module sets
@@ -141,7 +140,7 @@ This will generate a complete plugin.xml file like:
 Choose the appropriate mechanism based on your needs:
 
 **Use `moduleSet()` when:**
-- You need a cohesive group of modules (e.g., `essentialMinimal`, `vcs`, `ssh`)
+- You need a cohesive group of modules (e.g., `splitCore`, `vcs`, `ssh`)
 - You want to reuse a common set across multiple products
 - You need the full module functionality, not just XML extension points
 - The module set provides platform infrastructure (e.g., `corePlatform` for core platform modules)

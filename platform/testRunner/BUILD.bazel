@@ -1,6 +1,5 @@
 load("@community//build:tests-options.bzl", "jps_test")
 load("@rules_jvm//:jvm.bzl", "jvm_library")
-load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 jps_test(
     name = "testRunner-tests_test",
@@ -53,12 +52,12 @@ jvm_library(
         "//platform/analysis-impl",
         "//platform/core-impl",
         "//platform/execution",
+        "//platform/consoleView",
+        "//platform/consoleView/impl",
         "//libraries/kotlinx/collections-immutable:libraries-kotlinx-collections-immutable",
         "//platform/util/concurrency",
     ],
 )
-
-content_module_jar(module = ":testRunner")
 
 jvm_library(
     name = "testRunner_test_lib",
@@ -95,10 +94,10 @@ jvm_library(
         "//platform/util/jdom:jdom_test_lib",
         "//platform/util:util-ui_test_lib",
         "//platform/analysis-impl:analysis-impl_test_lib",
-        "//platform/testFramework",
-        "//platform/testFramework:testFramework_test_lib",
         "//platform/core-impl:core-impl_test_lib",
         "//platform/execution:execution_test_lib",
+        "//platform/consoleView:consoleView_test_lib",
+        "//platform/consoleView/impl:impl_test_lib",
         "//libraries/kotlinx/collections-immutable:libraries-kotlinx-collections-immutable_test_lib",
         "//platform/util/concurrency:concurrency_test_lib",
     ],
@@ -110,7 +109,6 @@ exports_files(
     [
         "intellij.platform.testRunner.iml",
         "resources/intellij.platform.testRunner.xml",
-        "module-content.yaml",
     ],
     visibility = ["//visibility:public"],
 )

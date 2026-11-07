@@ -328,7 +328,7 @@ interface ThreadingSupport {
    *
    * A typical example of [blockingExecutor] is [javax.swing.SwingUtilities.invokeAndWait]
    */
-  @RequiresWriteLock
+  @RequiresWriteLock(generateAssertion = false /* IJPL-115548 */)
   fun transferWriteActionAndBlock(blockingExecutor: (RunnableWithTransferredWriteAction) -> Unit, action: Runnable)
 
   /**

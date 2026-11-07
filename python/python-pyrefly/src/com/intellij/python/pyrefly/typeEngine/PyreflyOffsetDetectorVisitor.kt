@@ -4,12 +4,14 @@ import com.intellij.psi.util.endOffset
 import com.intellij.psi.util.startOffset
 import com.jetbrains.python.psi.PyBinaryExpression
 import com.jetbrains.python.psi.PyCallExpression
+import com.jetbrains.python.psi.PyClass
 import com.jetbrains.python.psi.PyDecorator
 import com.jetbrains.python.psi.PyDictLiteralExpression
 import com.jetbrains.python.psi.PyElement
 import com.jetbrains.python.psi.PyElementVisitor
 import com.jetbrains.python.psi.PyFunction
 import com.jetbrains.python.psi.PyLambdaExpression
+import com.jetbrains.python.psi.PyParenthesizedExpression
 import com.jetbrains.python.psi.PyPrefixExpression
 import com.jetbrains.python.psi.PySequenceExpression
 import com.jetbrains.python.psi.PySubscriptionExpression
@@ -27,6 +29,14 @@ class PyreflyOffsetDetectorVisitor : PyElementVisitor() {
     offset = node.nameNode?.startOffset ?: node.startOffset
   }
 
+  /**
+   * The type of a class declaration is the type of its name, `type[C]`. The default end offset points at
+   * the last token of the class body, and `PyClassImpl.getMROAncestorTypes` reads the type of the class.
+   */
+  override fun visitPyClass(node: PyClass) {
+    offset = node.nameNode?.startOffset ?: node.startOffset
+  }
+
   override fun visitPyLambdaExpression(node: PyLambdaExpression) {
     offset = node.startOffset
   }
@@ -41,6 +51,15 @@ class PyreflyOffsetDetectorVisitor : PyElementVisitor() {
 
   override fun visitPySubscriptionExpression(node: PySubscriptionExpression) {
     offset = node.endOffset
+  }
+
+  /**
+   * The parentheses add no type of their own. The default end offset points at `)`, and the server
+   * answers with the type of the last element there, so the contained expression picks the offset.
+   */
+  override fun visitPyParenthesizedExpression(node: PyParenthesizedExpression) {
+    val contained = node.containedExpression
+    if (contained != null) contained.accept(this) else offset = node.endOffset - 1
   }
 
   override fun visitPyPrefixExpression(node: PyPrefixExpression) {

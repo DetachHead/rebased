@@ -1,5 +1,3 @@
-{{PARTIAL:frontmatter}}
-
 <!-- TEMPLATE:COMMENT -->
 To regenerate, run `bazel run //.ai:render-guides`.
 <!-- /TEMPLATE:COMMENT -->
@@ -12,6 +10,11 @@ To regenerate, run `bazel run //.ai:render-guides`.
 - `*.iml` files are the source of truth. They generate the `BUILD.bazel` files.
 <!-- IF_EDITION:ULTIMATE -->- Register a new or edited JPS module `.iml` with `bun build/jps-module.mjs register <path-to-iml> --fix-iml-eof`, then run `./build/jpsModelToBazel.cmd`. Never edit `.idea/modules.xml` by hand. The command keeps both `modules.xml` files in canonical order.<!-- /IF_EDITION:ULTIMATE --><!-- IF_EDITION:COMMUNITY -->- Register a new or edited JPS module `.iml` with `bun build/jps-module.mjs register <path-to-iml> --fix-iml-eof`, then run `./build/jpsModelToBazelCommunityOnly.cmd`. Never edit `.idea/modules.xml` by hand. The command keeps `modules.xml` in canonical order.<!-- /IF_EDITION:COMMUNITY -->
 - User-visible strings belong in `*.properties` for localization.
+
+## Language
+
+- Read [Code Style](../.agents/skills/code-style/SKILL.md) before writing or reviewing Kotlin or Java.
+- Read [Rust Code Style](../.agents/skills/rust-code-style/SKILL.md) before writing or reviewing Rust.
 
 ## Writing
 
@@ -40,7 +43,8 @@ Do not create a Git worktree or a clone, and do not install a workspace manager,
 - **Run the affected tests:** `./tests.cmd --module <module> --test <FQN or wildcard>`, or `node --test <file>` for a `*.test.mjs` file. An FQN is required, and a simple class name matches nothing. Always name the test module. `tests.cmd` compiles with Bazel itself, so a separate `bazel build` step is not needed. A module rule can override the runner. Skip this when the plugin has no tests. See [TESTING](../.agents/skills/testing/SKILL.md).
 - **Bazel compilation without tests:** to verify compilation only, run `bazel build <target>` for the affected modules. Skip this when you changed only `.js`, `.mjs`, `.md`, `.txt`, or `.json` files.
 - After you change a Bazel or Starlark source (`BUILD`, `BUILD.bazel`, `MODULE.bazel`, `WORKSPACE`, `WORKSPACE.bazel`, or `*.bzl`), run `bazel run //:format.check`. If it reports a diff, run `bazel run //:format`, inspect the changes, and run the check again.
-<!-- IF_EDITION:ULTIMATE -->- After you change an `*.iml`, a `BUILD.bazel`, or a `.idea/` file, run `./build/jpsModelToBazel.cmd`.<!-- /IF_EDITION:ULTIMATE --><!-- IF_EDITION:COMMUNITY -->- After you change an `*.iml`, a `BUILD.bazel`, or a `.idea/` file, run `./build/jpsModelToBazelCommunityOnly.cmd`.<!-- /IF_EDITION:COMMUNITY -->
+<!-- IF_EDITION:ULTIMATE -->- After you change an `*.iml`, a `BUILD.bazel`, or a `.idea/` file, run `./build/jpsModelToBazel.cmd`.
+- After you change the version of a repository library in an `*.iml` or in `.idea/libraries/*.xml`, also run `./fleet/build/generateProjectModel.cmd dump`. The Fleet generator copies the JPS library versions into `fleet/build/jps-library-mappings.tsv` and both `fleet/kmp.MODULE.bazel` files, and its `check` mode fails on drift. When the dump changes a `kmp.MODULE.bazel`, run `./bazel.cmd mod deps --lockfile_mode=update` in the root and in `community/`, because CI fails on a stale `MODULE.bazel.lock`. Then run `./tests.cmd --module intellij.projectStructureTests --test 'com.intellij.ideaProjectStructure.fast.*'`, because `community/platform/jps-bootstrap/pom.xml` and `JetBrainsAnnotationsExternalLibraryResolver.VERSION` copy library versions and these tests check the copies.<!-- /IF_EDITION:ULTIMATE --><!-- IF_EDITION:COMMUNITY -->- After you change an `*.iml`, a `BUILD.bazel`, or a `.idea/` file, run `./build/jpsModelToBazelCommunityOnly.cmd`.<!-- /IF_EDITION:COMMUNITY -->
 
 ### After Writing Code
 
@@ -64,9 +68,8 @@ Never use the `code-search` skill. The search tools below replace it. Recipes, t
 ### Search & navigation (ijproxy preferred)
 
 Use `search_symbol` for a class, a method, or a field. Use `search_file` to find a file by glob. Use `search_text` and `search_regex` for a string, a comment, or another match that is not a symbol.
-<!-- IF_TOOL:CODEX -->
-Codex exposes these as `mcp__ijproxy__<name>`. Inspect the deferred tool catalog (`ALL_TOOLS`) for them before you use a shell or a non-ijproxy fallback.
-<!-- /IF_TOOL:CODEX -->
+
+These are `mcp__ijproxy__<name>`. Look them up in the harness deferred-tool catalog before you use a shell or a non-ijproxy fallback.
 
 ### IDE-backed semantic tools
 
@@ -92,7 +95,3 @@ The harness can list skill *names* only, without a description. When a task look
 ## Individual Preferences
 
 **Local Preferences:** @./.ai/local.md
-
-<!-- IF_TOOL:CLAUDE -->
-{{PARTIAL:claude-only-individual-preferences}}
-<!-- /IF_TOOL:CLAUDE -->

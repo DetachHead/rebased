@@ -4,6 +4,7 @@ package org.jetbrains.plugins.gitlab
 import com.intellij.collaboration.auth.ui.AccountsPanelFactory
 import com.intellij.collaboration.auth.ui.AccountsPanelFactory.Companion.addWarningForEnabledCredentialHelper
 import com.intellij.collaboration.auth.ui.AccountsPanelFactory.Companion.addWarningForMemoryOnlyPasswordSafeAndGet
+import com.intellij.collaboration.messages.CollaborationToolsBundle
 import com.intellij.collaboration.util.URIUtil
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.EDT
@@ -16,6 +17,7 @@ import com.intellij.openapi.components.State
 import com.intellij.openapi.components.Storage
 import com.intellij.openapi.components.service
 import com.intellij.openapi.options.BoundConfigurable
+import com.intellij.openapi.options.NoAutomaticReset
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.DialogPanel
 import com.intellij.openapi.ui.ValidationInfo
@@ -26,6 +28,7 @@ import com.intellij.ui.dsl.builder.AlignX
 import com.intellij.ui.dsl.builder.bindSelected
 import com.intellij.ui.dsl.builder.bindText
 import com.intellij.ui.dsl.builder.panel
+import com.intellij.util.io.URLUtil
 import git4idea.config.GitVcsApplicationSettings
 import kotlinx.coroutines.Dispatchers
 import kotlinx.serialization.Serializable
@@ -40,9 +43,10 @@ import org.jetbrains.plugins.gitlab.authentication.ui.GitLabAccountsPanelActions
 import org.jetbrains.plugins.gitlab.ui.util.GitLabPluginProjectScopeProvider
 import org.jetbrains.plugins.gitlab.util.GitLabBundle.message
 import org.jetbrains.plugins.gitlab.util.GitLabUtil
+import kotlin.text.startsWith
 
-internal class GitLabSettingsConfigurable(private val project: Project)
-  : BoundConfigurable(GitLabUtil.SERVICE_DISPLAY_NAME, "settings.gitlab") {
+internal class GitLabSettingsConfigurable(private val project: Project) :
+  BoundConfigurable(GitLabUtil.SERVICE_DISPLAY_NAME, "settings.gitlab"), NoAutomaticReset {
   private lateinit var panel: DialogPanel
 
   override fun createPanel(): DialogPanel {
@@ -103,11 +107,12 @@ internal class GitLabSettingsConfigurable(private val project: Project)
   }
 
   override fun apply() {
-    if (panel.validateAll().isNotEmpty()) return
+    if (panel.validateAll().any { !it.warning }) return
     panel.apply()
   }
 
   private fun validateOAuthConfig(textArea: JBTextArea): ValidationInfo? {
+    var warning: ValidationInfo? = null
     textArea.text.lines()
       .map { it.trim() }
       .filter { it.isNotEmpty() }
@@ -131,12 +136,19 @@ internal class GitLabSettingsConfigurable(private val project: Project)
           if (!URIUtil.isValidHttpUri(serverUri)) {
             return ValidationInfo(message("settings.oauth.validation.invalid.uri") + "\n$line", textArea)
           }
+
+          if (serverUri.startsWith(URLUtil.HTTP_PROTOCOL + URLUtil.SCHEME_SEPARATOR)) {
+            warning = ValidationInfo(
+              CollaborationToolsBundle.message("accounts.warning.http.uri") + ":\n$line",
+              textArea
+            ).asWarning()
+          }
         }
         catch (_: Exception) {
           return ValidationInfo(message("settings.oauth.validation.incomplete") + "\n$line", textArea)
         }
       }
-    return null
+    return warning
   }
 }
 

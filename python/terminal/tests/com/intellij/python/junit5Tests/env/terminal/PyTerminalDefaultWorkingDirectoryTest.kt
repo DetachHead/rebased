@@ -4,8 +4,8 @@ package com.intellij.python.junit5Tests.env.terminal
 import com.intellij.openapi.application.WriteAction
 import com.intellij.openapi.vfs.VirtualFileManager
 import com.intellij.python.junit5Tests.framework.env.PyEnvTestCase
-import com.intellij.python.junit5Tests.framework.env.pySdkFixture
-import com.intellij.python.junit5Tests.framework.pyModuleFixture
+import com.intellij.python.junit5Tests.framework.env.pyInterpreterFixture
+import com.intellij.python.junit5Tests.framework.pyProjectFixture
 import com.intellij.python.terminal.pyTerminalDefaultWorkingDirectory
 import com.intellij.python.test.env.junit5.pyVenvFixture
 import com.intellij.testFramework.common.timeoutRunBlocking
@@ -37,18 +37,17 @@ class PyTerminalDefaultWorkingDirectoryTest {
 
   // A module backed by its own venv.
   private val moduleWithSdkDir = tempPathFixture(prefix = "subproject_with_venv")
-  private val moduleWithSdk = projectFixture.pyModuleFixture(moduleWithSdkDir, addPathToSourceRoot = true)
+  private val pyProjectWithSdk = projectFixture.pyProjectFixture(moduleWithSdkDir)
 
-  @Suppress("unused") // creates the venv and assigns it to moduleWithSdk
-  private val venvFixture = pySdkFixture().pyVenvFixture(
+  @Suppress("unused") // creates the venv and assigns it to pyProjectWithSdk
+  private val venvFixture = projectFixture.pyInterpreterFixture().pyVenvFixture(
     where = moduleWithSdkDir,
-    addToSdkTable = true,
-    moduleFixture = moduleWithSdk,
+    pyProjectFixture = pyProjectWithSdk,
   )
 
   // A module without any Python SDK.
   private val moduleWithoutSdkDir = tempPathFixture(prefix = "subproject_without_venv")
-  private val moduleWithoutSdk = projectFixture.pyModuleFixture(moduleWithoutSdkDir, addPathToSourceRoot = true)
+  private val pyProjectWithoutSdk = projectFixture.pyProjectFixture(moduleWithoutSdkDir)
 
   // A module that is not a Python module (default empty module type).
   private val nonPythonModuleDir = tempPathFixture(prefix = "subproject_non_python")
@@ -72,7 +71,7 @@ class PyTerminalDefaultWorkingDirectoryTest {
 
   @Test
   fun fileInModuleWithoutSdkUsesItsContentRoot(): Unit = timeoutRunBlocking {
-    moduleWithoutSdk.get() // ensure the module exists
+    pyProjectWithoutSdk.get().residesOnModule // ensure the module exists
     val dir = moduleWithoutSdkDir.get()
     val file = createFile(dir, "app.py")
 
@@ -106,7 +105,7 @@ class PyTerminalDefaultWorkingDirectoryTest {
    */
   @Test
   fun doesNotBlockWhileWriteActionIsRunning(): Unit = timeoutRunBlocking(60.seconds) {
-    moduleWithoutSdk.get() // ensure the module exists
+    pyProjectWithoutSdk.get().residesOnModule // ensure the module exists
     val dir = moduleWithoutSdkDir.get()
     val file = createFile(dir, "app.py")
     val project = projectFixture.get()

@@ -16,6 +16,7 @@ import javax.swing.KeyStroke;
 import java.awt.Component;
 import java.awt.event.KeyEvent;
 import java.awt.event.MouseListener;
+import java.util.List;
 import java.util.Map;
 import java.util.function.Consumer;
 
@@ -32,6 +33,14 @@ public interface ResultView extends CoreResultView, GridModel.Listener<GridRow, 
 
   void setColumnEnabled(@NotNull ModelIndex<GridColumn> columnIdx, boolean state);
 
+  default void setColumnsEnabled(@NotNull List<ModelIndex<GridColumn>> columns, boolean state) {
+    for (var column : columns) setColumnEnabled(column, state);
+  }
+
+  /** Brings the leftmost of {@code columns} into view, leaving the rows where they are. */
+  default void scrollColumnsIntoView(@NotNull List<ModelIndex<GridColumn>> columns) {
+  }
+
   void setRowEnabled(@NotNull ModelIndex<GridRow> rowIdx, boolean state);
 
   void showFirstCell(int rowNumOnCurrentPage);
@@ -45,6 +54,19 @@ public interface ResultView extends CoreResultView, GridModel.Listener<GridRow, 
   void restoreColumnsOrder(Map<Integer, ModelIndex<GridColumn>> expectedToModel);
 
   boolean isEditing();
+
+  /**
+   * Whether the view has an active editor anywhere, including a region it renders as a separate component.
+   * {@link #isEditing()} answers for one component only, because Swing requires it to match that component's editor.
+   */
+  default boolean isEditingAnywhere() {
+    return isEditing();
+  }
+
+  /** Whether {@code component} is one of the components this view renders cells in. */
+  default boolean isCellComponent(@Nullable Component component) {
+    return component == getComponent();
+  }
 
   boolean isMultiEditingAllowed();
 

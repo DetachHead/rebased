@@ -118,7 +118,7 @@ class MavenModelVersionEditorFactoryListener : EditorFactoryListener, MavenSyncL
   }
 
   override fun syncFinished(project: Project) {
-    FileEditorManager.getInstance(project).getAllEditors().forEach {
+    FileEditorManager.getInstance(project).allEditors.forEach {
       project?.service<MavenModelVersionSynchronizerService>()?.scheduleEnsureSynchronizerCreated(it as? EditorImpl ?: return)
     }
   }

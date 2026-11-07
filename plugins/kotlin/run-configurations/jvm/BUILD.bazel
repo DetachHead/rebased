@@ -1,7 +1,29 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//build:compiler-options.bzl", "create_kotlinc_options")
 load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
+### auto-generated section `dev intellij.kotlin.runConfigurations.jvm` start
+content_module_jar(module = ":jvm")
+### auto-generated section `dev intellij.kotlin.runConfigurations.jvm` end
+
 ### auto-generated section `build intellij.kotlin.runConfigurations.jvm` start
+create_kotlinc_options(
+    name = "custom_jvm",
+    opt_in = [
+        "org.jetbrains.kotlin.psi.KtExperimentalApi",
+        "org.jetbrains.kotlin.psi.KtNonPublicApi",
+        "org.jetbrains.kotlin.psi.KtIdeApi",
+        "org.jetbrains.kotlin.analysis.api.KaExperimentalApi",
+        "org.jetbrains.kotlin.analysis.api.KaIdeApi",
+        "org.jetbrains.kotlin.analysis.api.KaPlatformInterface",
+        "org.jetbrains.kotlin.analysis.api.fir.diagnostics.KaUnstableDiagnosticApi",
+        "org.jetbrains.kotlin.analysis.api.KaNonPublicApi",
+        "org.jetbrains.kotlin.analysis.api.KaContextParameterApi",
+        "org.jetbrains.kotlin.analysis.api.permissions.KaAllowProhibitedAnalyzeFromWriteAction",
+    ],
+    x_context_parameters = True,
+)
+
 jvm_library(
     name = "jvm",
     srcs = glob(
@@ -12,6 +34,7 @@ jvm_library(
         ],
         allow_empty = True,
     ),
+    kotlinc_opts = ":custom_jvm",
     module_name = "intellij.kotlin.runConfigurations.jvm",
     resource_strip_prefix = "resources",
     resources = glob(
@@ -47,6 +70,7 @@ jvm_library(
         "//platform/analysis-api:analysis",
         "//platform/projectModel-api:projectModel",
         "//platform/execution",
+        "//platform/consoleView",
         "//platform/ide-core",
         "//platform/platform-util-io:ide-util-io",
         "//java/openapi:java",
@@ -62,8 +86,6 @@ jvm_library(
     ],
 )
 
-content_module_jar(module = ":jvm")
-
 jvm_library(
     name = "jvm_test_lib",
     testonly = True,
@@ -71,6 +93,7 @@ jvm_library(
         [],
         allow_empty = True,
     ),
+    kotlinc_opts = ":custom_jvm",
     module_name = "intellij.kotlin.runConfigurations.jvm",
     visibility = ["//visibility:public"],
     runtime_deps = [
@@ -102,6 +125,7 @@ jvm_library(
         "//platform/analysis-api:analysis_test_lib",
         "//platform/projectModel-api:projectModel_test_lib",
         "//platform/execution:execution_test_lib",
+        "//platform/consoleView:consoleView_test_lib",
         "//platform/ide-core:ide-core_test_lib",
         "//platform/platform-util-io:ide-util-io_test_lib",
         "//java/openapi:java_test_lib",

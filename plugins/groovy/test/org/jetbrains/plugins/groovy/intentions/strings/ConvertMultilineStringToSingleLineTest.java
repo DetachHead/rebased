@@ -34,7 +34,7 @@ public class ConvertMultilineStringToSingleLineTest extends GrIntentionTestCase 
   public void testQuote() { doTest(true); }
 
   @Override
-  public final String getBasePath() {
-    return TestUtils.getTestDataPath() + "intentions/convertMultilineToSingleline/";
+  public final String getTestDataPath() {
+    return TestUtils.getAbsoluteTestDataPath() + "intentions/convertMultilineToSingleline/";
   }
 }

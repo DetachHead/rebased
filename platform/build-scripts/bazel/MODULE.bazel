@@ -8,9 +8,9 @@ bazel_dep(name = "rules_java", version = "9.6.1")
 bazel_dep(name = "rules_kotlin", version = "2.2.2")
 archive_override(
     module_name = "rules_kotlin",
-    sha256 = "55be2ff6c30302834f7e6f6fc0ac3f9f4fad8a2b6c05a4e08bd1edb7f56737f1",
-    strip_prefix = "rules_kotlin-cf0bb4553cd90b8936b995ea8313a62dd024eea0",
-    url = "https://github.com/JetBrains/rules_kotlin/archive/cf0bb4553cd90b8936b995ea8313a62dd024eea0.zip",
+    sha256 = "f9e4ad312589048535bf9bdbbc9b0c8df22727d3d2b0bd224f9aba10f3069230",
+    strip_prefix = "rules_kotlin-f67028ddfa868b004432036d712bc8a79c9a1f30",
+    url = "https://github.com/JetBrains/rules_kotlin/archive/f67028ddfa868b004432036d712bc8a79c9a1f30.zip",
 )
 
 bazel_dep(name = "rules_jvm_external", version = "6.10")
@@ -18,7 +18,6 @@ single_version_override(
     module_name = "rules_jvm_external",
     patches = [
         "rules-jvm-external-6.10-make-coursier-repo-targets-shell-free-and-hermetic.patch",
-        "rules-jvm-external-6.10-default-to-maven-resolver.patch",
         "rules-jvm-external-6.10-optional-source-jars.patch",
         "rules-jvm-external-6.10-coursier-optional-file-field.patch",
         "rules-jvm-external-6.10-fix-multi-repo-hash.patch",
@@ -62,8 +61,12 @@ intellij_version = "253.29346.138"
 maven = use_extension("@rules_jvm_external//:extensions.bzl", "maven")
 maven.install(
     name = "j2b_maven",
+    # --experimental_repository_downloader_retries from community/common.bazelrc is not applicable here
+    additional_coursier_options = [
+        "--retry-count",
+        "5",
+    ],
     artifacts = [
-        "com.charleskorn.kaml:kaml-jvm:0.99.0",
         "com.jetbrains.intellij.platform:jps-model-impl:" + intellij_version,
         "com.jetbrains.intellij.platform:build-scripts-downloader:" + intellij_version,
         "com.jetbrains.intellij.platform:jps-model-serialization:" + intellij_version,
@@ -82,10 +85,11 @@ maven.install(
         "https://cache-redirector.jetbrains.com/download.jetbrains.com/teamcity-repository",
         "https://cache-redirector.jetbrains.com/www.jetbrains.com/intellij-repository/releases",
     ],
+    use_credentials_from_home_netrc_file = True,
 )
 use_repo(maven, "j2b_maven")
 
-bazel_dep(name = "rules_python", version = "1.7.0")
+bazel_dep(name = "rules_python", version = "1.8.0")
 
 http_file = use_repo_rule("@bazel_tools//tools/build_defs/repo:http.bzl", "http_file")
 
@@ -101,8 +105,8 @@ http_archive = use_repo_rule("@bazel_tools//tools/build_defs/repo:http.bzl", "ht
 
 http_archive(
     name = "remote_java_tools_windows_with_vc_redist",
-    sha256 = "82203dfae9f75a268e5e0e643ce5696a7c035ce9626938601fb410ee11849b1b",
-    url = "https://packages.jetbrains.team/files/p/ij/intellij-build-dependencies/rules-java/java_tools_windows-v19.0-with-vc_redist.zip",
+    sha256 = "a9df22ddf20fcd0407ae0782845b58787e4a126eb81aa8d16dfa5be542c443d0",
+    url = "https://packages.jetbrains.team/files/p/ij/intellij-build-dependencies/rules-java/java_tools_windows-v19.0-with-vc_redist-v2.zip",
 )
 
 override_repo(

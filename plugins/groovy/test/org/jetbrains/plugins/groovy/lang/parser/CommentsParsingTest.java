@@ -3,8 +3,8 @@ package org.jetbrains.plugins.groovy.lang.parser;
 
 public class CommentsParsingTest extends GroovyParsingTestCase {
   @Override
-  public String getBasePath() {
-    return super.getBasePath() + "comments";
+  public String getTestDataPath() {
+    return super.getTestDataPath() + "comments";
   }
 
   public void testBrown() { doTest(); }

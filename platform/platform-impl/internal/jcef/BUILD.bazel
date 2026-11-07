@@ -1,6 +1,10 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
 load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
+### auto-generated section `dev intellij.internal.jcef` start
+content_module_jar(module = ":jcef")
+### auto-generated section `dev intellij.internal.jcef` end
+
 ### auto-generated section `build intellij.internal.jcef` start
 jvm_library(
     name = "jcef",
@@ -61,7 +65,6 @@ jvm_library(
         "//libraries/gson",
         "//libraries/kotlinx/serialization/core",
         "//libraries/kotlin/reflect",
-        "//libraries/jna",
         "//platform/workspace/storage",
         "//platform/platform-impl/concurrency",
         "//platform/platform-impl/update-checker",
@@ -73,8 +76,6 @@ jvm_library(
         "//platform/locking-impl",
     ],
 )
-
-content_module_jar(module = ":jcef")
 
 jvm_library(
     name = "jcef_test_lib",
@@ -129,7 +130,6 @@ jvm_library(
         "//libraries/gson:gson_test_lib",
         "//libraries/kotlinx/serialization/core:core_test_lib",
         "//libraries/kotlin/reflect:reflect_test_lib",
-        "//libraries/jna:jna_test_lib",
         "//platform/workspace/storage:storage_test_lib",
         "//platform/platform-impl/concurrency:concurrency_test_lib",
         "//platform/platform-impl/update-checker:update-checker_test_lib",

@@ -1,9 +1,11 @@
 // Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.idea.devkit.k2.inspections.eel
 
+import com.intellij.lang.Language as IntelliJLanguage
 import com.intellij.openapi.application.EDT
 import com.intellij.openapi.application.PathManager
 import com.intellij.openapi.module.Module
+import com.intellij.openapi.project.IntelliJProjectUtil
 import com.intellij.openapi.roots.ContentEntry
 import com.intellij.openapi.roots.ModifiableRootModel
 import com.intellij.openapi.roots.OrderRootType
@@ -25,6 +27,8 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import org.intellij.lang.annotations.Language
 import org.jetbrains.idea.devkit.inspections.eel.UseOptimizedEelFunctions
+import org.jetbrains.idea.devkit.inspections.eel.OptimizedEelFunctionCallNameProviders
+import org.jetbrains.idea.devkit.kotlin.inspections.eel.KtOptimizedEelFunctionCallNameProvider
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Nested
@@ -51,7 +55,7 @@ class UseOptimizedEelFunctionsTest {
     
           class Example {
             void example() throws IOException {
-              byte[] result = Files.<warning descr="Works ineffectively with remote Eel">readAllBytes</warning>(Path.of("hello.txt"));
+              byte[] result = Files.<warning descr="'readAllBytes' requires multiple RPC round trips in IJent context">readAllBytes</warning>(Path.of("hello.txt"));
             }
           }
         """.trimIndent()
@@ -82,7 +86,7 @@ class UseOptimizedEelFunctionsTest {
           import java.nio.file.Path
     
           fun example() {
-            val result = Files.<warning descr="Works ineffectively with remote Eel">readAllBytes</warning>(Path.of("hello.txt"))
+            val result = Files.<warning descr="'readAllBytes' requires multiple RPC round trips in IJent context">readAllBytes</warning>(Path.of("hello.txt"))
           }
         """.trimIndent()
 
@@ -167,7 +171,7 @@ class UseOptimizedEelFunctionsTest {
     
           class Example {
             void example() throws IOException {
-              ByteBuffer result = ByteBuffer.wrap(Files.<warning descr="Works ineffectively with remote Eel">readAllBytes</warning>(Path.of("hello.txt")));
+              ByteBuffer result = ByteBuffer.wrap(Files.<warning descr="'readAllBytes' requires multiple RPC round trips in IJent context">readAllBytes</warning>(Path.of("hello.txt")));
             }
           }
         """.trimIndent()
@@ -200,7 +204,7 @@ class UseOptimizedEelFunctionsTest {
           import java.nio.file.Path
     
           fun example() {
-            val result = ByteBuffer.wrap(Files.<warning descr="Works ineffectively with remote Eel">readAllBytes</warning>(Path.of("hello.txt")))
+            val result = ByteBuffer.wrap(Files.<warning descr="'readAllBytes' requires multiple RPC round trips in IJent context">readAllBytes</warning>(Path.of("hello.txt")))
           }
         """.trimIndent()
 
@@ -233,7 +237,7 @@ class UseOptimizedEelFunctionsTest {
     
           class Example {
             void example() throws IOException {
-              int hash = Files.<warning descr="Works ineffectively with remote Eel">readAllBytes</warning>(Path.of("hello.txt")).hashCode();
+              int hash = Files.<warning descr="'readAllBytes' requires multiple RPC round trips in IJent context">readAllBytes</warning>(Path.of("hello.txt")).hashCode();
             }
           }
         """.trimIndent()
@@ -266,7 +270,7 @@ class UseOptimizedEelFunctionsTest {
           import java.nio.file.Path
     
           fun example() {
-            val hash = Files.<warning descr="Works ineffectively with remote Eel">readAllBytes</warning>(Path.of("hello.txt")).hashCode()
+            val hash = Files.<warning descr="'readAllBytes' requires multiple RPC round trips in IJent context">readAllBytes</warning>(Path.of("hello.txt")).hashCode()
           }
         """.trimIndent()
 
@@ -297,7 +301,7 @@ class UseOptimizedEelFunctionsTest {
     
           class Example {
             void example() throws IOException {
-              byte[] result = Files.<warning descr="Works ineffectively with remote Eel">readAllBytes</warning>(Path.of("hello.txt"));
+              byte[] result = Files.<warning descr="'readAllBytes' requires multiple RPC round trips in IJent context">readAllBytes</warning>(Path.of("hello.txt"));
             }
           }
         """.trimIndent()
@@ -326,7 +330,7 @@ class UseOptimizedEelFunctionsTest {
           import java.nio.file.*
     
           fun example() {
-            val result = Files.<warning descr="Works ineffectively with remote Eel">readAllBytes</warning>(Path.of("hello.txt"))
+            val result = Files.<warning descr="'readAllBytes' requires multiple RPC round trips in IJent context">readAllBytes</warning>(Path.of("hello.txt"))
           }
         """.trimIndent()
 
@@ -354,7 +358,7 @@ class UseOptimizedEelFunctionsTest {
     
           class Example {
             void example() throws IOException {
-              var result = java.nio.file.Files.<warning descr="Works ineffectively with remote Eel">readAllBytes</warning>(java.nio.file.Path.of("hello.txt"));
+              var result = java.nio.file.Files.<warning descr="'readAllBytes' requires multiple RPC round trips in IJent context">readAllBytes</warning>(java.nio.file.Path.of("hello.txt"));
             }
           }
         """.trimIndent()
@@ -384,7 +388,7 @@ class UseOptimizedEelFunctionsTest {
           import java.nio.file.Files
     
           fun example() {
-            val result = java.nio.file.Files.<warning descr="Works ineffectively with remote Eel">readAllBytes</warning>(java.nio.file.Path.of("hello.txt"))
+            val result = java.nio.file.Files.<warning descr="'readAllBytes' requires multiple RPC round trips in IJent context">readAllBytes</warning>(java.nio.file.Path.of("hello.txt"))
           }
         """.trimIndent()
 
@@ -416,7 +420,7 @@ class UseOptimizedEelFunctionsTest {
     
           class Example {
             void example() throws IOException {
-              var result = <warning descr="Works ineffectively with remote Eel">readAllBytes</warning>(Path.of("hello.txt"));
+              var result = <warning descr="'readAllBytes' requires multiple RPC round trips in IJent context">readAllBytes</warning>(Path.of("hello.txt"));
             }
           }
         """.trimIndent()
@@ -447,7 +451,7 @@ class UseOptimizedEelFunctionsTest {
           import java.nio.file.Path
     
           fun example() {
-            val result = <warning descr="Works ineffectively with remote Eel">readAllBytes</warning>(Path.of("hello.txt"))
+            val result = <warning descr="'readAllBytes' requires multiple RPC round trips in IJent context">readAllBytes</warning>(Path.of("hello.txt"))
           }
         """.trimIndent()
 
@@ -474,7 +478,7 @@ class UseOptimizedEelFunctionsTest {
         import java.nio.file.Path
   
         fun example() {
-          val result = <warning descr="Works ineffectively with remote Eel">foobar</warning>(Path.of("hello.txt"))
+          val result = <warning descr="'foobar' requires multiple RPC round trips in IJent context">foobar</warning>(Path.of("hello.txt"))
         }
       """.trimIndent()
 
@@ -505,7 +509,7 @@ class UseOptimizedEelFunctionsTest {
   
         class Example {
           void example() throws IOException {
-            byte[] result = Files.<warning descr="Works ineffectively with remote Eel">readAllBytes</warning>(Path.of("hello.txt"));
+            byte[] result = Files.<warning descr="'readAllBytes' requires multiple RPC round trips in IJent context">readAllBytes</warning>(Path.of("hello.txt"));
           }
         }
       """.trimIndent()
@@ -539,8 +543,8 @@ class UseOptimizedEelFunctionsTest {
   
         class Example {
           void example() throws IOException {
-            String a = Files.<warning descr="Works ineffectively with remote Eel">readString</warning>(Path.of("hello.txt"));
-            String b = Files.<warning descr="Works ineffectively with remote Eel">readString</warning>(Path.of("hello.txt"), StandardCharsets.UTF_8);
+            String a = Files.<warning descr="'readString' requires multiple RPC round trips in IJent context">readString</warning>(Path.of("hello.txt"));
+            String b = Files.<warning descr="'readString' requires multiple RPC round trips in IJent context">readString</warning>(Path.of("hello.txt"), StandardCharsets.UTF_8);
           }
         }
       """.trimIndent()
@@ -566,6 +570,178 @@ class UseOptimizedEelFunctionsTest {
     }
 
     @Test
+    fun `Files write byte array Java`() {
+      @Language("Java")
+      val source = """
+        import java.io.IOException;
+        import java.nio.file.Files;
+        import java.nio.file.Path;
+        import java.nio.file.StandardOpenOption;
+
+        class Example {
+          void example(byte[] content) throws IOException {
+            Files.<warning descr="'write' requires multiple RPC round trips in IJent context">write</warning>(Path.of("hello.txt"), content);
+            Files.<warning descr="'write' requires multiple RPC round trips in IJent context">write</warning>(Path.of("hello.txt"), content, StandardOpenOption.APPEND);
+          }
+        }
+      """.trimIndent()
+
+      @Language("Java")
+      val expectedResult = """
+        import com.intellij.platform.eel.fs.EelFiles;
+
+        import java.io.IOException;
+        import java.nio.file.Files;
+        import java.nio.file.Path;
+        import java.nio.file.StandardOpenOption;
+
+        class Example {
+          void example(byte[] content) throws IOException {
+            EelFiles.write(Path.of("hello.txt"), content);
+            EelFiles.write(Path.of("hello.txt"), content, StandardOpenOption.APPEND);
+          }
+        }
+      """.trimIndent()
+
+      doTest("Example.java", source, expectedResult)
+    }
+
+    @Test
+    fun `Files write byte array Kotlin`() {
+      @Language("Kt")
+      val source = """
+        import java.nio.file.Files
+        import java.nio.file.Path
+        import java.nio.file.StandardOpenOption
+
+        fun example(content: ByteArray) {
+          Files.<warning descr="'write' requires multiple RPC round trips in IJent context">write</warning>(Path.of("hello.txt"), content, StandardOpenOption.CREATE)
+        }
+      """.trimIndent()
+
+      @Language("Kt")
+      val expectedResult = """
+        import com.intellij.platform.eel.fs.EelFiles
+        import java.nio.file.Files
+        import java.nio.file.Path
+        import java.nio.file.StandardOpenOption
+
+        fun example(content: ByteArray) {
+            EelFiles.write(Path.of("hello.txt"), content, StandardOpenOption.CREATE)
+        }
+      """.trimIndent()
+
+      doTest("Example.kt", source, expectedResult)
+    }
+
+    @Test
+    fun `Files write unsupported overloads`() {
+      @Language("Java")
+      val source = """
+        import java.io.IOException;
+        import java.nio.charset.StandardCharsets;
+        import java.nio.file.Files;
+        import java.nio.file.Path;
+        import java.util.List;
+
+        class Example {
+          void example() throws IOException {
+            Files.write(Path.of("hello.txt"), List.of("hello"));
+            Files.write(Path.of("hello.txt"), List.of("hello"), StandardCharsets.UTF_8);
+          }
+        }
+      """.trimIndent()
+
+      doHighlightingTest("Example.java", source)
+    }
+
+    @Test
+    fun `Files writeString Java`() {
+      @Language("Java")
+      val source = """
+        import java.io.IOException;
+        import java.nio.charset.StandardCharsets;
+        import java.nio.file.Files;
+        import java.nio.file.Path;
+        import java.nio.file.StandardOpenOption;
+
+        class Example {
+          void example() throws IOException {
+            Files.<warning descr="'writeString' requires multiple RPC round trips in IJent context">writeString</warning>(Path.of("first.txt"), "first");
+            Files.<warning descr="'writeString' requires multiple RPC round trips in IJent context">writeString</warning>(Path.of("second.txt"), "second", StandardCharsets.UTF_16LE, StandardOpenOption.CREATE);
+          }
+        }
+      """.trimIndent()
+
+      @Language("Java")
+      val expectedResult = """
+        import com.intellij.platform.eel.fs.EelFiles;
+
+        import java.io.IOException;
+        import java.nio.charset.StandardCharsets;
+        import java.nio.file.Files;
+        import java.nio.file.Path;
+        import java.nio.file.StandardOpenOption;
+
+        class Example {
+          void example() throws IOException {
+            EelFiles.writeString(Path.of("first.txt"), "first");
+            EelFiles.writeString(Path.of("second.txt"), "second", StandardCharsets.UTF_16LE, StandardOpenOption.CREATE);
+          }
+        }
+      """.trimIndent()
+
+      doTest("Example.java", source, expectedResult)
+    }
+
+    @Test
+    fun `Files writeString Kotlin`() {
+      @Language("Kt")
+      val source = """
+        import java.nio.charset.StandardCharsets
+        import java.nio.file.Files
+        import java.nio.file.Path
+        import java.nio.file.StandardOpenOption
+
+        fun example() {
+          Files.<warning descr="'writeString' requires multiple RPC round trips in IJent context">writeString</warning>(Path.of("hello.txt"), "hello", StandardCharsets.UTF_16LE, StandardOpenOption.CREATE)
+        }
+      """.trimIndent()
+
+      @Language("Kt")
+      val expectedResult = """
+        import com.intellij.platform.eel.fs.EelFiles
+        import java.nio.charset.StandardCharsets
+        import java.nio.file.Files
+        import java.nio.file.Path
+        import java.nio.file.StandardOpenOption
+
+        fun example() {
+            EelFiles.writeString(Path.of("hello.txt"), "hello", StandardCharsets.UTF_16LE, StandardOpenOption.CREATE)
+        }
+      """.trimIndent()
+
+      doTest("Example.kt", source, expectedResult)
+    }
+
+    @Test
+    fun `Files write in external plugin project`() {
+      IntelliJProjectUtil.markAsIntelliJPlatformProject(myFixture.project, false)
+
+      @Language("Kt")
+      val source = """
+        import java.nio.file.Files
+        import java.nio.file.Path
+
+        fun example(content: ByteArray) {
+          Files.<info descr="'write' requires multiple RPC round trips in IJent context">write</info>(Path.of("hello.txt"), content)
+        }
+      """.trimIndent()
+
+      doHighlightingTest("Example.kt", source)
+    }
+
+    @Test
     fun deleteRecursively() {
       @Suppress("unused")
       fun someFnThatIsNeverCalled() {
@@ -587,10 +763,10 @@ class UseOptimizedEelFunctionsTest {
   
         class Example {
           void example() throws IOException {
-            NioFiles.<warning descr="Works ineffectively with remote Eel">deleteRecursively</warning>(Path.of(""));
+            NioFiles.<warning descr="'deleteRecursively' requires multiple RPC round trips in IJent context">deleteRecursively</warning>(Path.of(""));
             NioFiles.deleteRecursively(Path.of(""), path -> {});  // This overload has no replacement in eel.
             
-            FileUtilRt.<warning descr="Works ineffectively with remote Eel">deleteRecursively</warning>(Path.of(""));
+            FileUtilRt.<warning descr="'deleteRecursively' requires multiple RPC round trips in IJent context">deleteRecursively</warning>(Path.of(""));
           }
         }
       """.trimIndent()
@@ -628,7 +804,22 @@ class UseOptimizedEelFunctionsTest {
       .getFixture()
     myFixture = JavaTestFixtureFactory.getFixtureFactory().createCodeInsightFixture(fixture, LightTempDirTestFixtureImpl(true))
     myFixture.setUp()
+    OptimizedEelFunctionCallNameProviders.addExplicitExtension(
+      IntelliJLanguage.findLanguageByID("kotlin")!!,
+      KtOptimizedEelFunctionCallNameProvider(),
+      myFixture.testRootDisposable,
+    )
+    IntelliJProjectUtil.markAsIntelliJPlatformProject(myFixture.project, true)
     myFixture.enableInspections(UseOptimizedEelFunctions::class.java)
+  }
+
+  private fun doHighlightingTest(fileName: String, source: String) = timeoutRunBlocking {
+    val exampleFile = myFixture.configureByText(fileName, source)
+    withContext(Dispatchers.EDT) {
+      myFixture.openFileInEditor(exampleFile.virtualFile)
+    }
+
+    myFixture.testHighlighting()
   }
 
   private fun doTest(fileName: String, source: String, expectedResult: String) = timeoutRunBlocking {

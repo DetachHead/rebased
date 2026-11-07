@@ -3,7 +3,6 @@ package com.intellij.conversion.impl;
 
 import com.intellij.conversion.CannotConvertException;
 import com.intellij.conversion.RunManagerSettings;
-import com.intellij.execution.impl.RunManagerImplKt;
 import com.intellij.openapi.util.JDOMUtil;
 import org.jdom.Element;
 import org.jetbrains.annotations.NotNull;
@@ -18,6 +17,7 @@ import java.util.List;
 final class RunManagerSettingsImpl implements RunManagerSettings {
   private static final String RUN_MANAGER_COMPONENT_NAME = "RunManager";
   private static final String CONFIGURATION_ELEMENT = "configuration";
+  private static final String PROJECT_RUN_MANAGER_COMPONENT_NAME = "ProjectRunConfigurationManager";
 
   private final SettingsXmlFile myWorkspaceFile;
   private final @Nullable SettingsXmlFile myProjectFile;
@@ -53,7 +53,7 @@ final class RunManagerSettingsImpl implements RunManagerSettings {
     //noinspection CollectionAddAllCanBeReplacedWithConstructor
     result.addAll(JDOMUtil.getChildren(myWorkspaceFile.findComponent(RUN_MANAGER_COMPONENT_NAME), CONFIGURATION_ELEMENT));
     if (myProjectFile != null) {
-      result.addAll(JDOMUtil.getChildren(myProjectFile.findComponent(RunManagerImplKt.PROJECT_RUN_MANAGER_COMPONENT_NAME), CONFIGURATION_ELEMENT));
+      result.addAll(JDOMUtil.getChildren(myProjectFile.findComponent(PROJECT_RUN_MANAGER_COMPONENT_NAME), CONFIGURATION_ELEMENT));
     }
 
     for (Path file : getSharedConfigurationFiles()) {

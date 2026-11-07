@@ -2,6 +2,7 @@
 package com.intellij.openapi.roots.impl
 
 import com.intellij.configurationStore.BatchUpdateListener
+import com.intellij.diagnostic.rethrowControlFlowException
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ApplicationListener
 import com.intellij.openapi.application.ApplicationManager
@@ -9,8 +10,6 @@ import com.intellij.openapi.application.readAction
 import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.diagnostic.logger
-import com.intellij.openapi.diagnostic.thisLogger
-import com.intellij.openapi.diagnostic.rethrowControlFlowException
 import com.intellij.openapi.diagnostic.trace
 import com.intellij.openapi.extensions.ExtensionPointName
 import com.intellij.openapi.fileTypes.FileTypeEvent
@@ -32,11 +31,10 @@ import com.intellij.openapi.roots.WatchedRootsProvider
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.util.EmptyRunnable
 import com.intellij.openapi.util.io.FileUtilRt
-import com.intellij.openapi.vfs.LocalFileSystem
-import com.intellij.openapi.vfs.LocalFileSystem.WatchRequest
 import com.intellij.openapi.vfs.StandardFileSystems
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.openapi.vfs.VirtualFileManager
+import com.intellij.openapi.vfs.WatchRoots
 import com.intellij.openapi.vfs.impl.VirtualFilePointerContainerImpl
 import com.intellij.openapi.vfs.newvfs.NewVirtualFile
 import com.intellij.openapi.vfs.pointers.VirtualFilePointer
@@ -50,7 +48,6 @@ import com.intellij.project.stateStore
 import com.intellij.util.concurrency.annotations.RequiresReadLock
 import com.intellij.util.containers.CollectionFactory
 import com.intellij.util.indexing.EntityIndexingService
-import com.intellij.util.indexing.ProjectEntityIndexingService
 import com.intellij.workspaceModel.core.fileIndex.WorkspaceFileKind
 import com.intellij.workspaceModel.core.fileIndex.WorkspaceFileSetWithCustomData
 import com.intellij.workspaceModel.core.fileIndex.impl.SkipAddingToWatchedRootsData
@@ -71,6 +68,7 @@ private val LOG = logger<ProjectRootManagerComponent>()
 private val LOG_CACHES_UPDATE by lazy(LazyThreadSafetyMode.NONE) {
   ApplicationManager.getApplication().isInternal && !ApplicationManager.getApplication().isUnitTestMode
 }
+@Suppress("SSBasedInspection")
 private val WATCH_ROOTS_LOG = Logger.getInstance("#com.intellij.openapi.vfs.WatchRoots")
 private val WATCHED_ROOTS_PROVIDER_EP_NAME = ExtensionPointName<WatchedRootsProvider>("com.intellij.roots.watchedRootsProvider")
 
@@ -88,7 +86,10 @@ open class ProjectRootManagerComponent(
   private var pointerChangesDetected = false
   private var insideWriteAction = 0
 
-  var rootsToWatch: MutableSet<WatchRequest> = CollectionFactory.createSmallMemoryFootprintSet()
+  private var watchTokens: List<WatchRoots.Token> = emptyList()
+
+  /** The paths given to [WatchRoots] last: the recursive roots, then the flat roots. */
+  var watchedRootPaths: Pair<Set<String>, Set<String>> = emptySet<String>() to emptySet()
     private set
 
   private var rootPointersDisposable = Disposer.newDisposable()
@@ -208,7 +209,8 @@ open class ProjectRootManagerComponent(
   }
 
   protected open fun projectClosed() {
-    LocalFileSystem.getInstance().removeWatchedRoots(rootsToWatch)
+    watchTokens.forEach { it.close() }
+    watchTokens = emptyList()
   }
 
   private fun addRootsToWatch() {
@@ -234,7 +236,7 @@ open class ProjectRootManagerComponent(
           // remote IJent VFPs may throw on deploy - don't fail project open (IJPL-245202)
           try {
             val watchRoots = readAction { collectWatchRoots(newDisposable) }
-            postCollect(newDisposable = newDisposable, oldDisposable = oldDisposable, watchRoots = watchRoots)
+            postCollect(newDisposable, oldDisposable, watchRoots)
           }
           catch (e: Throwable) {
             rethrowControlFlowException(e)
@@ -254,7 +256,13 @@ open class ProjectRootManagerComponent(
         // dispose after the re-creating container to keep VFPs from disposing and re-creating back;
         // instead, update their usage count
         Disposer.dispose(oldDisposable)
-        rootsToWatch = LocalFileSystem.getInstance().replaceWatchedRoots(rootsToWatch, watchRoots.first, watchRoots.second)
+        val service = WatchRoots.getInstance()
+        service.batch {
+          val previous = watchTokens
+          watchTokens = watchRoots.first.map { service.watch(it, true) } + watchRoots.second.map { service.watch(it, false) }
+          previous.forEach { it.close() }
+        }
+        watchedRootPaths = watchRoots
       }
       else {
         Disposer.dispose(newDisposable)
@@ -289,11 +297,10 @@ open class ProjectRootManagerComponent(
     finally {
       isFiringEvent = false
     }
-    ProjectEntityIndexingService.getInstance(project).indexChanges(indexingInfos)
     addRootsToWatch()
   }
 
-  @RequiresReadLock
+  @RequiresReadLock(generateAssertion = false /* IJPL-115548 */)
   private fun collectWatchRoots(disposable: Disposable): Pair<Set<String>, Set<String>> {
     val recursivePaths = CollectionFactory.createFilePathSet()
     val flatPaths = CollectionFactory.createFilePathSet()
@@ -424,7 +431,7 @@ open class ProjectRootManagerComponent(
   override fun markRootsForRefresh(): List<VirtualFile> {
     val paths = CollectionFactory.createFilePathSet()
     collectModuleWatchRoots(paths, paths, logAllowed = false)
-    val roots = paths.mapNotNull(LocalFileSystem.getInstance()::findFileByPath)
+    val roots = paths.mapNotNull(StandardFileSystems.local()::findFileByPath)
     roots.asSequence()
       .filterIsInstance(NewVirtualFile::class.java)
       .forEach(NewVirtualFile::markDirtyRecursively)

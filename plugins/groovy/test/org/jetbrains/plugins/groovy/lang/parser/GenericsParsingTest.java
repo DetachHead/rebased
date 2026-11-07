@@ -51,9 +51,9 @@ public class GenericsParsingTest extends GroovyParsingTestCase {
   public void testClassLevelMethodWithoutModifiers2() { doTest(); }
 
   @Override
-  public final String getBasePath() {
+  public final String getTestDataPath() {
     return basePath;
   }
 
-  private final String basePath = super.getBasePath() + "generics";
+  private final String basePath = super.getTestDataPath() + "generics";
 }

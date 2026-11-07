@@ -1,8 +1,10 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.unscramble
 
+import com.intellij.icons.AllIcons
 import com.intellij.openapi.application.ex.PathManagerEx
 import com.intellij.testFramework.junit5.TestApplication
+import com.intellij.threadDumpParser.ThreadDumpParser
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
@@ -93,6 +95,58 @@ internal class JcmdJsonThreadDumpParserTest {
   }
 
   @Test
+  fun `selected platform thread metadata is merged into full dump`() {
+    val parsed = parseMergedThreadDump()
+
+    val worker = parsed.threadStates.first { it.name == "multi-lock-thread" }
+
+    assertThat(worker.stackTrace).startsWith(
+      "\"multi-lock-thread\" #35 [48643] daemon prio=5 os_prio=31 cpu=0.04ms elapsed=63.52s " +
+      "tid=0x000000092d3f2000 nid=48643 RUNNABLE [0x1000]\n"
+    )
+    assertThat(worker.stackTrace).contains(
+      "\tat example.JsonFrame.run(JsonFrame.java:1)",
+      "\t  - locked java.lang.Object@jsonOnly",
+    )
+    assertThat(worker.stackTrace).doesNotContain(
+      "in Object.wait()",
+      "example.PlatformFrame.run",
+      "0x000000070001",
+      "0x000000070002",
+    )
+    assertTrue(worker.isDaemon)
+    assertThat(worker.ownedMonitors).contains("java.lang.Object@jsonOnly")
+
+    val container = parsed.threadContainerDescriptors.single { it.name == "java.util.concurrent.ForkJoinPool@abc" }
+    assertEquals(container.containerId, worker.threadContainerUniqueId)
+  }
+
+  @Test
+  fun `platform threads missing from full dump are added`() {
+    val parsed = parseMergedThreadDump()
+
+    val vmThread = parsed.threadStates.first { it.name == "VM Thread" }
+    assertThat(vmThread.stackTrace).startsWith(
+      "\"VM Thread\" os_prio=31 cpu=3.13ms elapsed=29.05s tid=0x0000000101848800 nid=0x5303 runnable"
+    )
+  }
+
+  @Test
+  fun `virtual threads are kept from full dump when merging platform dump`() {
+    val parsed = parseMergedThreadDump()
+
+    val virtualThread = parsed.threadStates.first { it.name == "virtual-worker" }
+
+    assertTrue(virtualThread.isVirtual)
+    assertEquals(
+      "\"virtual-worker\" tid=40 virtual unmounted RUNNABLE\n" +
+      "\tat example.Virtual.run(Virtual.java:1)\n" +
+      "\tat java.base/java.lang.VirtualThread.run(VirtualThread.java:456)",
+      virtualThread.stackTrace,
+    )
+  }
+
+  @Test
   fun `parser returns null for non-json input`() {
     assertNull(parseJcmdJsonThreadDump("\"main\" #1 prio=5 tid=0x1 nid=0x1 runnable"))
   }
@@ -105,6 +159,29 @@ internal class JcmdJsonThreadDumpParserTest {
   @Test
   fun `parser returns null for malformed json`() {
     assertNull(parseJcmdJsonThreadDump("{invalid json"))
+  }
+
+  @Test
+  fun `parser returns null for non-scalar thread id`() {
+    assertNull(parseJcmdJsonThreadDump("""
+      {
+        "threadDump": {
+          "threadContainers": [
+            {
+              "threads": [
+                {
+                  "tid": {
+                    "value": 1
+                  },
+                  "name": "main",
+                  "state": "RUNNABLE"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    """.trimIndent()))
   }
 
   @Test
@@ -139,6 +216,69 @@ internal class JcmdJsonThreadDumpParserTest {
     assertThat(parsed.threadContainerDescriptors).isEmpty()
     // Thread in root has null container parent
     assertNull(parsed.threadStates[0].threadContainerUniqueId)
+  }
+
+  @Test
+  fun `parser accepts numeric identifiers from jdk 27 json dumps`() {
+    val json = """
+      {
+        "threadDump": {
+          "formatVersion": 2,
+          "processId": 12345,
+          "threadContainers": [
+            {
+              "container": "<root>",
+              "parent": null,
+              "owner": null,
+              "threads": [
+                {
+                  "tid": 3,
+                  "name": "main",
+                  "state": "WAITING",
+                  "stack": [
+                    "example.Main.await(Main.java:1)"
+                  ]
+                }
+              ],
+              "threadCount": 1
+            },
+            {
+              "container": "java.util.concurrent.StructuredTaskScope@1234",
+              "parent": "<root>",
+              "owner": 3,
+              "threads": [
+                {
+                  "tid": 40,
+                  "name": "virtual-worker",
+                  "virtual": true,
+                  "carrier": 38,
+                  "state": "RUNNABLE",
+                  "stack": [
+                    "example.Virtual.run(Virtual.java:1)",
+                    "java.base/java.lang.VirtualThread.run(VirtualThread.java:456)"
+                  ]
+                }
+              ],
+              "threadCount": 1
+            }
+          ]
+        }
+      }
+    """.trimIndent()
+
+    val parsed = requireNotNull(parseJcmdJsonThreadDump(json))
+
+    val main = parsed.threadStates.single { it.name == "main" }
+    assertEquals(3L, main.uniqueId)
+
+    val virtualWorker = parsed.threadStates.single { it.name == "virtual-worker" }
+    assertEquals(40L, virtualWorker.uniqueId)
+    assertTrue(virtualWorker.isVirtual)
+    assertThat(virtualWorker.stackTrace).startsWith("\"virtual-worker\" tid=40 virtual carrierId=38 RUNNABLE\n")
+
+    val container = parsed.threadContainerDescriptors.single { it.name == "java.util.concurrent.StructuredTaskScope@1234" }
+    assertEquals(3L, container.parentId)
+    assertEquals(container.containerId, virtualWorker.threadContainerUniqueId)
   }
 
   // ----------------------- LOCK TESTS ----------------------- //
@@ -187,6 +327,37 @@ internal class JcmdJsonThreadDumpParserTest {
 
     val thread1 = parsed.threadStates.first { it.name == "Thread-1" }
     assertEquals("java.lang.Object@4a1a69c2", thread1.contendedMonitor)
+  }
+
+  @Test
+  fun `park blocker is added after unsafe park frame`() {
+    val parsed = requireNotNull(parseJcmdJsonThreadDump(PARK_BLOCKER_DUMP))
+
+    val thread = parsed.threadStates.single { it.name == "ForkJoinPool-1-worker-14" }
+
+    assertEquals("java.util.concurrent.ForkJoinPool@4c997fb0", thread.contendedMonitor)
+    assertThat(thread.stackTrace).contains(
+      "\tat java.base/jdk.internal.misc.Unsafe.park(Native Method)\n" +
+      "\t- parking to wait for  <java.util.concurrent.ForkJoinPool@4c997fb0>\n" +
+      "\tat java.base/java.util.concurrent.ForkJoinPool.awaitWork(ForkJoinPool.java:2109)"
+    )
+  }
+
+  @Test
+  fun `json thread state is used for dump item icon`() {
+    val parsed = requireNotNull(parseJcmdJsonThreadDump(THREAD_STATES_DUMP))
+
+    val waitingThread = parsed.threadStates.single { it.name == "waiting-thread" }
+    val runningThread = parsed.threadStates.single { it.name == "running-thread" }
+    val dumpItemsByName = toDumpItems(parsed).associateBy { it.name }
+
+    assertEquals("WAITING", waitingThread.javaThreadState)
+    assertTrue(waitingThread.isWaiting)
+    assertThat(dumpItemsByName.getValue("waiting-thread").icon).isEqualTo(AllIcons.Debugger.ThreadFrozen)
+
+    assertEquals("RUNNABLE", runningThread.javaThreadState)
+    assertFalse(runningThread.isWaiting)
+    assertThat(dumpItemsByName.getValue("running-thread").icon).isEqualTo(AllIcons.Actions.Resume)
   }
 
   @Test
@@ -291,7 +462,7 @@ internal class JcmdJsonThreadDumpParserTest {
     val jcmdDumpItems = parseThreadDump("jcmdJsonNestedContainers.json")
 
     val serialized = serializeIntelliJThreadDump(jcmdDumpItems)
-    val parsedSerializedDumpItems = requireNotNull(parseIntelliJThreadDump(serialized)).dumpItems()
+    val parsedSerializedDumpItems = toDumpItems(requireNotNull(parseIntelliJThreadDump(serialized)))
 
     assertEquals(dumpItemsTree(jcmdDumpItems), dumpItemsTree(parsedSerializedDumpItems))
   }
@@ -301,7 +472,7 @@ internal class JcmdJsonThreadDumpParserTest {
     val dumpText = loadThreadDump("jcmdJsonDeadlock.json")
     val originalThreadDump = requireNotNull(parseJcmdJsonThreadDump(dumpText))
 
-    val serialized = serializeIntelliJThreadDump(originalThreadDump.dumpItems())
+    val serialized = serializeIntelliJThreadDump(toDumpItems(originalThreadDump))
     val parsedSerializedThreadDump = requireNotNull(parseIntelliJThreadDump(serialized))
 
     for (i in originalThreadDump.threadStates.indices) {
@@ -318,7 +489,12 @@ internal class JcmdJsonThreadDumpParserTest {
     val dumpText = loadThreadDump(dumpFileName)
 
     val parsed = requireNotNull(parseJcmdJsonThreadDump(dumpText))
-    return parsed.dumpItems()
+    return toDumpItems(parsed)
+  }
+
+  private fun parseMergedThreadDump(): ThreadDumpState {
+    val platformThreadStates = ThreadDumpParser.parse(PLATFORM_DUMP)
+    return requireNotNull(parseJcmdJsonThreadDump(JCMD_JSON_DUMP, platformThreadStates))
   }
 
   private fun loadThreadDump(path: String): String {
@@ -351,7 +527,140 @@ internal class JcmdJsonThreadDumpParserTest {
 
   private fun findDumpItem(dumpItems: List<DumpItem>, name: String): DumpItem =
     dumpItems.firstOrNull { it.name == name }
-      ?: error("Dump item not found: $name, available: ${dumpItems.map { it.name }}")
+    ?: error("Dump item not found: $name, available: ${dumpItems.map { it.name }}")
 
   private fun DumpItem.isVirtual() = stackTrace.contains("virtual")
+
+  private companion object {
+    private val PARK_BLOCKER_DUMP = """
+      {
+        "threadDump": {
+          "threadContainers": [
+            {
+              "container": "<root>",
+              "parent": null,
+              "owner": null,
+              "threads": [
+                {
+                  "tid": "63",
+                  "name": "ForkJoinPool-1-worker-14",
+                  "state": "WAITING",
+                  "parkBlocker": {
+                    "object": "java.util.concurrent.ForkJoinPool@4c997fb0"
+                  },
+                  "stack": [
+                    "java.base/jdk.internal.misc.Unsafe.park(Native Method)",
+                    "java.base/java.util.concurrent.ForkJoinPool.awaitWork(ForkJoinPool.java:2109)",
+                    "java.base/java.util.concurrent.ForkJoinPool.deactivate(ForkJoinPool.java:2063)",
+                    "java.base/java.util.concurrent.ForkJoinPool.runWorker(ForkJoinPool.java:2027)",
+                    "java.base/java.util.concurrent.ForkJoinWorkerThread.run(ForkJoinWorkerThread.java:187)"
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      }
+    """.trimIndent()
+
+    private val THREAD_STATES_DUMP = """
+      {
+        "threadDump": {
+          "threadContainers": [
+            {
+              "container": "<root>",
+              "parent": null,
+              "owner": null,
+              "threads": [
+                {
+                  "tid": "1",
+                  "name": "waiting-thread",
+                  "state": "WAITING",
+                  "stack": [
+                    "java.base/jdk.internal.misc.Unsafe.park(Native Method)",
+                    "java.base/java.util.concurrent.locks.LockSupport.park(LockSupport.java:371)"
+                  ]
+                },
+                {
+                  "tid": "2",
+                  "name": "running-thread",
+                  "state": "RUNNABLE",
+                  "stack": [
+                    "example.Main.run(Main.java:1)"
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      }
+    """.trimIndent()
+
+    private val JCMD_JSON_DUMP = """
+      {
+        "threadDump": {
+          "threadContainers": [
+            {
+              "container": "<root>",
+              "parent": null,
+              "owner": null,
+              "threads": [
+                {
+                  "tid": "40",
+                  "name": "virtual-worker",
+                  "virtual": true,
+                  "state": "RUNNABLE",
+                  "stack": [
+                    "example.Virtual.run(Virtual.java:1)",
+                    "java.base/java.lang.VirtualThread.run(VirtualThread.java:456)"
+                  ]
+                }
+              ]
+            },
+            {
+              "container": "java.util.concurrent.ForkJoinPool@abc",
+              "parent": null,
+              "owner": null,
+              "threads": [
+                {
+                  "tid": "35",
+                  "name": "multi-lock-thread",
+                  "state": "RUNNABLE",
+                  "stack": [
+                    "example.JsonFrame.run(JsonFrame.java:1)"
+                  ],
+                  "monitorsOwned": [
+                    {
+                      "depth": 0,
+                      "locks": [
+                        "java.lang.Object@jsonOnly"
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      }
+    """.trimIndent()
+
+    private const val PLATFORM_THREAD_HEADER =
+      "\"multi-lock-thread\" #35 [48643] daemon prio=5 os_prio=31 cpu=0.04ms elapsed=63.52s " +
+      "tid=0x000000092d3f2000 nid=48643 in Object.wait()  [0x1000]"
+
+    private val PLATFORM_DUMP = """
+      Full thread dump OpenJDK 64-Bit Server VM (25+10 mixed mode):
+
+      $PLATFORM_THREAD_HEADER
+         java.lang.Thread.State: WAITING (on object monitor)
+            at example.PlatformFrame.run(PlatformFrame.java:10)
+            - locked <0x000000070001> (a java.lang.Object)
+
+         Locked ownable synchronizers:
+            - <0x000000070002> (a java.util.concurrent.locks.ReentrantLock)
+
+      "VM Thread" os_prio=31 cpu=3.13ms elapsed=29.05s tid=0x0000000101848800 nid=0x5303 runnable
+    """.trimIndent()
+  }
 }

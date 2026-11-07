@@ -67,6 +67,7 @@ abstract class KotlinIntroduceVariableHandler : RefactoringActionHandler {
         containers: Containers,
         isVar: Boolean,
         occurrencesToReplace: List<KtExpression>? = null,
+        showVarOption: Boolean = true,
         onNonInteractiveFinish: ((KtDeclaration) -> Unit)? = null,
     )
 
@@ -128,7 +129,8 @@ abstract class KotlinIntroduceVariableHandler : RefactoringActionHandler {
         isVar: Boolean,
         occurrencesToReplace: List<KtExpression>? = null,
         targetContainer: KtElement? = null,
-        onNonInteractiveFinish: ((KtDeclaration) -> Unit)? = null
+        showVarOption: Boolean = true,
+        onNonInteractiveFinish: ((KtDeclaration) -> Unit)? = null,
     ) {
         val expression = expressionToExtract?.let { KtPsiUtil.safeDeparenthesize(it) }
             ?: return showErrorHint(project, editor, KotlinBundle.message("cannot.refactor.no.expression"))
@@ -146,7 +148,7 @@ abstract class KotlinIntroduceVariableHandler : RefactoringActionHandler {
         selectTargetContainerAndDoRefactoring(editor, targetContainer, candidateContainers) { containers ->
             doRefactoringWithSelectedTargetContainer(
                 project, editor, expression, containers,
-                isVar, occurrencesToReplace, onNonInteractiveFinish
+                isVar, occurrencesToReplace, showVarOption, onNonInteractiveFinish
             )
         }
     }
@@ -221,7 +223,7 @@ abstract class KotlinIntroduceVariableHandler : RefactoringActionHandler {
             is KtProperty -> expression !is KtBackingField
             is KtQualifiedExpression -> parent.receiverExpression == physicalExpression
             is KtOperationExpression if parent.operationReference == physicalExpression -> false
-            else -> physicalExpression !is KtStatementExpression
+            else -> physicalExpression !is KtStatementExpression || physicalExpression.isFunctionalExpression()
         }
         if (!isApplicable) {
             showErrorHint(project, editor, KotlinBundle.message("cannot.refactor.no.expression"))

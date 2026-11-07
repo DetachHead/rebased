@@ -4,6 +4,7 @@ package com.intellij.ide.todo.nodes
 import com.intellij.ide.IdeBundle
 import com.intellij.ide.projectView.PresentationData
 import com.intellij.ide.todo.TodoTreeBuilder
+import com.intellij.ide.ui.colors.color
 import com.intellij.ide.util.treeView.AbstractTreeNode
 import com.intellij.openapi.fileEditor.OpenFileDescriptor
 import com.intellij.openapi.project.Project
@@ -51,7 +52,7 @@ class TodoRemoteFileNode(
       results.map { result ->
         TodoRemoteItemNode(
           project,
-          TodoRemoteItemNode.Value(file, result.navigationOffset, result.length, result.line, result.presentation),
+          TodoRemoteItemNode.Value(file, result.range, result.line, result.presentation, result.additionalLines),
           builder,
         )
       }
@@ -75,6 +76,7 @@ class TodoRemoteFileNode(
     }
 
     presentation.presentableText = presentableText
+    presentation.forcedTextForeground = fileResult?.fileStatusColor?.color()
     presentation.setIcon(file.fileType.icon)
 
     val todoItemCount = fileResult?.todos?.size ?: builder.getCachedRemoteTodos(file).size
@@ -99,7 +101,7 @@ class TodoRemoteFileNode(
   fun createNavigatable(project: Project): OpenFileDescriptor {
     val file = checkValue().file
     val firstTodo = builder.getCachedRemoteTodos(file).firstOrNull()
-    val offset = firstTodo?.navigationOffset ?: 0
+    val offset = firstTodo?.range?.startOffset ?: 0
     return OpenFileDescriptor(project, file, offset)
   }
 

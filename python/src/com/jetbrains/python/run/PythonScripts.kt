@@ -30,6 +30,8 @@ import com.intellij.openapi.projectRoots.Sdk
 import com.intellij.openapi.roots.ModuleRootManager
 import com.intellij.openapi.util.io.FileUtil
 import com.jetbrains.python.HelperPackage
+import com.jetbrains.python.PYTHONIOENCODING
+import com.jetbrains.python.PYTHONPATH
 import com.jetbrains.python.PyBundle
 import com.jetbrains.python.debugger.PyDebugRunner
 import com.jetbrains.python.packaging.PyExecutionException
@@ -162,7 +164,7 @@ private fun resolveUploadPath(localPath: String, uploads: List<PathMapping>): Ta
 
 private fun PythonExecution.setHelpersCharset() {
   charset = UTF_8
-  addEnvironmentVariable(PythonEnvUtil.PYTHONIOENCODING, UTF_8.name())
+  addEnvironmentVariable(PYTHONIOENCODING, UTF_8.name())
 }
 
 @ApiStatus.Internal
@@ -193,7 +195,6 @@ fun prepareHelperScriptViaToolExecution(
   return execution
 }
 
-private const val PYTHONPATH_ENV = "PYTHONPATH"
 
 /**
  * Requests the upload of PyCharm helpers root directory to the target.
@@ -279,7 +280,7 @@ private fun PythonExecution.appendToPythonPath(value: TargetEnvironmentFunction<
 fun appendToPythonPath(envs: MutableMap<String, TargetEnvironmentFunction<String>>,
                        value: TargetEnvironmentFunction<String>,
                        targetPlatform: TargetPlatform) {
-  envs.merge(PYTHONPATH_ENV, value) { whole, suffix ->
+  envs.merge(PYTHONPATH, value) { whole, suffix ->
     listOf(whole, suffix).joinToPathValue(targetPlatform)
   }
 }
@@ -290,7 +291,7 @@ fun appendToPythonPath(envs: MutableMap<String, TargetEnvironmentFunction<String
                        targetPlatform: TargetPlatform) {
   if (paths.isEmpty()) return
   val value = paths.joinToPathValue(targetPlatform)
-  envs.merge(PYTHONPATH_ENV, value) { whole, suffix ->
+  envs.merge(PYTHONPATH, value) { whole, suffix ->
     listOf(whole, suffix).joinToPathValue(targetPlatform)
   }
 }
@@ -309,7 +310,7 @@ fun Collection<TargetEnvironmentFunction<String>>.joinToPathValue(targetPlatform
 // TODO: Make this code python-agnostic, get red of path hardcode
 fun PythonExecution.extendEnvs(additionalEnvs: Map<String, TargetEnvironmentFunction<String>>, targetPlatform: TargetPlatform) {
   for ((key, value) in additionalEnvs) {
-    if (key == PYTHONPATH_ENV) {
+    if (key == PYTHONPATH) {
       appendToPythonPath(value, targetPlatform)
     }
     else {

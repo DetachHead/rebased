@@ -5,6 +5,7 @@ import com.jetbrains.python.allure.Subsystems
 import com.jetbrains.python.allure.Layers
 import com.jetbrains.python.allure.Components
 import com.intellij.idea.TestFor
+import com.jetbrains.python.codeInsight.stdlib.PyStdlibTypeProvider
 import com.jetbrains.python.fixtures.PyCodeInsightTestCase
 import com.jetbrains.python.psi.LanguageLevel
 import org.junit.jupiter.api.Nested
@@ -203,6 +204,22 @@ class PyEnumTypeTest : PyCodeInsightTestCase() {
         class Color(Enum):
             RED = auto()
             BLUE = auto()
+        """.trimIndent())
+
+    @Test
+    @TestFor(classes = [PyStdlibTypeProvider::class])
+    fun `enum member value from a call in another file`() = test("""
+      from color import Color
+
+      expr = Color.RED.value
+      #               └ TYPE Unknown
+      """.trimIndent(),
+      "color.py" to """
+        from enum import Enum
+
+
+        class Color(Enum):
+            RED = make()
         """.trimIndent())
   }
 
@@ -845,7 +862,7 @@ class PyEnumTypeTest : PyCodeInsightTestCase() {
       
       special_painter(Colors.GREEN) # WARNING Expected type 'Literal[Colors.RED]', got 'Literal[Colors.GREEN]' instead
       
-      costs: dict[SpecialColors, int] = {Colors.GREEN: 7} # WARNING Expected type 'dict[Literal[Colors.RED], int]', got 'dict[Literal[Colors.GREEN], Literal[7]]' instead
+      costs: dict[SpecialColors, int] = {Colors.GREEN: 7} # WARNING Expected type 'dict[Literal[Colors.RED], int]', got 'dict[Colors, int]' instead
       """.trimIndent())
 
     @Test
@@ -1021,4 +1038,36 @@ class PyEnumTypeTest : PyCodeInsightTestCase() {
         e.value
     #       └ TYPE object
     """.trimIndent())
+
+  @Test
+  @TestFor(issues = ["PY-90693"])
+  fun `IntEnum StrEnum literal type`() = test("""
+    from enum import IntEnum, StrEnum
+    
+    class I(IntEnum):
+        a = 1
+        b = 2
+    
+    I.a.value
+    #    └ TYPE Literal[1]
+    
+    def fi(i: I):
+        i.name
+    #     └ TYPE Literal["a", "b"]
+        i.value
+    #     └ TYPE Literal[1, 2]
+    
+    class S(StrEnum):
+        a = "x"
+        b = "y"
+    
+    S.a.value
+    #    └ TYPE Literal["x"]
+    
+    def fs(s: S):
+        s.name
+    #     └ TYPE Literal["a", "b"]
+        s.value
+    #     └ TYPE Literal["x", "y"]
+    """)
 }

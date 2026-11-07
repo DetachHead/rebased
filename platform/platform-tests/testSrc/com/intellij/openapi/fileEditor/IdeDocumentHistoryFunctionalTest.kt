@@ -2,6 +2,7 @@
 package com.intellij.openapi.fileEditor
 
 import com.intellij.codeInsight.navigation.actions.navigateRequest
+import com.intellij.openapi.actionSystem.DataContext
 import com.intellij.openapi.actionSystem.IdeActions
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.ReadAction
@@ -16,6 +17,7 @@ import com.intellij.platform.backend.navigation.NavigationRequest
 import com.intellij.platform.ide.navigation.NavigationOptions
 import com.intellij.platform.ide.navigation.NavigationService
 import com.intellij.platform.ide.navigation.RequestedEditor
+import com.intellij.platform.ide.navigation.requestNavigate
 import com.intellij.platform.ide.navigation.impl.performNavigationHistoryAware
 import com.intellij.pom.Navigatable
 import com.intellij.psi.PsiManager
@@ -354,6 +356,46 @@ internal class IdeDocumentHistoryFunctionalTest : HeavyFileEditorManagerTestCase
 
     waitUntil("Navigation result was not produced") { result.get() != null }
     assertThat(result.get()).isFalse()
+  }
+
+  fun testNavigationFutureCancellationStopsRequestComputation() {
+    withNavigationRequests(isAsync = true) {
+      val entered = CompletableDeferred<Unit>()
+      val stopped = CompletableDeferred<Unit>()
+      val result = requestNavigate(project, dataContext = DataContext.EMPTY_CONTEXT) {
+        try {
+          entered.complete(Unit)
+          awaitCancellation()
+        }
+        finally {
+          stopped.complete(Unit)
+        }
+      }
+
+      try {
+        waitUntil("Navigation did not start computing its requests") { entered.isCompleted }
+        assertThat(result.cancel(false)).isTrue()
+        waitUntil("Future cancellation did not stop request computation") { stopped.isCompleted }
+        assertThat(result.isCancelled).isTrue()
+      }
+      finally {
+        result.cancel(false)
+      }
+    }
+  }
+
+  fun testNavigationRequestFailureCompletesFutureExceptionally() {
+    withNavigationRequests(isAsync = true) {
+      val failure = IllegalStateException("Cannot resolve the navigation target")
+      val result = requestNavigate(project, dataContext = DataContext.EMPTY_CONTEXT) {
+        throw failure
+      }
+      val error = result.handle { _, error -> error }
+
+      waitUntil("Navigation failure did not complete the future") { error.isDone }
+      assertThat(result.isCompletedExceptionally).isTrue()
+      assertThat(error.join()).isInstanceOf(IllegalStateException::class.java).hasMessage(failure.message)
+    }
   }
 
   fun testNavigationWhichOpenedNothingLetsAnOlderPreparationToApply() {

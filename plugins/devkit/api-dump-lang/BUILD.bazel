@@ -10,6 +10,10 @@ jps_test(
 )
 ### skip generation section `test intellij.devkit.apiDump.lang.tests`
 
+### auto-generated section `dev intellij.devkit.apiDump.lang` start
+content_module_jar(module = ":apiDump-lang")
+### auto-generated section `dev intellij.devkit.apiDump.lang` end
+
 ### auto-generated section `build intellij.devkit.apiDump.lang` start
 jvm_library(
     name = "apiDump-lang",
@@ -52,8 +56,6 @@ jvm_library(
     ],
 )
 
-content_module_jar(module = ":apiDump-lang")
-
 jvm_library(
     name = "apiDump-lang_test_lib",
     testonly = True,
@@ -83,8 +85,6 @@ jvm_library(
         "//plugins/devkit/api-dump:api-dump_test_lib",
         "//java/java-impl:impl_test_lib",
         "//java/java-psi-api:psi_test_lib",
-        "//platform/testFramework",
-        "//platform/testFramework:testFramework_test_lib",
     ],
 )
 ### auto-generated section `build intellij.devkit.apiDump.lang` end
@@ -171,8 +171,8 @@ jvm_library(
         "//plugins/devkit:devkit-plugin-main-noKotlin_test_lib",
         "//libraries/junit4",
         "//libraries/junit4:junit4_test_lib",
-        "//libraries/junit5",
-        "//libraries/junit5:junit5_test_lib",
+        "//libraries/junit6",
+        "//libraries/junit6:junit6_test_lib",
     ],
 )
 ### auto-generated section `build intellij.devkit.apiDump.lang.tests` end

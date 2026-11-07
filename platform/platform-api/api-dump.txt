@@ -63,6 +63,9 @@ a:com.intellij.codeInsight.hint.HintManager
 - java.lang.annotation.Annotation
 @:com.intellij.codeInsight.hint.HintManager$PositionFlags
 - java.lang.annotation.Annotation
+a:com.intellij.codeInsight.template.impl.editorActions.TypedActionHandlerBase
+- com.intellij.openapi.editor.actionSystem.TypedActionHandlerEx
+- <init>(com.intellij.openapi.editor.actionSystem.TypedActionHandler):V
 c:com.intellij.execution.ExecutionFinishedException
 - com.intellij.execution.ExecutionException
 - <init>():V
@@ -358,6 +361,27 @@ f:com.intellij.execution.ui.utils.VariantableTag
 - bs:variant$default(com.intellij.execution.ui.utils.VariantableTag,java.lang.Object,java.lang.String,java.lang.String,java.lang.String,kotlin.jvm.functions.Function1,kotlin.jvm.functions.Function2,kotlin.jvm.functions.Function1,I,java.lang.Object):V
 f:com.intellij.execution.util.ExecutionErrorDialog
 - s:show(com.intellij.execution.ExecutionException,java.lang.String,com.intellij.openapi.project.Project):V
+f:com.intellij.execution.wsl.WSLCommandLineOptions
+- <init>():V
+- addInitCommand(java.lang.String):com.intellij.execution.wsl.WSLCommandLineOptions
+- getInitShellCommands():java.util.List
+- getRemoteWorkingDirectory():java.lang.String
+- getSleepTimeoutSec():D
+- isExecuteCommandInDefaultShell():Z
+- isExecuteCommandInInteractiveShell():Z
+- isExecuteCommandInLoginShell():Z
+- isExecuteCommandInShell():Z
+- isLaunchWithWslExe():Z
+- isPassEnvVarsUsingInterop():Z
+- isSudo():Z
+- setExecuteCommandInInteractiveShell(Z):com.intellij.execution.wsl.WSLCommandLineOptions
+- setExecuteCommandInLoginShell(Z):com.intellij.execution.wsl.WSLCommandLineOptions
+- setExecuteCommandInShell(Z):com.intellij.execution.wsl.WSLCommandLineOptions
+- setLaunchWithWslExe(Z):com.intellij.execution.wsl.WSLCommandLineOptions
+- setPassEnvVarsUsingInterop(Z):com.intellij.execution.wsl.WSLCommandLineOptions
+- setRemoteWorkingDirectory(java.lang.String):com.intellij.execution.wsl.WSLCommandLineOptions
+- setSleepTimeoutSec(D):com.intellij.execution.wsl.WSLCommandLineOptions
+- setSudo(Z):com.intellij.execution.wsl.WSLCommandLineOptions
 com.intellij.featureStatistics.ApplicabilityFilter
 - a:getPrefix():java.lang.String
 - a:isApplicable(java.lang.String,com.intellij.openapi.project.Project):Z
@@ -401,6 +425,9 @@ f:com.intellij.featureStatistics.ProductivityFeatureNames
 - sf:CODEASSISTS_HIGHLIGHT_RETURN:java.lang.String
 - sf:CODEASSISTS_OVERRIDE_IMPLEMENT:java.lang.String
 - sf:REFACTORING_INTRODUCE_VARIABLE:java.lang.String
+f:com.intellij.featureStatistics.ProductivityFeaturesBean
+- file:java.lang.String
+- <init>():V
 a:com.intellij.featureStatistics.ProductivityFeaturesProvider
 - sf:EP_NAME:com.intellij.openapi.extensions.ExtensionPointName
 - <init>():V
@@ -532,17 +559,18 @@ com.intellij.ide.FrameStateListener
 - onFrameDeactivated():V
 - onFrameDeactivated(com.intellij.openapi.wm.IdeFrame):V
 c:com.intellij.ide.HelpTooltip
+- sf:Companion:com.intellij.ide.HelpTooltip$Companion
 - p:myMouseListener:java.awt.event.MouseAdapter
 - <init>():V
 - p:createIsOverTipMouseListener():java.awt.event.MouseListener
 - pf:createMouseListeners():V
-- s:disableTooltip(java.awt.Component):V
-- s:dispose(java.awt.Component):V
-- s:enableTooltip(java.awt.Component):V
+- sf:disableTooltip(java.awt.Component):V
+- sf:dispose(java.awt.Component):V
+- sf:enableTooltip(java.awt.Component):V
 - equals(java.lang.Object):Z
-- s:getShortcutAsHtml(java.lang.String):java.lang.String
-- s:getTooltipFor(javax.swing.JComponent):com.intellij.ide.HelpTooltip
-- s:hide(java.awt.Component):V
+- sf:getShortcutAsHtml(java.lang.String):java.lang.String
+- sf:getTooltipFor(javax.swing.JComponent):com.intellij.ide.HelpTooltip
+- sf:hide(java.awt.Component):V
 - p:hidePopup(Z):V
 - installOn(javax.swing.JComponent):V
 - setBrowserLink(java.lang.String,java.net.URL):com.intellij.ide.HelpTooltip
@@ -553,8 +581,8 @@ c:com.intellij.ide.HelpTooltip
 - setLink(java.lang.String,java.lang.Runnable):com.intellij.ide.HelpTooltip
 - setLink(java.lang.String,java.lang.Runnable,Z):com.intellij.ide.HelpTooltip
 - setLocation(com.intellij.ide.HelpTooltip$Alignment):com.intellij.ide.HelpTooltip
-- s:setMasterPopup(java.awt.Component,com.intellij.openapi.ui.popup.JBPopup):V
-- s:setMasterPopupOpenCondition(java.awt.Component,java.util.function.BooleanSupplier):V
+- sf:setMasterPopup(java.awt.Component,com.intellij.openapi.ui.popup.JBPopup):V
+- sf:setMasterPopupOpenCondition(java.awt.Component,java.util.function.BooleanSupplier):V
 - setNeverHideOnTimeout(Z):com.intellij.ide.HelpTooltip
 - setPlainTextTitle(java.lang.String):com.intellij.ide.HelpTooltip
 - setPlainTextTitle(java.util.function.Supplier):com.intellij.ide.HelpTooltip
@@ -573,9 +601,20 @@ e:com.intellij.ide.HelpTooltip$Alignment
 - sf:LEFT:com.intellij.ide.HelpTooltip$Alignment
 - sf:RIGHT:com.intellij.ide.HelpTooltip$Alignment
 - sf:TOP:com.intellij.ide.HelpTooltip$Alignment
+- b:<init>(java.lang.String,I,kotlin.jvm.internal.DefaultConstructorMarker):V
+- s:getEntries():kotlin.enums.EnumEntries
 - a:getPointFor(java.awt.Component,java.awt.Dimension,java.awt.Point):java.awt.Point
 - s:valueOf(java.lang.String):com.intellij.ide.HelpTooltip$Alignment
 - s:values():com.intellij.ide.HelpTooltip$Alignment[]
+f:com.intellij.ide.HelpTooltip$Companion
+- f:disableTooltip(java.awt.Component):V
+- f:dispose(java.awt.Component):V
+- f:enableTooltip(java.awt.Component):V
+- f:getShortcutAsHtml(java.lang.String):java.lang.String
+- f:getTooltipFor(javax.swing.JComponent):com.intellij.ide.HelpTooltip
+- f:hide(java.awt.Component):V
+- f:setMasterPopup(java.awt.Component,com.intellij.openapi.ui.popup.JBPopup):V
+- f:setMasterPopupOpenCondition(java.awt.Component,java.util.function.BooleanSupplier):V
 pc:com.intellij.ide.HelpTooltip$OverTipMouseListener
 - java.awt.event.MouseAdapter
 - p:<init>(com.intellij.ide.HelpTooltip):V
@@ -667,7 +706,6 @@ a:com.intellij.ide.SaveAndSyncHandler
 - <init>():V
 - a:blockSaveOnFrameDeactivation():V
 - a:blockSyncOnFrameActivation():V
-- disableAutoSave():com.intellij.openapi.application.AccessToken
 - pf:getExternalChangesModificationTracker():com.intellij.openapi.util.SimpleModificationTracker
 - sf:getInstance():com.intellij.ide.SaveAndSyncHandler
 - a:refreshOpenFiles():V
@@ -678,6 +716,8 @@ a:com.intellij.ide.SaveAndSyncHandler
 - f:scheduleSave(com.intellij.ide.SaveAndSyncHandler$SaveTask):V
 - a:unblockSaveOnFrameDeactivation():V
 - a:unblockSyncOnFrameActivation():V
+- withDisabledAutoSave(kotlin.jvm.functions.Function2,kotlin.coroutines.Continuation):java.lang.Object
+- withDisabledAutoSaveBlocking(kotlin.jvm.functions.Function0):java.lang.Object
 f:com.intellij.ide.SaveAndSyncHandler$Companion
 - f:getInstance():com.intellij.ide.SaveAndSyncHandler
 f:com.intellij.ide.SaveAndSyncHandler$SaveTask
@@ -1768,6 +1808,7 @@ c:com.intellij.openapi.actionSystem.PlatformDataKeys
 - sf:SPEED_SEARCH_TEXT:com.intellij.openapi.actionSystem.DataKey
 - sf:STATUS_BAR:com.intellij.openapi.actionSystem.DataKey
 - sf:TOOL_WINDOW:com.intellij.openapi.actionSystem.DataKey
+- sf:TOOL_WINDOW_ID:com.intellij.openapi.actionSystem.DataKey
 - sf:TREE_EXPANDER:com.intellij.openapi.actionSystem.DataKey
 - sf:TREE_EXPANDER_HIDE_ACTIONS_IF_NO_EXPANDER:com.intellij.openapi.actionSystem.DataKey
 - sf:UI_DISPOSABLE:com.intellij.openapi.actionSystem.DataKey
@@ -1882,10 +1923,15 @@ f:com.intellij.openapi.actionSystem.ex.ActionUtil
 - bs:createActionFromSwingAction$default(javax.swing.Action,Z,I,java.lang.Object):com.intellij.openapi.actionSystem.AnAction
 - sf:createActionListener(java.lang.String,java.awt.Component,java.lang.String):java.awt.event.ActionListener
 - sf:createEmptyEvent():com.intellij.openapi.actionSystem.AnActionEvent
+- sf:createToolbarComponent(javax.swing.JComponent,java.lang.String,com.intellij.openapi.actionSystem.ActionGroup,Z):javax.swing.JComponent
+- sf:getAction(java.lang.String):com.intellij.openapi.actionSystem.AnAction
+- sf:getActionGroup(java.lang.String):com.intellij.openapi.actionSystem.ActionGroup
+- sf:getActionGroup(java.lang.String[]):com.intellij.openapi.actionSystem.ActionGroup
 - sf:getActions(javax.swing.JComponent):java.util.List
 - sf:getDelegateChainRoot(com.intellij.openapi.actionSystem.AnAction):java.lang.Object
 - sf:getDelegateChainRootAction(com.intellij.openapi.actionSystem.AnAction):com.intellij.openapi.actionSystem.AnAction
 - sf:getMnemonicAsShortcut(com.intellij.openapi.actionSystem.AnAction):com.intellij.openapi.actionSystem.ShortcutSet
+- sf:getShortcutSet(java.lang.String):com.intellij.openapi.actionSystem.ShortcutSet
 - sf:invokeAction(com.intellij.openapi.actionSystem.AnAction,com.intellij.openapi.actionSystem.AnActionEvent,java.lang.Runnable):V
 - sf:invokeAction(com.intellij.openapi.actionSystem.AnAction,com.intellij.openapi.actionSystem.DataContext,java.lang.String,java.awt.event.InputEvent,java.lang.Runnable):V
 - sf:invokeAction(com.intellij.openapi.actionSystem.AnAction,java.awt.Component,java.lang.String,java.awt.event.InputEvent,java.lang.Runnable):V
@@ -2013,12 +2059,12 @@ a:com.intellij.openapi.diagnostic.ErrorReportSubmitter
 c:com.intellij.openapi.diagnostic.IdeaLoggingEvent
 - <init>(java.lang.String,java.lang.Throwable):V
 - <init>(java.lang.String,java.lang.Throwable,java.lang.Object):V
-- getAttachments():java.util.List
+- f:getAttachments():java.util.List
 - getData():java.lang.Object
-- getMessage():java.lang.String
-- getPlugin():com.intellij.ide.plugins.IdeaPluginDescriptor
-- getThrowable():java.lang.Throwable
-- getThrowableText():java.lang.String
+- f:getMessage():java.lang.String
+- f:getPlugin():com.intellij.ide.plugins.IdeaPluginDescriptor
+- f:getThrowable():java.lang.Throwable
+- f:getThrowableText():java.lang.String
 c:com.intellij.openapi.diagnostic.SubmittedReportInfo
 - <init>(com.intellij.openapi.diagnostic.SubmittedReportInfo$SubmissionStatus):V
 - <init>(java.lang.String,java.lang.String,com.intellij.openapi.diagnostic.SubmittedReportInfo$SubmissionStatus):V
@@ -5432,6 +5478,8 @@ com.intellij.platform.ide.navigation.NavigationService
 - navigate(java.util.Collection,kotlin.coroutines.Continuation):java.lang.Object
 - navigateRequests(com.intellij.platform.ide.navigation.NavigationOptions,kotlin.jvm.functions.Function1,kotlin.coroutines.Continuation):java.lang.Object
 - navigateRequests(kotlin.jvm.functions.Function1,kotlin.coroutines.Continuation):java.lang.Object
+- a:requestNavigate(com.intellij.platform.backend.navigation.NavigationRequest,com.intellij.platform.ide.navigation.NavigationOptions):java.util.concurrent.CompletableFuture
+- a:requestNavigate(com.intellij.pom.Navigatable,com.intellij.platform.ide.navigation.NavigationOptions):java.util.concurrent.CompletableFuture
 f:com.intellij.platform.ide.navigation.NavigationService$Companion
 - f:getInstance(com.intellij.openapi.project.Project):com.intellij.platform.ide.navigation.NavigationService
 com.intellij.platform.ide.productMode.IdeProductMode
@@ -5441,12 +5489,14 @@ com.intellij.platform.ide.productMode.IdeProductMode
 - s:isFrontend():Z
 - s:isLight():Z
 - s:isMonolith():Z
+- s:isUnifiedIde():Z
 f:com.intellij.platform.ide.productMode.IdeProductMode$Companion
 - f:getInstance():com.intellij.platform.ide.productMode.IdeProductMode
 - f:isBackend():Z
 - f:isFrontend():Z
 - f:isLight():Z
 - f:isMonolith():Z
+- f:isUnifiedIde():Z
 a:com.intellij.pom.NavigatableAdapter
 - com.intellij.pom.Navigatable
 - <init>():V
@@ -6077,6 +6127,8 @@ e:com.intellij.ui.EditorNotificationPanel$Status
 - java.lang.Enum
 - sf:Error:com.intellij.ui.EditorNotificationPanel$Status
 - sf:Info:com.intellij.ui.EditorNotificationPanel$Status
+- sf:InfoMuted:com.intellij.ui.EditorNotificationPanel$Status
+- sf:NeutralMuted:com.intellij.ui.EditorNotificationPanel$Status
 - sf:Promo:com.intellij.ui.EditorNotificationPanel$Status
 - sf:Success:com.intellij.ui.EditorNotificationPanel$Status
 - sf:Warning:com.intellij.ui.EditorNotificationPanel$Status
@@ -6438,6 +6490,7 @@ c:com.intellij.ui.InlineBanner
 - f:setCloseAction(java.lang.Runnable):com.intellij.ui.InlineBanner
 - f:setGearAction(java.lang.String,java.lang.Runnable):com.intellij.ui.InlineBanner
 - f:setIcon(javax.swing.Icon):com.intellij.ui.InlineBanner
+- f:setMenu(java.lang.String,com.intellij.openapi.actionSystem.ActionGroup):com.intellij.ui.InlineBanner
 - f:setMessage(java.lang.String):com.intellij.ui.InlineBanner
 - setStatus(com.intellij.ui.EditorNotificationPanel$Status):V
 - f:showCloseButton(Z):com.intellij.ui.InlineBanner
@@ -7633,6 +7686,141 @@ c:com.intellij.ui.components.JBComboBoxLabel
 - setSelectionIcon():V
 - setText(java.lang.String):V
 - setTextFont(java.awt.Font):V
+c:com.intellij.ui.components.JBHtmlPane
+- com.intellij.openapi.Disposable
+- javax.swing.JEditorPane
+- <init>():V
+- <init>(com.intellij.ui.components.JBHtmlPaneStyleConfiguration,com.intellij.ui.components.JBHtmlPaneConfiguration):V
+- dispose():V
+- f:getBackgroundFlow():kotlinx.coroutines.flow.StateFlow
+- getContentsScaleFactor():F
+- getSelectedText():java.lang.String
+- getText():java.lang.String
+- p:initializePaneConfiguration(com.intellij.ui.components.JBHtmlPaneConfiguration$Builder):V
+- p:initializeStyleConfiguration(com.intellij.ui.components.JBHtmlPaneStyleConfiguration$Builder):V
+- p:paintComponent(java.awt.Graphics):V
+- p:processKeyEvent(java.awt.event.KeyEvent):V
+- f:reloadCssStylesheets():V
+- setDocument(javax.swing.text.Document):V
+- setEditorKit(javax.swing.text.EditorKit):V
+- setFont(java.awt.Font):V
+- setText(java.lang.String):V
+f:com.intellij.ui.components.JBHtmlPaneConfiguration
+- sf:Companion:com.intellij.ui.components.JBHtmlPaneConfiguration$Companion
+- <init>():V
+- <init>(kotlin.jvm.functions.Function1):V
+- sf:builder():com.intellij.ui.components.JBHtmlPaneConfiguration$Builder
+f:com.intellij.ui.components.JBHtmlPaneConfiguration$Builder
+- <init>():V
+- f:build():com.intellij.ui.components.JBHtmlPaneConfiguration
+- f:customStyleSheet(java.lang.String):com.intellij.ui.components.JBHtmlPaneConfiguration$Builder
+- f:customStyleSheetProvider(kotlin.jvm.functions.Function1):com.intellij.ui.components.JBHtmlPaneConfiguration$Builder
+- f:extensions(java.util.List):com.intellij.ui.components.JBHtmlPaneConfiguration$Builder
+- f:extensions(com.intellij.util.ui.ExtendableHTMLViewFactory$Extension[]):com.intellij.ui.components.JBHtmlPaneConfiguration$Builder
+- f:fontResolver(com.intellij.util.ui.CSSFontResolver):com.intellij.ui.components.JBHtmlPaneConfiguration$Builder
+- f:getCustomStyleSheetProviders():java.util.List
+- f:getExtensions():java.util.List
+- f:getFontResolver():com.intellij.util.ui.CSSFontResolver
+- f:getIconResolver():kotlin.jvm.functions.Function1
+- f:getImageResolverFactory():kotlin.jvm.functions.Function1
+- f:getKeyboardActions():java.util.Map
+- f:getUnderlinedHoveredHyperlink():Z
+- f:iconResolver(kotlin.jvm.functions.Function1):com.intellij.ui.components.JBHtmlPaneConfiguration$Builder
+- f:imageResolverFactory(kotlin.jvm.functions.Function1):com.intellij.ui.components.JBHtmlPaneConfiguration$Builder
+- f:keyboardActions(java.util.Map):com.intellij.ui.components.JBHtmlPaneConfiguration$Builder
+- f:keyboardActions(kotlin.Pair[]):com.intellij.ui.components.JBHtmlPaneConfiguration$Builder
+- f:setFontResolver(com.intellij.util.ui.CSSFontResolver):V
+- f:setIconResolver(kotlin.jvm.functions.Function1):V
+- f:setImageResolverFactory(kotlin.jvm.functions.Function1):V
+- f:setUnderlinedHoveredHyperlink(Z):V
+f:com.intellij.ui.components.JBHtmlPaneConfiguration$Companion
+- f:builder():com.intellij.ui.components.JBHtmlPaneConfiguration$Builder
+f:com.intellij.ui.components.JBHtmlPaneStyleConfiguration
+- sf:Companion:com.intellij.ui.components.JBHtmlPaneStyleConfiguration$Companion
+- <init>():V
+- <init>(kotlin.jvm.functions.Function1):V
+- sf:builder():com.intellij.ui.components.JBHtmlPaneStyleConfiguration$Builder
+- sf:getDefaultSpaceAfterParagraph():I
+- sf:getDefaultSpaceBeforeParagraph():I
+- sf:getEditorColorClassPrefix():java.lang.String
+f:com.intellij.ui.components.JBHtmlPaneStyleConfiguration$Builder
+- <init>():V
+- f:build():com.intellij.ui.components.JBHtmlPaneStyleConfiguration
+- f:colorSchemeProvider(kotlin.jvm.functions.Function0):com.intellij.ui.components.JBHtmlPaneStyleConfiguration$Builder
+- f:editorInlineContext(Z):com.intellij.ui.components.JBHtmlPaneStyleConfiguration$Builder
+- f:enableCodeBlocksBackground(Z):com.intellij.ui.components.JBHtmlPaneStyleConfiguration$Builder
+- f:enableInlineCodeBackground(Z):com.intellij.ui.components.JBHtmlPaneStyleConfiguration$Builder
+- f:getColorSchemeProvider():kotlin.jvm.functions.Function0
+- f:getEditorInlineContext():Z
+- f:getElementStyleOverrides():com.intellij.ui.components.JBHtmlPaneStyleConfiguration$ElementStyleOverrides
+- f:getEnableCodeBlocksBackground():Z
+- f:getEnableInlineCodeBackground():Z
+- f:getInlineCodeParentSelectors():java.util.List
+- f:getLargeCodeFontSizeSelectors():java.util.List
+- f:getSpaceAfterParagraph():I
+- f:getSpaceBeforeParagraph():I
+- f:getUseFontLigaturesInCode():Z
+- f:inlineCodeParentSelectors(java.util.List):com.intellij.ui.components.JBHtmlPaneStyleConfiguration$Builder
+- f:inlineCodeParentSelectors(java.lang.String[]):com.intellij.ui.components.JBHtmlPaneStyleConfiguration$Builder
+- f:largeCodeFontSizeSelectors(java.util.List):com.intellij.ui.components.JBHtmlPaneStyleConfiguration$Builder
+- f:largeCodeFontSizeSelectors(java.lang.String[]):com.intellij.ui.components.JBHtmlPaneStyleConfiguration$Builder
+- f:overrideElementStyle(com.intellij.ui.components.JBHtmlPaneStyleConfiguration$ElementStyleOverrides):com.intellij.ui.components.JBHtmlPaneStyleConfiguration$Builder
+- f:overrideElementStyle(kotlin.jvm.functions.Function1):com.intellij.ui.components.JBHtmlPaneStyleConfiguration$Builder
+- f:setColorSchemeProvider(kotlin.jvm.functions.Function0):V
+- f:setEditorInlineContext(Z):V
+- f:setElementStyleOverrides(com.intellij.ui.components.JBHtmlPaneStyleConfiguration$ElementStyleOverrides):V
+- f:setEnableCodeBlocksBackground(Z):V
+- f:setEnableInlineCodeBackground(Z):V
+- f:setInlineCodeParentSelectors(java.util.List):V
+- f:setLargeCodeFontSizeSelectors(java.util.List):V
+- f:setSpaceAfterParagraph(I):V
+- f:setSpaceBeforeParagraph(I):V
+- f:setUseFontLigaturesInCode(Z):V
+- f:spaceAfterParagraph(I):com.intellij.ui.components.JBHtmlPaneStyleConfiguration$Builder
+- f:spaceBeforeParagraph(I):com.intellij.ui.components.JBHtmlPaneStyleConfiguration$Builder
+- f:useFontLigaturesInCode(Z):com.intellij.ui.components.JBHtmlPaneStyleConfiguration$Builder
+f:com.intellij.ui.components.JBHtmlPaneStyleConfiguration$Companion
+- f:builder():com.intellij.ui.components.JBHtmlPaneStyleConfiguration$Builder
+- f:getDefaultSpaceAfterParagraph():I
+- f:getDefaultSpaceBeforeParagraph():I
+- f:getEditorColorClassPrefix():java.lang.String
+e:com.intellij.ui.components.JBHtmlPaneStyleConfiguration$ElementKind
+- java.lang.Enum
+- sf:CodeBlock:com.intellij.ui.components.JBHtmlPaneStyleConfiguration$ElementKind
+- sf:CodeInline:com.intellij.ui.components.JBHtmlPaneStyleConfiguration$ElementKind
+- sf:Shortcut:com.intellij.ui.components.JBHtmlPaneStyleConfiguration$ElementKind
+- f:getColorSchemeKey():com.intellij.openapi.editor.colors.TextAttributesKey
+- s:getEntries():kotlin.enums.EnumEntries
+- f:getId():java.lang.String
+- s:valueOf(java.lang.String):com.intellij.ui.components.JBHtmlPaneStyleConfiguration$ElementKind
+- s:values():com.intellij.ui.components.JBHtmlPaneStyleConfiguration$ElementKind[]
+e:com.intellij.ui.components.JBHtmlPaneStyleConfiguration$ElementProperty
+- java.lang.Enum
+- sf:BackgroundColor:com.intellij.ui.components.JBHtmlPaneStyleConfiguration$ElementProperty
+- sf:BackgroundOpacity:com.intellij.ui.components.JBHtmlPaneStyleConfiguration$ElementProperty
+- sf:BorderColor:com.intellij.ui.components.JBHtmlPaneStyleConfiguration$ElementProperty
+- sf:BorderRadius:com.intellij.ui.components.JBHtmlPaneStyleConfiguration$ElementProperty
+- sf:BorderWidth:com.intellij.ui.components.JBHtmlPaneStyleConfiguration$ElementProperty
+- sf:ForegroundColor:com.intellij.ui.components.JBHtmlPaneStyleConfiguration$ElementProperty
+- s:getEntries():kotlin.enums.EnumEntries
+- f:getId():java.lang.String
+- s:valueOf(java.lang.String):com.intellij.ui.components.JBHtmlPaneStyleConfiguration$ElementProperty
+- s:values():com.intellij.ui.components.JBHtmlPaneStyleConfiguration$ElementProperty[]
+f:com.intellij.ui.components.JBHtmlPaneStyleConfiguration$ElementStyleOverrides
+- sf:Companion:com.intellij.ui.components.JBHtmlPaneStyleConfiguration$ElementStyleOverrides$Companion
+- <init>(com.intellij.ui.components.JBHtmlPaneStyleConfiguration$ElementStyleOverrides$Builder):V
+- sf:builder():com.intellij.ui.components.JBHtmlPaneStyleConfiguration$ElementStyleOverrides$Builder
+- equals(java.lang.Object):Z
+- hashCode():I
+f:com.intellij.ui.components.JBHtmlPaneStyleConfiguration$ElementStyleOverrides$Builder
+- <init>():V
+- f:build():com.intellij.ui.components.JBHtmlPaneStyleConfiguration$ElementStyleOverrides
+- f:elementKindThemePropertySuffix(java.lang.String):com.intellij.ui.components.JBHtmlPaneStyleConfiguration$ElementStyleOverrides$Builder
+- f:getElementKindThemePropertySuffix():java.lang.String
+- f:overrideThemeProperties(com.intellij.ui.components.JBHtmlPaneStyleConfiguration$ElementKind,com.intellij.ui.components.JBHtmlPaneStyleConfiguration$ElementProperty[]):com.intellij.ui.components.JBHtmlPaneStyleConfiguration$ElementStyleOverrides$Builder
+- f:setElementKindThemePropertySuffix(java.lang.String):V
+f:com.intellij.ui.components.JBHtmlPaneStyleConfiguration$ElementStyleOverrides$Companion
+- f:builder():com.intellij.ui.components.JBHtmlPaneStyleConfiguration$ElementStyleOverrides$Builder
 c:com.intellij.ui.components.JBLabel
 - javax.swing.JLabel
 - com.intellij.ui.AnchorableComponent
@@ -7809,7 +7997,7 @@ c:com.intellij.ui.components.JBOptionButton
 - getUI():com.intellij.ui.components.OptionButtonUI
 - getUIClassID():java.lang.String
 - getWeight():D
-- f:isSimpleButton():Z
+- isSimpleButton():Z
 - f:setAddSeparator(Z):V
 - f:setHideDisabledOptions(Z):V
 - f:setOptionAdText(java.lang.String):V
@@ -7822,7 +8010,7 @@ c:com.intellij.ui.components.JBOptionButton
 - f:setShowPopupYOffset(I):V
 - f:showPopup(javax.swing.Action,Z):V
 - bs:showPopup$default(com.intellij.ui.components.JBOptionButton,javax.swing.Action,Z,I,java.lang.Object):V
-- f:togglePopup():V
+- togglePopup():V
 f:com.intellij.ui.components.JBOptionButton$Companion
 - f:getDefaultShowPopupShortcut():com.intellij.openapi.actionSystem.CustomShortcutSet
 - f:getDefaultTooltip():java.lang.String
@@ -8059,9 +8247,7 @@ a:com.intellij.ui.components.MultiColumnListModel
 c:com.intellij.ui.components.OnOffButton
 - javax.swing.JToggleButton
 - <init>():V
-- getIpad():java.awt.Insets
 - getUIClassID():java.lang.String
-- setIpad(java.awt.Insets):V
 - setOffText(java.lang.String):V
 - setOnText(java.lang.String):V
 - updateUI():V
@@ -8912,6 +9098,16 @@ Ff:com.intellij.ui.dsl.builder.Panel$DefaultImpls
 - bs:separator$default(com.intellij.ui.dsl.builder.Panel,java.awt.Color,I,java.lang.Object):com.intellij.ui.dsl.builder.Row
 - bs:threeColumnsRow$default(com.intellij.ui.dsl.builder.Panel,kotlin.jvm.functions.Function1,kotlin.jvm.functions.Function1,kotlin.jvm.functions.Function1,I,java.lang.Object):com.intellij.ui.dsl.builder.Row
 - bs:twoColumnsRow$default(com.intellij.ui.dsl.builder.Panel,kotlin.jvm.functions.Function1,kotlin.jvm.functions.Function1,I,java.lang.Object):com.intellij.ui.dsl.builder.Row
+com.intellij.ui.dsl.builder.Placeholder
+- com.intellij.ui.dsl.builder.CellBase
+- a:align(com.intellij.ui.dsl.builder.Align):com.intellij.ui.dsl.builder.Placeholder
+- a:customize(com.intellij.ui.dsl.gridLayout.UnscaledGaps):com.intellij.ui.dsl.builder.Placeholder
+- a:enabled(Z):com.intellij.ui.dsl.builder.Placeholder
+- a:gap(com.intellij.ui.dsl.builder.RightGap):com.intellij.ui.dsl.builder.Placeholder
+- a:getComponent():javax.swing.JComponent
+- a:resizableColumn():com.intellij.ui.dsl.builder.Placeholder
+- a:setComponent(javax.swing.JComponent):V
+- a:visible(Z):com.intellij.ui.dsl.builder.Placeholder
 e:com.intellij.ui.dsl.builder.RightGap
 - java.lang.Enum
 - sf:COLUMNS:com.intellij.ui.dsl.builder.RightGap
@@ -8983,7 +9179,7 @@ Ff:com.intellij.ui.dsl.builder.Row$DefaultImpls
 - bs:comment$default(com.intellij.ui.dsl.builder.Row,java.lang.String,I,com.intellij.ui.dsl.builder.HyperlinkEventAction,I,java.lang.Object):com.intellij.ui.dsl.builder.Cell
 - bs:contextHelp$default(com.intellij.ui.dsl.builder.Row,java.lang.String,java.lang.String,I,java.lang.Object):com.intellij.ui.dsl.builder.Cell
 - bs:expandableTextField$default(com.intellij.ui.dsl.builder.Row,com.intellij.util.Function,com.intellij.util.Function,I,java.lang.Object):com.intellij.ui.dsl.builder.Cell
-- bs:icon$default(com.intellij.ui.dsl.builder.Row,com.intellij.platform.icons.Icon,com.intellij.platform.icons.scale.IconScale,I,java.lang.Object):com.intellij.ui.dsl.builder.Cell
+- bs:icon$default(com.intellij.ui.dsl.builder.Row,com.intellij.platform.icons.IconDescriptor,com.intellij.platform.icons.scale.IconScale,I,java.lang.Object):com.intellij.ui.dsl.builder.Cell
 - bs:icon$default(com.intellij.ui.dsl.builder.Row,com.intellij.platform.icons.scale.IconScale,kotlin.jvm.functions.Function1,I,java.lang.Object):com.intellij.ui.dsl.builder.Cell
 - bs:intTextField$default(com.intellij.ui.dsl.builder.Row,kotlin.ranges.IntRange,java.lang.Integer,I,java.lang.Object):com.intellij.ui.dsl.builder.Cell
 - bs:radioButton$default(com.intellij.ui.dsl.builder.Row,java.lang.String,java.lang.Object,I,java.lang.Object):com.intellij.ui.dsl.builder.Cell
@@ -9274,9 +9470,42 @@ c:com.intellij.ui.dualView.TreeTableView$CellRendererWrapper
 - <init>(javax.swing.table.TableCellRenderer):V
 - getBaseRenderer():javax.swing.table.TableCellRenderer
 - getTableCellRendererComponent(javax.swing.JTable,java.lang.Object,Z,Z,I,I):java.awt.Component
+a:com.intellij.ui.hover.HoverListener
+- <init>():V
+- f:addTo(javax.swing.JComponent):V
+- f:addTo(javax.swing.JComponent,com.intellij.openapi.Disposable):V
+- a:mouseEntered(java.awt.Component,I,I):V
+- a:mouseExited(java.awt.Component):V
+- a:mouseMoved(java.awt.Component,I,I):V
+- f:removeFrom(javax.swing.JComponent):V
+a:com.intellij.ui.hover.HoverStateListener
+- com.intellij.ui.hover.HoverListener
+- <init>():V
+- pa:hoverChanged(java.awt.Component,Z):V
+- mouseEntered(java.awt.Component,I,I):V
+- mouseExited(java.awt.Component):V
+- mouseMoved(java.awt.Component,I,I):V
 f:com.intellij.ui.hover.HoverUtilsKt
 - sf:addHoverAndPressStateListener(javax.swing.JComponent,kotlin.jvm.functions.Function2,kotlin.jvm.functions.Function2):V
 - bs:addHoverAndPressStateListener$default(javax.swing.JComponent,kotlin.jvm.functions.Function2,kotlin.jvm.functions.Function2,I,java.lang.Object):V
+a:com.intellij.ui.hover.ListHoverListener
+- com.intellij.ui.hover.HoverListener
+- sf:DEFAULT:com.intellij.ui.hover.HoverListener
+- <init>():V
+- s:getHoveredIndex(javax.swing.JList):I
+- f:mouseEntered(java.awt.Component,I,I):V
+- f:mouseExited(java.awt.Component):V
+- f:mouseMoved(java.awt.Component,I,I):V
+- a:onHover(javax.swing.JList,I):V
+a:com.intellij.ui.hover.TreeHoverListener
+- com.intellij.ui.hover.HoverListener
+- sf:DEFAULT:com.intellij.ui.hover.HoverListener
+- <init>():V
+- s:getHoveredRow(javax.swing.JTree):I
+- f:mouseEntered(java.awt.Component,I,I):V
+- f:mouseExited(java.awt.Component):V
+- f:mouseMoved(java.awt.Component,I,I):V
+- a:onHover(javax.swing.JTree,I):V
 f:com.intellij.ui.layout.AdvancedSettingsPredicate
 - com.intellij.ui.layout.ComponentPredicate
 - <init>(java.lang.String,com.intellij.openapi.Disposable):V
@@ -9465,6 +9694,48 @@ c:com.intellij.ui.popup.list.GroupedItemsListRenderer
 - getListCellRendererComponent(javax.swing.JList,java.lang.Object,I,Z,Z):java.awt.Component
 - getNextStepLabel():javax.swing.JLabel
 - p:layoutComponent(javax.swing.JComponent):javax.swing.JComponent
+c:com.intellij.ui.popup.list.SelectablePanel
+- javax.swing.JPanel
+- sf:Companion:com.intellij.ui.popup.list.SelectablePanel$Companion
+- <init>():V
+- <init>(java.awt.Color):V
+- b:<init>(java.awt.Color,I,kotlin.jvm.internal.DefaultConstructorMarker):V
+- getAccessibleContext():javax.accessibility.AccessibleContext
+- f:getPreferredHeight():java.lang.Integer
+- getPreferredSize():java.awt.Dimension
+- f:getPreferredWidth():java.lang.Integer
+- f:getSelectionArc():I
+- f:getSelectionArcCorners():com.intellij.ui.popup.list.SelectablePanel$SelectionArcCorners
+- f:getSelectionColor():java.awt.Color
+- f:getSelectionInsets():java.awt.Insets
+- p:paintComponent(java.awt.Graphics):V
+- f:setPreferredHeight(java.lang.Integer):V
+- f:setPreferredWidth(java.lang.Integer):V
+- f:setSelectionArc(I):V
+- f:setSelectionArcCorners(com.intellij.ui.popup.list.SelectablePanel$SelectionArcCorners):V
+- f:setSelectionColor(java.awt.Color):V
+- f:setSelectionInsets(java.awt.Insets):V
+- sf:wrap(java.awt.Component):com.intellij.ui.popup.list.SelectablePanel
+- sf:wrap(java.awt.Component,java.awt.Color):com.intellij.ui.popup.list.SelectablePanel
+f:com.intellij.ui.popup.list.SelectablePanel$Companion
+- f:wrap(java.awt.Component):com.intellij.ui.popup.list.SelectablePanel
+- f:wrap(java.awt.Component,java.awt.Color):com.intellij.ui.popup.list.SelectablePanel
+- bs:wrap$default(com.intellij.ui.popup.list.SelectablePanel$Companion,java.awt.Component,java.awt.Color,I,java.lang.Object):com.intellij.ui.popup.list.SelectablePanel
+e:com.intellij.ui.popup.list.SelectablePanel$SelectionArcCorners
+- java.lang.Enum
+- sf:ALL:com.intellij.ui.popup.list.SelectablePanel$SelectionArcCorners
+- sf:BOTTOM:com.intellij.ui.popup.list.SelectablePanel$SelectionArcCorners
+- sf:BOTTOM_LEFT:com.intellij.ui.popup.list.SelectablePanel$SelectionArcCorners
+- sf:BOTTOM_RIGHT:com.intellij.ui.popup.list.SelectablePanel$SelectionArcCorners
+- sf:LEFT:com.intellij.ui.popup.list.SelectablePanel$SelectionArcCorners
+- sf:NONE:com.intellij.ui.popup.list.SelectablePanel$SelectionArcCorners
+- sf:RIGHT:com.intellij.ui.popup.list.SelectablePanel$SelectionArcCorners
+- sf:TOP:com.intellij.ui.popup.list.SelectablePanel$SelectionArcCorners
+- sf:TOP_LEFT:com.intellij.ui.popup.list.SelectablePanel$SelectionArcCorners
+- sf:TOP_RIGHT:com.intellij.ui.popup.list.SelectablePanel$SelectionArcCorners
+- s:getEntries():kotlin.enums.EnumEntries
+- s:valueOf(java.lang.String):com.intellij.ui.popup.list.SelectablePanel$SelectionArcCorners
+- s:values():com.intellij.ui.popup.list.SelectablePanel$SelectionArcCorners[]
 c:com.intellij.ui.popup.util.PopupState
 - com.intellij.openapi.ui.popup.JBPopupListener
 - javax.swing.event.PopupMenuListener
@@ -9813,6 +10084,7 @@ pc:com.intellij.ui.table.JBTable$AccessibleJBTable$AccessibleJBTableCell
 - <init>(com.intellij.ui.table.JBTable$AccessibleJBTable,javax.swing.JTable,I,I,I):V
 - p:getCurrentAccessibleContext():javax.accessibility.AccessibleContext
 - p:getCurrentComponent():java.awt.Component
+- isVisible():Z
 pc:com.intellij.ui.table.JBTable$DefaultColumnInfoBasedRowSorter
 - javax.swing.table.TableRowSorter
 - <init>(javax.swing.table.TableModel):V
@@ -11287,6 +11559,8 @@ f:com.intellij.util.net.ssl.ConfirmingTrustManager$MutableTrustManager
 - addCertificate(java.security.cert.X509Certificate):Z
 - addListener(com.intellij.util.net.ssl.CertificateListener):V
 - checkServerTrusted(java.security.cert.X509Certificate[],java.lang.String):V
+- checkServerTrusted(java.security.cert.X509Certificate[],java.lang.String,java.net.Socket):V
+- checkServerTrusted(java.security.cert.X509Certificate[],java.lang.String,javax.net.ssl.SSLEngine):V
 - containsCertificate(java.lang.String):Z
 - getAcceptedIssuers():java.security.cert.X509Certificate[]
 - getAliases():java.util.List
@@ -11700,20 +11974,19 @@ c:com.intellij.util.ui.TimedDeadzone$Length
 - <init>(I):V
 - getLength():I
 f:com.intellij.util.ui.UI
-- <init>():V
-- s:scale(I):I
+- sf:INSTANCE:com.intellij.util.ui.UI
 e:com.intellij.util.ui.UI$Anchor
 - java.lang.Enum
 - sf:Bottom:com.intellij.util.ui.UI$Anchor
 - sf:Center:com.intellij.util.ui.UI$Anchor
 - sf:Top:com.intellij.util.ui.UI$Anchor
+- s:getEntries():kotlin.enums.EnumEntries
 - s:valueOf(java.lang.String):com.intellij.util.ui.UI$Anchor
 - s:values():com.intellij.util.ui.UI$Anchor[]
 f:com.intellij.util.ui.UI$PanelFactory
-- <init>():V
-- s:grid():com.intellij.openapi.ui.panel.PanelGridBuilder
-- s:panel(javax.swing.JComponent):com.intellij.openapi.ui.panel.ComponentPanelBuilder
-- s:panel(javax.swing.JProgressBar):com.intellij.openapi.ui.panel.ProgressPanelBuilder
+- sf:INSTANCE:com.intellij.util.ui.UI$PanelFactory
+- sf:grid():com.intellij.openapi.ui.panel.PanelGridBuilder
+- sf:panel(javax.swing.JComponent):com.intellij.openapi.ui.panel.ComponentPanelBuilder
 a:com.intellij.util.ui.scroll.BoundedRangeModelThresholdListener
 - javax.swing.event.ChangeListener
 - sf:Companion:com.intellij.util.ui.scroll.BoundedRangeModelThresholdListener$Companion

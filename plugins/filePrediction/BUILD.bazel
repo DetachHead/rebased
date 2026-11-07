@@ -1,6 +1,28 @@
 load("@community//build:tests-options.bzl", "jps_test")
-load("@community//platform/build-scripts/bazel-rules:dev_dist_plugin.bzl", "dev_dist_plugin")
+load("@jps_dynamic_deps_community//:targets.bzl", "dev_dist_plugin")
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+
+### auto-generated section `dev intellij.filePrediction` start
+dev_dist_plugin(
+    content_modules = [
+        # do not sort,
+        "intellij.filePrediction.java",
+        "intellij.filePrediction.vcs",
+    ],
+    descriptor = "resources/META-INF/plugin.xml",
+    jars = {
+        "lib/filePrediction.jar": ["intellij.filePrediction"],
+        "lib/file-prediction-model.jar": ["@lib//:file_prediction-file-prediction-model"],
+    },
+    main_module = "intellij.filePrediction",
+    mode_refused_content_modules = {
+        "frontend": [
+            "intellij.filePrediction.java",
+            "intellij.filePrediction.vcs",
+        ],
+    },
+)
+### auto-generated section `dev intellij.filePrediction` end
 
 ### auto-generated section `build intellij.filePrediction` start
 jvm_library(
@@ -59,24 +81,14 @@ jvm_library(
         "//platform/core-impl:core-impl_test_lib",
         "//platform/platform-impl:ide-impl_test_lib",
         "//platform/core-api:core_test_lib",
-        "//jps/model-api:model",
-        "//jps/model-api:model_test_lib",
         "//platform/projectModel-api:projectModel_test_lib",
         "//platform/ide-core-impl:ide-core-impl_test_lib",
         "//platform/ide-core:ide-core_test_lib",
         "//platform/platform-impl/internal:internal_test_lib",
-        "//platform/testFramework",
-        "//platform/testFramework:testFramework_test_lib",
-        "//java/testFramework",
-        "//java/testFramework:testFramework_test_lib",
         "//platform/statistics:statistics_test_lib",
         "//platform/core-ui:core-ui_test_lib",
-        "//platform/statistics/uploader",
-        "//platform/statistics/uploader:uploader_test_lib",
         "//platform/ml-impl:ml-impl_test_lib",
         "//platform/lang-impl:lang-impl_test_lib",
-        "//platform/statistics/testFramework",
-        "//platform/statistics/testFramework:testFramework_test_lib",
     ],
 )
 ### auto-generated section `build intellij.filePrediction` end
@@ -90,20 +102,6 @@ exports_files(
     visibility = ["//visibility:public"],
 )
 ### auto-generated section `iml intellij.filePrediction` end
-
-### auto-generated section `dev intellij.filePrediction` start
-dev_dist_plugin(
-    descriptor_module = ":filePrediction",
-    libraries = [
-        "@lib//:file_prediction-file-prediction-model",
-        "@lib//:ngram-slp",
-    ],
-    prepacked_content_modules = [
-        "//plugins/filePrediction/java:java_content_module_jar",
-        "//plugins/filePrediction/vcs:vcs_content_module_jar",
-    ],
-)
-### auto-generated section `dev intellij.filePrediction` end
 
 ### auto-generated section `build intellij.filePrediction.tests` start
 jvm_library(
@@ -191,8 +189,14 @@ jvm_library(
         "//platform/lang-impl:lang-impl_test_lib",
         "//platform/statistics/testFramework",
         "//platform/statistics/testFramework:testFramework_test_lib",
-        "//libraries/junit4",
-        "//libraries/junit4:junit4_test_lib",
+        "//platform/testFramework/junit5",
+        "//platform/testFramework/junit5:junit5_test_lib",
+        "//platform/testFramework/junit5/codeInsight",
+        "//platform/testFramework/junit5/codeInsight:codeInsight_test_lib",
+        "//libraries/junit6",
+        "//libraries/junit6:junit6_test_lib",
+        "//libraries/kotlinx/coroutines/core",
+        "//libraries/kotlinx/coroutines/core:core_test_lib",
         "//plugins/filePrediction/java",
         "//plugins/filePrediction/java:java_test_lib",
     ],

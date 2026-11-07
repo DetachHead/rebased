@@ -5,9 +5,8 @@ import com.intellij.openapi.application.EDT
 import com.intellij.openapi.editor.CustomWrap
 import com.intellij.openapi.editor.CustomWrapModel
 import com.intellij.openapi.editor.EditorFactory
-import com.intellij.openapi.editor.ex.DocumentEx
-import com.intellij.openapi.editor.ex.DocumentTextPatch
-import com.intellij.openapi.editor.impl.marker.PMarker
+import com.intellij.openapi.editor.ex.DocumentPatch
+import com.intellij.openapi.editor.impl.marker.SnapshotMarkerEngineImpl
 import com.intellij.openapi.editor.impl.marker.SnapshotRangeMarkerImpl
 import com.intellij.openapi.editor.impl.marker.UsePMarkerImplementation
 import com.intellij.openapi.util.Disposer
@@ -32,12 +31,14 @@ class SnapshotCustomWrapModelTest {
       val document = editor.elfDocument as DocumentImpl
       val initialSnapshot = document.core.snapshot()
       val wrap = editor.customWrapModel.runBatchMutation { addWrap(5) }!!
-      val snapshotWrap = wrap as PMarker
-      val shiftedBranch = initialSnapshot.applyOp(textPatch(0, 0, "x"))
-      val invalidBranch = initialSnapshot.applyOp(textPatch(4, 5, ""))
-      val initialResolution = snapshotWrap.resolve(initialSnapshot)
-      val shiftedResolution = snapshotWrap.resolve(shiftedBranch)
-      val invalidResolution = snapshotWrap.resolve(invalidBranch)
+      val snapshotWrap = wrap as SnapshotRangeMarkerImpl
+      val rootStore = (editor.customWrapModel as CustomWrapModelImpl).rootStore()
+      val markerStores = document.snapshotMarkerStores
+      val shiftedBranch = markerStores.applyPatch(initialSnapshot, textPatch(0, 0, "x"))
+      val invalidBranch = markerStores.applyPatch(initialSnapshot, textPatch(4, 5, ""))
+      val initialResolution = SnapshotMarkerEngineImpl.resolveRangeMarker(snapshotWrap, rootStore.rootReference(initialSnapshot).get())
+      val shiftedResolution = SnapshotMarkerEngineImpl.resolveRangeMarker(snapshotWrap, rootStore.rootReference(shiftedBranch).get())
+      val invalidResolution = SnapshotMarkerEngineImpl.resolveRangeMarker(snapshotWrap, rootStore.rootReference(invalidBranch).get())
       BranchState(
         wrap = wrap,
         initialRange = initialResolution.startOffset to initialResolution.endOffset,
@@ -108,7 +109,7 @@ class SnapshotCustomWrapModelTest {
         }, disposable)
         model.runBatchMutation { addWrap(6) }
 
-        (editor.document as DocumentEx).moveText(6, 8, 4)
+        editor.document.moveText(6, 8, 4)
 
         MoveState(editor.document.text, model.getWraps(), events.toList())
       }
@@ -160,17 +161,6 @@ class SnapshotCustomWrapModelTest {
 
     assertThat(state.wrap).isNotNull()
     assertThat(state.currentWraps).containsExactly(state.wrap)
-  }
-
-  @Test
-  @UsePMarkerImplementation(false)
-  fun `disabled snapshot marker implementation uses a legacy custom wrap`(): Unit = timeoutRunBlocking {
-    val wrap = withEditor("abcdef") { editor ->
-      editor.customWrapModel.runBatchMutation { addWrap(2) }
-    }
-
-    assertThat(wrap).isNotInstanceOf(SnapshotRangeMarkerImpl::class.java)
-    assertThat(wrap?.javaClass?.name).isEqualTo("com.intellij.openapi.editor.impl.customwrap.CustomWrapImpl")
   }
 
   private suspend fun <T> withEditor(text: String, action: suspend (EditorImpl) -> T): T {
@@ -230,8 +220,8 @@ class SnapshotCustomWrapModelTest {
     return WeakReference(editor.customWrapModel.runBatchMutation { addWrap(2) }!!)
   }
 
-  private fun textPatch(startOffset: Int, endOffset: Int, newFragment: String): DocumentTextPatch {
-    return DocumentTextPatch.simple(
+  private fun textPatch(startOffset: Int, endOffset: Int, newFragment: String): DocumentPatch {
+    return DocumentPatch.simple(
       startOffset = startOffset,
       endOffset = endOffset,
       newFragment = newFragment,

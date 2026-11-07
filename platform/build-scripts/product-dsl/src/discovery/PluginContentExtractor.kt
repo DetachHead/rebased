@@ -3,6 +3,7 @@
 
 package org.jetbrains.intellij.build.productLayout.discovery
 
+import com.intellij.platform.buildScripts.concurrency.SharedCache
 import com.intellij.platform.pluginGraph.ContentModuleName
 import com.intellij.platform.pluginGraph.PluginId
 import com.intellij.platform.pluginGraph.PluginModuleId
@@ -12,13 +13,11 @@ import com.intellij.platform.pluginSystem.parser.impl.parseContentAndXIncludes
 import org.jetbrains.intellij.build.DescriptorDependencyWalk
 import org.jetbrains.intellij.build.ModuleOutputProvider
 import org.jetbrains.intellij.build.PLUGIN_XML_RELATIVE_PATH
-import org.jetbrains.intellij.build.findFileInModuleSources
 import org.jetbrains.intellij.build.mapConcurrent
 import org.jetbrains.intellij.build.productLayout.ModuleSet
 import org.jetbrains.intellij.build.productLayout.contentName
 import org.jetbrains.intellij.build.productLayout.model.ErrorSink
 import org.jetbrains.intellij.build.productLayout.model.error.XIncludeResolutionError
-import org.jetbrains.intellij.build.productLayout.util.AsyncCache
 import org.jetbrains.intellij.build.resolveDescriptor
 import org.jetbrains.jps.model.module.JpsModule
 import java.nio.file.Files
@@ -46,17 +45,20 @@ internal enum class PluginSource {
   /** DSL-defined test plugin, content computed from TestPluginSpec */
   DSL_TEST,
 
-  /** Discovered on-demand during dependency resolution */
+  /** Discovered for compatibility or dependency resolution, without a declaration that assigns descriptor ownership. */
   DISCOVERED,
 }
 
 /**
  * Content module with its loading mode.
  * Consolidates module id and loading into a single structure.
+ *
+ * @param requiredIfAvailable The `required-if-available` target. The module is required when the product mode keeps the target.
  */
 internal data class ContentModuleInfo(
   @JvmField val moduleId: PluginModuleId,
   @JvmField val loadingMode: ModuleLoadingRuleValue?,
+  val requiredIfAvailable: ContentModuleName? = null,
 )
 
 /**
@@ -139,6 +141,7 @@ internal data class PluginXmlOverride(
 
 private val PLUGIN_ID_PATTERN = Regex("""<id>([^<]+)</id>""")
 private val XML_COMMENT_PATTERN = Regex("<!--.*?-->", setOf(RegexOption.DOT_MATCHES_ALL))
+
 /** Extracts plugin ID from plugin.xml content */
 private fun extractPluginId(content: String): PluginId? {
   return PLUGIN_ID_PATTERN.find(content)?.groupValues?.get(1)?.trim()?.let { PluginId(it) }
@@ -174,11 +177,10 @@ internal fun extractLegacyDepends(content: String): List<LegacyDepends> {
  *               should use [computePluginContentFromDslSpec] instead of this function.
  * @param errorSink Sink for emitting xi:include resolution errors
  */
-@Suppress("BlockingMethodInNonBlockingContext") // the build runs on virtual threads
-internal suspend fun extractPluginContent(
+internal fun extractPluginContent(
   pluginName: String,
   outputProvider: ModuleOutputProvider,
-  xIncludeCache: AsyncCache<String, ByteArray?>,
+  xIncludeCache: SharedCache<String, ByteArray?>,
   skipXIncludePaths: Set<String> = emptySet(),
   prefixFilter: (moduleName: String) -> String? = { null },
   onlyProductionSources: Boolean = true,
@@ -194,7 +196,7 @@ internal suspend fun extractPluginContent(
     content = pluginXmlOverride.pluginXmlContent
   }
   else {
-    pluginXmlPath = findFileInModuleSources(module = jpsModule, relativePath = PLUGIN_XML_RELATIVE_PATH, onlyProductionSources = onlyProductionSources) ?: return null
+    pluginXmlPath = outputProvider.findFileInModuleSources(module = jpsModule, relativePath = PLUGIN_XML_RELATIVE_PATH, onlyProductionSources = onlyProductionSources) ?: return null
     content = Files.readString(pluginXmlPath)
   }
 
@@ -208,12 +210,14 @@ internal suspend fun extractPluginContent(
         is XIncludeResult.Success -> result.data
         is XIncludeResult.Failure -> {
           // Emit error immediately to errorSink
-          errorSink.emit(XIncludeResolutionError(
-            context = "Plugin content extraction",
-            pluginName = pluginName,
-            xIncludePath = result.path,
-            debugInfo = result.debugInfo,
-          ))
+          errorSink.emit(
+            XIncludeResolutionError(
+              context = "Plugin content extraction",
+              pluginName = pluginName,
+              xIncludePath = result.path,
+              debugInfo = result.debugInfo,
+            )
+          )
           null
         }
       }
@@ -234,7 +238,11 @@ internal suspend fun extractPluginContent(
     pluginXmlContent = content,
     pluginId = extractPluginId(content),
     contentModules = extractedContent.contentModules.map {
-      ContentModuleInfo(moduleId = PluginModuleId(it.name, it.namespace), loadingMode = it.loadingRule)
+      ContentModuleInfo(
+        moduleId = PluginModuleId(it.name, it.namespace),
+        loadingMode = it.loadingRule,
+        requiredIfAvailable = it.requiredIfAvailable?.let(::ContentModuleName),
+      )
     },
 
     moduleDependencies = extractedContent.moduleDependencies,
@@ -267,7 +275,7 @@ private class ExtractedContent(
  * Tracks deps per-file (main file + xi:includes) via [FileDepInfo] to support proper detection
  * of existing deps in xi:included files.
  */
-private suspend fun extractContentModules(
+private fun extractContentModules(
   input: ByteArray,
   skipXIncludePaths: Set<String>,
   xIncludeResolver: (path: String) -> ByteArray?,

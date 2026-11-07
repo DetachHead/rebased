@@ -1,27 +1,34 @@
 // Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.ide.actions.searcheverywhere
 
+import com.intellij.find.DirectorySearchEngine
+import com.intellij.find.DirectorySearchEngine.FileSearchCandidate
 import com.intellij.ide.IdeBundle
 import com.intellij.ide.actions.GotoActionBase
 import com.intellij.ide.actions.GotoFileItemProvider
 import com.intellij.ide.actions.SearchEverywherePsiRenderer
 import com.intellij.ide.actions.searcheverywhere.footer.createPsiExtendedInfo
+import com.intellij.ide.util.gotoByName.DefaultChooseByNameItemProvider
 import com.intellij.ide.util.gotoByName.FileTypeRef
 import com.intellij.ide.util.scopeChooser.ScopeDescriptor
 import com.intellij.openapi.actionSystem.AnActionEvent
+import com.intellij.openapi.application.readAction
 import com.intellij.openapi.application.readActionUndispatched
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.progress.ProgressIndicator
 import com.intellij.openapi.progress.ProgressManager
+import com.intellij.openapi.progress.checkCanceled
 import com.intellij.openapi.progress.runBlockingCancellable
 import com.intellij.openapi.progress.util.AbstractProgressIndicatorBase
 import com.intellij.openapi.project.DumbAware
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.util.io.FileUtil
 import com.intellij.openapi.util.registry.Registry
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.openapi.vfs.VirtualFileFilter
 import com.intellij.openapi.wm.ex.WelcomeScreenProjectProvider
 import com.intellij.psi.PsiElement
+import com.intellij.psi.PsiFileSystemItem
 import com.intellij.psi.PsiManager
 import com.intellij.psi.SmartPointerManager
 import com.intellij.psi.SmartPsiElementPointer
@@ -31,10 +38,9 @@ import com.intellij.util.IncorrectOperationException
 import com.intellij.util.Processor
 import com.intellij.util.concurrency.ThreadingAssertions
 import com.intellij.util.concurrency.annotations.RequiresReadLock
-import com.intellij.util.indexing.NonIndexableFilesDequeImpl
-import com.intellij.util.indexing.nonIndexableRootsAsCacheAvoiding
+import com.intellij.util.indexing.ConcurrentFileTraversal
+import com.intellij.util.indexing.ConcurrentFileTraversal.TraversalItem
 import com.intellij.util.text.matching.MatchingMode
-import com.intellij.workspaceModel.core.fileIndex.impl.WorkspaceFileIndexEx
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
@@ -47,13 +53,15 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.yield
 import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.annotations.Nls
-import java.util.concurrent.ConcurrentHashMap
+import org.jetbrains.annotations.VisibleForTesting
+import java.nio.file.Path
 import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.atomic.AtomicInteger
 import javax.swing.ListCellRenderer
 import kotlin.concurrent.atomics.AtomicReference
 import kotlin.concurrent.atomics.ExperimentalAtomicApi
 import kotlin.coroutines.cancellation.CancellationException
+import kotlin.io.path.invariantSeparatorsPathString
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
 
@@ -192,10 +200,11 @@ class NonIndexableFilesSEContributor(event: AnActionEvent) : WeightedSearchEvery
       .withMatchingMode(MatchingMode.IGNORE_CASE)
       .preferringStartMatches()
       .build()
+    val directorySearchEngines = DirectorySearchEngine.EP_NAME.extensionList.filter { it.canSearchNames() }
 
     // search everywhere has limit of entries it allows contibutor to contribute.
     // We want to send good matches first, and only send others later if didn't find enough
-    val suboptimalMatches = ConcurrentLinkedQueue<VirtualFile>()
+    val suboptimalMatches = ConcurrentLinkedQueue<FileSearchCandidate>()
 
     val hiddenTypes = hiddenTypes.load()
     val filterByType = VirtualFileFilter { file -> FileTypeRef.forFileType(file.fileType) !in hiddenTypes }
@@ -205,7 +214,7 @@ class NonIndexableFilesSEContributor(event: AnActionEvent) : WeightedSearchEvery
     else filterByType.and { file -> scope.containsNonIndexed(file) }
 
     val searchInLibraries = (scope as? GlobalSearchScope)?.isSearchInLibraries ?: true
-    val workspaceFileIndex = WorkspaceFileIndexEx.getInstance(project)
+    if (!searchInLibraries && !Registry.`is`("lookup.non.indexable.content.in.project.scope")) return
 
     if (!NonIndexableProductBehaviorService.getInstance().shouldLookupInProjectScopes() && !searchInLibraries) return
 
@@ -227,49 +236,62 @@ class NonIndexableFilesSEContributor(event: AnActionEvent) : WeightedSearchEvery
     @Suppress("UsagesOfObsoleteApi") // must use it due to using the old contributors api
     ProgressManager.getInstance().executeProcessUnderProgress(
       {
-        // tail position
         runBlockingCancellable {
-          val roots = readActionUndispatched { when {
-            searchInLibraries -> workspaceFileIndex.nonIndexableRootsAsCacheAvoiding()
-            else ->
-              if (Registry.`is`("lookup.non.indexable.content.in.project.scope"))
-                workspaceFileIndex.nonIndexableRootsAsCacheAvoiding { fileSet -> fileSet.kind.isContent }
-              else
-                setOf()
-          } }
-
-          if (roots.isEmpty()) return@runBlockingCancellable
-
-          val state = SearchJobsState(roots)
+          // A path pattern is an explicit navigation request, as in the index-based Files contributor.
+          // A product without that contributor gets the lookup here; with it, Search Everywhere merges the equal items.
+          var pathItem: PsiFileSystemItem? = null
+          val pathItemConsumed = readActionUndispatched {
+            pathItem = GotoFileItemProvider.findFileSystemItemByAbsolutePath(project, pattern)
+            pathItem?.let { consumer.process(FoundItemDescriptor<Any>(it, DefaultChooseByNameItemProvider.EXACT_MATCH_DEGREE)) } ?: true
+          }
+          if (!pathItemConsumed) return@runBlockingCancellable
+          // we do not pass [filter] here, because we want to show files that do not match the filter in suboptimal matches
+          val nonIndexableTraversal = readAction { ConcurrentFileTraversal.nonIndexableTraversal(project, searchInLibraries) }
+          val state = SearchJobsState(nonIndexableTraversal)
+          if (state.roots.isEmpty()) return@runBlockingCancellable
 
           val toplevelProducerJob = launch(Dispatchers.IO.limitedParallelism(MAX_JOBS)) {
             ParallelQueueProcessor.createRunning(
               scope = this@launch, jobsNumber = MAX_JOBS, initialItems = state.roots, workerJobYieldTimeout = 50.milliseconds
-            ) processor@{ handle, file ->
-              if (!state.visitingRootAllowed(file)) return@processor
-              val searchValidFile = state.processFileSubtree(file, workspaceFileIndex, handle)
-              if (searchValidFile == null) return@processor
+            ) { handle, item ->
+              fun processResult(file: FileSearchCandidate) {
+                val pathFromNonIndexableRoot = state.getPathFromRoot(file)
+                if (pathFromNonIndexableRoot == null) {
+                  LOG.warn("File $file that was yielded as a file under a non-indexable root didn't match any non-indexable roots; Continue search...")
+                  return
+                }
 
-              val filePath = searchValidFile.path
-              val rootOfFile = state.getPathRootOfPath(filePath)
-              if (rootOfFile == null) {
-                LOG.warn("File $searchValidFile that was yielded as a file under a non-indexable root didn't match any non-indexable roots; Continue search...")
-                return@processor
+                if (pathMatcher.matches(pathFromNonIndexableRoot)) {
+                  val matchingDegree = nameMatcher.matchingDegree(file.name)
+                  if (matchingDegree <= 0) {
+                    // suboptimal match, process later, after "optimal" matches
+                    suboptimalMatches.add(file)
+                  } else {
+                    state.emitResult(file, matchingDegree)
+                  }
+                } // else - file doesn't match pattern, skip
               }
 
-              val pathFromNonIndexableRoot = filePath.substring(rootOfFile.lastIndexOf("/") + 1)
-
-              if (!pathMatcher.matches(pathFromNonIndexableRoot)) {
-                return@processor // file doesn't match pattern, skip
+              val bestEngine = when {
+                directorySearchEngines.isEmpty() -> null
+                !item.getSubtreeProcessingMode().shouldProcessChildren -> null
+                else -> DirectorySearchEngine.selectDirectorySearchEngine(item.file, directorySearchEngines)
               }
 
-              val matchingDegree = nameMatcher.matchingDegree(file.name)
-              if (matchingDegree <= 0) {
-                suboptimalMatches.add(file)
-                return@processor // suboptimal match, process later, after "optimal" matches
+              val handled: Boolean = try {
+                bestEngine?.searchNames(item.file, pathPattern, ::processResult) != null
+              }
+              catch (_: Throwable) {
+                checkCanceled()
+                false
               }
 
-              state.emitResult(file, matchingDegree)
+              if (!handled) {
+                val shouldProcessSelf = state.processItem(item, handle)
+                if (shouldProcessSelf) {
+                  processResult(FileSearchCandidate.fromVirtualFile(item.file))
+                }
+              }
             }
           }
 
@@ -277,14 +299,14 @@ class NonIndexableFilesSEContributor(event: AnActionEvent) : WeightedSearchEvery
             state.producerCompleted()
           }
 
-          state.collectResults { file, matchingDegree ->
+          val consumerStopped = !state.collectResults { file, matchingDegree ->
+            if (!filter.accept(file)) return@collectResults true
+
             val psiItem = when {
               file.isDirectory -> psiManager.findDirectory(file)
               else -> psiManager.findFile(file)
             }
-
-            val accepted = filter.accept(file)
-            if (!accepted) return@collectResults
+            if (psiItem != null && psiItem == pathItem) return@collectResults true
 
             val itemDescriptor = FoundItemDescriptor<Any>(psiItem, matchingDegree)
             val consumed = consumer.process(itemDescriptor)
@@ -292,7 +314,10 @@ class NonIndexableFilesSEContributor(event: AnActionEvent) : WeightedSearchEvery
             if (!consumed) {
               toplevelProducerJob.cancel("consumer stopped")
             }
+            consumed
           }
+
+          if (consumerStopped) return@runBlockingCancellable
 
           if (suboptimalMatches.isEmpty() || namePattern.length < 2) return@runBlockingCancellable
 
@@ -302,12 +327,13 @@ class NonIndexableFilesSEContributor(event: AnActionEvent) : WeightedSearchEvery
               .build()
           }
 
-          for (file in suboptimalMatches) {
+          for (candidate in suboptimalMatches) {
             // binary search instead of linear?
             for (i in otherNameMatchers.indices) {
               val matcher = otherNameMatchers[i]
-              val matchingDegree = matcher.matchingDegree(file.name)
+              val matchingDegree = matcher.matchingDegree(candidate.name)
               if (matchingDegree > 0) {
+                val file = candidate.resolveVirtualFile() ?: break
                 val shouldBreak = readActionUndispatched {
                   // These locks slow the throughput less than the locks in the producerJob iteration
                   // because these are really just file leftovers
@@ -315,6 +341,7 @@ class NonIndexableFilesSEContributor(event: AnActionEvent) : WeightedSearchEvery
                     file.isDirectory -> PsiManager.getInstance(project).findDirectory(file)
                     else -> PsiManager.getInstance(project).findFile(file)
                   } ?: return@readActionUndispatched false
+                  if (psiItem == pathItem) return@readActionUndispatched true
                   val weight = matchingDegree * (otherNameMatchers.size - i) / (otherNameMatchers.size + 1)
                   val itemDescriptor = FoundItemDescriptor<Any>(psiItem, weight)
                   if (consumer.process(itemDescriptor)) return@readActionUndispatched true
@@ -371,52 +398,69 @@ class NonIndexableFilesSEContributor(event: AnActionEvent) : WeightedSearchEvery
 }
 
 private class SearchJobsState {
-  val roots: Set<VirtualFile>
-  private val rootsPaths: List<String>
-  private val resultsChannel: Channel<Pair<VirtualFile, Int>> = Channel(Channel.UNLIMITED)
+  val roots: Collection<TraversalItem>
+  private val pathFromRootResolver: PathFromRootResolver
+  private val resultsChannel: Channel<Pair<FileSearchCandidate, Int>> = Channel(Channel.UNLIMITED)
 
-  val visitedRoots: MutableSet<VirtualFile> = ConcurrentHashMap.newKeySet()
-
-  constructor(roots: Set<VirtualFile>) {
-    this.roots = ConcurrentHashMap.newKeySet<VirtualFile>().apply { addAll(roots) }
-    this.rootsPaths = roots.map { it.path }
+  constructor(traversal: ConcurrentFileTraversal) {
+    this.roots = traversal.roots
+    this.pathFromRootResolver = PathFromRootResolver(roots.map { it.file })
   }
 
-  fun getPathRootOfPath(filePath: String): String? {
-    return rootsPaths.firstOrNull { filePath.startsWith(it) }
+  fun getPathFromRoot(file: FileSearchCandidate): String? = when (file) {
+    is FileSearchCandidate.FromPath -> pathFromRootResolver.getPathFromRoot(file.path)
+    is FileSearchCandidate.FromVirtualFile -> pathFromRootResolver.getPathFromRoot(file.file)
   }
 
-  fun visitingRootAllowed(file: VirtualFile): Boolean {
-    if (file in visitedRoots) return false
-    if (file in roots) visitedRoots.add(file)
-    return true
-  }
-
-  fun processFileSubtree(
-    file: VirtualFile, workspaceFileIndex: WorkspaceFileIndexEx,
-    processorHandle: ParallelQueueProcessor<VirtualFile>
-  ): VirtualFile? {
-    val shouldProcess = NonIndexableFilesDequeImpl.shouldProcessFileAndListChildrenIfTheyShouldBe(workspaceFileIndex, file) { children ->
-      for (child in children) {
-        processorHandle.queueSpawningWorkerJobIfNotAtLimit(child)
-      }
+  fun processItem(item: TraversalItem, handle: ParallelQueueProcessor<TraversalItem>): Boolean {
+    return item.expand { children ->
+      children.forEach(handle::queueSpawningWorkerJobIfNotAtLimit)
     }
-    return if (shouldProcess) file else null
   }
 
-  fun emitResult(file: VirtualFile, score: Int) {
+  fun emitResult(file: FileSearchCandidate, score: Int) {
     resultsChannel.trySend(file to score)
   }
 
-  suspend fun collectResults(@RequiresReadLock collector: (VirtualFile, Int) -> Unit) {
-    for ((file, score) in resultsChannel) {
+  suspend fun collectResults(@RequiresReadLock collector: (VirtualFile, Int) -> Boolean): Boolean {
+    for ((candidate, score) in resultsChannel) {
+      val file = candidate.resolveVirtualFile() ?: continue
       // Sadly, read action :( SE is to blame
-      readActionUndispatched { collector(file, score) }
+      if (!readActionUndispatched { collector(file, score) }) return false
     }
+    return true
   }
 
   fun producerCompleted() {
     resultsChannel.close()
+  }
+}
+
+@ApiStatus.Internal
+@VisibleForTesting
+class PathFromRootResolver(roots: Collection<VirtualFile>) {
+  private val rootNamesByPath: Map<String, String> = roots.associate { it.path to it.name }
+  // "outer" here means that we remove nested roots, and getPathFromRoot will provide the longest possible path
+  private val outerRoots: List<String> = buildList {
+    for (root in rootNamesByPath.keys.sortedWith(FileUtil::comparePaths)) {
+      if (isEmpty() || !FileUtil.startsWith(root, last())) add(root)
+    }
+  }
+
+  /** The caller must pass an absolute [path] after calling [Path.normalize]. */
+  fun getPathFromRoot(path: Path): String? {
+    return getPathFromRoot(path.invariantSeparatorsPathString)
+  }
+
+  fun getPathFromRoot(file: VirtualFile): String? {
+    return getPathFromRoot(file.path)
+  }
+
+  private fun getPathFromRoot(path: String): String? {
+    val root = outerRoots.firstOrNull { FileUtil.startsWith(path, it) } ?: return null
+    val relativePath = path.substring(root.length).removePrefix("/")
+    val rootName = rootNamesByPath.getValue(root)
+    return if (relativePath.isEmpty()) rootName else "${rootName}/$relativePath"
   }
 }
 

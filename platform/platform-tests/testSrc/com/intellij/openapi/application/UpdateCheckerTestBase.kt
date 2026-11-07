@@ -1,7 +1,6 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.application
 
-import com.fasterxml.jackson.databind.ObjectMapper
 import com.intellij.ide.plugins.IdeaPluginDependency
 import com.intellij.ide.plugins.IdeaPluginDescriptor
 import com.intellij.ide.plugins.InstalledPluginsState
@@ -9,10 +8,10 @@ import com.intellij.ide.plugins.PluginManagerCore
 import com.intellij.ide.plugins.TestIdeaPluginDescriptor
 import com.intellij.ide.plugins.marketplace.utils.MarketplaceCustomizationService
 import com.intellij.ide.plugins.updateBrokenPlugins
-import com.intellij.openapi.Disposable
 import com.intellij.openapi.extensions.PluginDescriptor
 import com.intellij.openapi.extensions.PluginId
 import com.intellij.openapi.observable.util.whenDisposed
+import com.intellij.openapi.updateSettings.impl.MarketplaceChannelUrlService
 import com.intellij.openapi.updateSettings.impl.PluginUpdateSourcePluginsProvider
 import com.intellij.openapi.updateSettings.impl.UpdateCheckerPluginsFacade
 import com.intellij.openapi.util.BuildNumber
@@ -27,6 +26,7 @@ import org.apache.http.client.utils.URLEncodedUtils
 import org.intellij.lang.annotations.Language
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
+import tools.jackson.databind.ObjectMapper
 import java.net.InetSocketAddress
 import java.net.URI
 import java.nio.charset.StandardCharsets
@@ -36,6 +36,10 @@ import java.util.jar.JarOutputStream
 import java.util.zip.ZipEntry
 
 internal abstract class UpdateCheckerTestBase {
+  companion object {
+    const val CUSTOM_BUILT_IN_PLUGIN_REPOSITORY_PROPERTY = "intellij.plugins.custom.built.in.repository.url"
+  }
+
   protected val testDisposable = disposableFixture()
   protected val objectMapper = ObjectMapper()
 
@@ -45,7 +49,7 @@ internal abstract class UpdateCheckerTestBase {
 
   @BeforeEach
   fun setup() {
-    server = createTestServer(testDisposable.get())
+    server = createTestServer().httpServer
 
     application.replaceService(InstalledPluginsState::class.java, InstalledPluginsState(), testDisposable.get())
     application.replaceService(UpdateCheckerPluginsFacade::class.java, TestUpdateCheckerPluginsFacade(), testDisposable.get())
@@ -73,12 +77,17 @@ internal abstract class UpdateCheckerTestBase {
     }
   }
 
-  protected fun createTestServer(disposable: Disposable): HttpServer {
+  protected data class Server(val httpServer: HttpServer, val suffix: String) {
+    val url: String
+      get() = "${httpServer.url}/$suffix"
+  }
+
+  protected fun createTestServer(suffix: String = "custom-repository"): Server {
     val server = HttpServer.create()!!
     server.bind(InetSocketAddress(0), 1)
     server.start()
-    disposable.whenDisposed { server.stop(0) }
-    return server
+    testDisposable.get().whenDisposed { server.stop(0) }
+    return Server(server, suffix)
   }
 
   protected fun setServerPlugins(
@@ -116,20 +125,20 @@ internal abstract class UpdateCheckerTestBase {
     }
   }
 
-  protected fun setCustomRepositoryPlugins(customServer: HttpServer, plugins: List<CustomRepositoryPlugin>) {
-    customServer.createContext("/custom-repository") { handler ->
+  protected fun setCustomRepositoryPlugins(customServer: Server, plugins: List<CustomRepositoryPlugin>) {
+    customServer.httpServer.createContext("/${customServer.suffix}") { handler ->
       handler.sendResponseHeaders(200, 0)
       handler.responseBody.writer().use { out ->
         out.write("""
           <plugins>
-            ${plugins.joinToString("\n") { it.toPluginXml(customServer) }}
+            ${plugins.joinToString("\n") { it.toPluginXml(customServer.httpServer) }}
           </plugins>
           """.trimIndent())
       }
     }
 
     for (plugin in plugins) {
-      customServer.createContext(plugin.downloadPath) { handler ->
+      customServer.httpServer.createContext(plugin.downloadPath) { handler ->
         handler.sendResponseHeaders(200, 0)
         handler.responseBody.use { output ->
           JarOutputStream(output).use { jarOutput ->
@@ -191,6 +200,12 @@ internal abstract class UpdateCheckerTestBase {
     val installedPlugins = plugins.asList()
     installedPluginsFacade.setPlugins(installedPlugins)
     pluginUpdateSourcePluginsProvider.setPlugins(installedPlugins.map { it.createTestPluginDescriptor() })
+  }
+
+  protected fun replaceMarketplaceChannelUrlService(marketplaceBaseUrl: String) {
+    application.replaceService(MarketplaceChannelUrlService::class.java,
+                               MarketplaceChannelUrlService.createInstance(marketplaceBaseUrl),
+                               testDisposable.get())
   }
 
   private val pluginUpdateSourcePluginsProvider: TestPluginUpdateSourcePluginsProvider

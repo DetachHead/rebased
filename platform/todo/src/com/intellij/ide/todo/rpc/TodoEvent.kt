@@ -2,17 +2,17 @@
 package com.intellij.ide.todo.rpc
 
 import com.intellij.ide.vfs.VirtualFileId
-import org.jetbrains.annotations.ApiStatus
 import kotlinx.serialization.Serializable
+import org.jetbrains.annotations.ApiStatus
 
 @ApiStatus.Internal
 @Serializable
 sealed interface TodoEvent {
   @Serializable
-  data class ItemUpserted(val item: TodoFileResult) : TodoEvent
+  data class FileUpserted(val item: TodoFileResult) : TodoEvent
 
   @Serializable
-  data class ItemRemoved(val fileId: VirtualFileId) : TodoEvent
+  data class FileRemoved(val fileId: VirtualFileId) : TodoEvent
 
   @Serializable
   data object AllItemsRemoved : TodoEvent

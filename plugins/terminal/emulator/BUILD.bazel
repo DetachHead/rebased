@@ -10,6 +10,10 @@ jps_test(
 )
 ### skip generation section `test intellij.terminal.emulator.tests` end
 
+### auto-generated section `dev intellij.terminal.emulator` start
+content_module_jar(module = ":emulator")
+### auto-generated section `dev intellij.terminal.emulator` end
+
 ### auto-generated section `build intellij.terminal.emulator` start
 jvm_library(
     name = "emulator",
@@ -37,8 +41,6 @@ jvm_library(
         "//platform/build-scripts/downloader",
     ],
 )
-
-content_module_jar(module = ":emulator")
 
 jvm_library(
     name = "emulator_test_lib",
@@ -102,14 +104,14 @@ jvm_library(
     deps = [
         # do not sort,
         "@lib//:kotlin-stdlib",
-        "//libraries/junit5",
-        "//libraries/junit5:junit5_test_lib",
+        "//libraries/junit6",
+        "//libraries/junit6:junit6_test_lib",
         "//platform/util",
         "//platform/util:util_test_lib",
         "//libraries/assertj-core",
         "//libraries/assertj-core:assertj-core_test_lib",
-        "//libraries/junit5-params",
-        "//libraries/junit5-params:junit5-params_test_lib",
+        "//libraries/junit6-params",
+        "//libraries/junit6-params:junit6-params_test_lib",
         "//libraries/jediterm-core",
         "//libraries/jediterm-core:jediterm-core_test_lib",
         "//libraries/kotlinx/serialization/core",

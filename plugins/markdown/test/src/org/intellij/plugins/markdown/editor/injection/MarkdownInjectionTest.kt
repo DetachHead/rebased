@@ -117,6 +117,29 @@ class MarkdownInjectionTest : LightPlatformCodeInsightTestCase() {
     assertEquals(2, injectedDocument.hostRanges.size)
   }
 
+  fun `test blank line with an extra indent keeps the extra spaces in the injected code`() {
+    val text = "    ```python\n    a\n        \n    b\n    ```"
+    configureFromFileText("test.md", text)
+
+    val codeFence = PsiTreeUtil.findChildOfType(file, MarkdownCodeFence::class.java)
+    assertNotNull(codeFence)
+    val injectedFiles = InjectedLanguageManager.getInstance(project).getInjectedPsiFiles(codeFence!!)
+    assertNotNull(injectedFiles)
+    val injectedFile = injectedFiles!!.first().first.containingFile
+    // The four spaces of the fence stay out. The four spaces above them belong to the code.
+    assertEquals("a\n    \nb", injectedFile.text)
+
+    val injectedDocument = PsiDocumentManager.getInstance(project).getDocument(injectedFile) as DocumentWindow
+    val document = editor.document
+    for (range in injectedDocument.hostRanges) {
+      val lineStart = document.getLineStartOffset(document.getLineNumber(range.startOffset))
+      assertTrue(
+        "A range must not hold the indent of the fence",
+        range.startOffset - lineStart >= 4,
+      )
+    }
+  }
+
   fun `test tab-indented fence with lang`() {
     val text = listOf("\t```java", "\tclass C {}", "\t```").joinToString("\n")
     configureFromFileText("test.md", text)
@@ -433,7 +456,7 @@ class MarkdownInjectionTest : LightPlatformCodeInsightTestCase() {
   }
 
   fun `test fence with lang with disabled auto injection`() {
-    val markdownSettings = MarkdownSettings.getInstance(project)
+    val markdownSettings = MarkdownSettings.getInstance()
     val oldValue = markdownSettings.areInjectionsEnabled
     try {
       markdownSettings.areInjectionsEnabled = false
@@ -1161,7 +1184,7 @@ class MarkdownInjectionTest : LightPlatformCodeInsightTestCase() {
 
           ```yaml
           key: {
-            <caret>
+                 <caret>
           }
           ```
       """.trimIndent()
@@ -1202,8 +1225,8 @@ class MarkdownInjectionTest : LightPlatformCodeInsightTestCase() {
   }
 
   /**
-   * Enter after an unmatched opening brace is handled by `EnterAfterUnmatchedBraceHandler`, which inserts the missing
-   * brace. In a top level code fence that works; the same content in an indented code fence currently fails.
+   * `EnterAfterUnmatchedBraceHandler` inserts the missing brace.
+   * A top-level fence does not need host indentation restoration.
    */
   fun testEnterAfterUnmatchedBraceInTopLevelCodeFence() {
     configureFromFileText(
@@ -1229,6 +1252,38 @@ class MarkdownInjectionTest : LightPlatformCodeInsightTestCase() {
         ```
       """.trimIndent()
     )
+  }
+
+  fun testEnterBetweenBracesWithFourSpaceIndentInIndentedCodeFence() {
+    CodeStyle.doWithTemporarySettings(project, CodeStyle.getSettings(project)) { settings ->
+      val jsonLanguage = requireNotNull(Language.findLanguageByID("JSON"))
+      val indentOptions = requireNotNull(settings.getCommonSettings(jsonLanguage).indentOptions)
+      indentOptions.INDENT_SIZE = 4
+
+      configureFromFileText(
+        "test.md",
+        """
+          - Item with code:
+
+            ```json
+            {<caret>}
+            ```
+        """.trimIndent()
+      )
+
+      type('\n')
+      checkResultByText(
+        """
+          - Item with code:
+
+            ```json
+            {
+                <caret>
+            }
+            ```
+        """.trimIndent()
+      )
+    }
   }
 
   fun testEnterBetweenBracesWithTabIndentInIndentedCodeFence() {

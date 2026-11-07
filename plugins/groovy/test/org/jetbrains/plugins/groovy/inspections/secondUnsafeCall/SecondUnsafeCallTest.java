@@ -12,8 +12,8 @@ import java.util.List;
 public class SecondUnsafeCallTest extends LightJavaCodeInsightFixtureTestCase {
 
   @Override
-  protected String getBasePath() {
-    return TestUtils.getTestDataPath() + "groovy/inspections/secondUnsafeCall";
+  protected String getTestDataPath() {
+    return TestUtils.getAbsoluteTestDataPath() + "groovy/inspections/secondUnsafeCall";
   }
 
   public void doTest() {

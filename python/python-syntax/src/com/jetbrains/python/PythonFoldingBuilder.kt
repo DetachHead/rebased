@@ -139,9 +139,9 @@ open class PythonFoldingBuilder : CustomFoldingBuilder(), DumbAware {
       foldSequentialComments(node, descriptors)
     }
     else if (elementType === PyElementTypes.ANNOTATION) {
-      val annotation = node.psi
-      if (annotation is PyAstAnnotation && annotation.value != null) {
-        descriptors.add(FoldingDescriptor(node, annotation.value!!.textRange,
+      val annotationValue = (node.psi as? PyAstAnnotation)?.value
+      if (annotationValue != null) {
+        descriptors.add(FoldingDescriptor(node, annotationValue.textRange,
                                           FoldingGroup.newGroup(PYTHON_TYPE_ANNOTATION_GROUP_NAME)))
       }
     }

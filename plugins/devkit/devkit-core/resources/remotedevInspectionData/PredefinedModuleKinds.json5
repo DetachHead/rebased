@@ -17,6 +17,7 @@
 [
   {kind: "moduleId", id: "intellij.platform.monolith", moduleKind: "monolith"},
 
+  {kind: "moduleId", id: "intellij.frontend.split.customization", moduleKind: "frontend"},
   {kind: "moduleId", id: "intellij.platform.frontend", moduleKind: "frontend"},
   {kind: "moduleId", id: "intellij.platform.frontend.split", moduleKind: "frontend"},
   {kind: "moduleId", id: "intellij.platform.plugins.frontend.split", moduleKind: "frontend"},
@@ -28,7 +29,7 @@
   {kind: "moduleId", id: "intellij.platform.backend.split", moduleKind: "backend"},
   {kind: "moduleId", id: "intellij.platform.kernel.backend", moduleKind: "backend"},
   {kind: "moduleId", id: "com.jetbrains.remoteDevelopment", moduleKind: "backend"},
-  {kind: "moduleId", id: "intellij.cwm", moduleKind: "backend"},
+  {kind: "moduleId", id: "intellij.remoteDevelopment.plugin", moduleKind: "backend"},
   {kind: "moduleId", id: "intellij.cwm.plugin", moduleKind: "backend"},
   {kind: "moduleId", id: "intellij.cwm.plugin.provisioner", moduleKind: "backend"},
   {kind: "moduleId", id: "intellij.cwm.connection.backend", moduleKind: "backend"},
@@ -71,7 +72,6 @@
   {kind: "moduleId", id: "intellij.clion.radler.core", moduleKind: "backend", apiUsagePolicy: "backendWithNonUiApiPermit"},
   {kind: "moduleId", id: "intellij.clion.radler.dfa", moduleKind: "backend", apiUsagePolicy: "backendWithNonUiApiPermit"},
   {kind: "moduleId", id: "intellij.clion.radler.featuresTrainer", moduleKind: "backend", apiUsagePolicy: "backendWithNonUiApiPermit"},
-  {kind: "moduleId", id: "intellij.clion.radler.junieExecution", moduleKind: "backend", apiUsagePolicy: "backendWithNonUiApiPermit"},
   {kind: "moduleId", id: "intellij.clion.radler.performance", moduleKind: "backend", apiUsagePolicy: "backendWithNonUiApiPermit"},
   {kind: "moduleId", id: "intellij.clion.radler.testing", moduleKind: "backend", apiUsagePolicy: "backendWithNonUiApiPermit"},
 
@@ -89,11 +89,12 @@
   {kind: "moduleId", id: "intellij.platform.bootstrap", moduleKind: "shared"},
   {kind: "moduleId", id: "intellij.platform.bootstrap.coroutine", moduleKind: "shared"},
   {kind: "moduleId", id: "intellij.platform.bootstrap.dev", moduleKind: "shared"},
+  {kind: "moduleId", id: "intellij.platform.bootstrap.dev.legacy", moduleKind: "shared"},
   {kind: "moduleId", id: "intellij.platform.buildScripts", moduleKind: "shared"},
   {kind: "moduleId", id: "intellij.platform.buildScripts.api", moduleKind: "shared"},
   {kind: "moduleId", id: "intellij.platform.buildScripts.bazel", moduleKind: "shared"},
   {kind: "moduleId", id: "intellij.platform.buildScripts.codeOptimizer", moduleKind: "shared"},
-  {kind: "moduleId", id: "intellij.platform.buildScripts.devBuildServer", moduleKind: "shared"},
+  {kind: "moduleId", id: "intellij.platform.buildScripts.devBuildServer.legacy", moduleKind: "shared"},
   {kind: "moduleId", id: "intellij.platform.buildScripts.downloader", moduleKind: "shared"},
   {kind: "moduleId", id: "intellij.platform.buildScripts.licenses", moduleKind: "shared"},
   {kind: "moduleId", id: "intellij.platform.buildScripts.productDsl", moduleKind: "shared"},

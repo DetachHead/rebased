@@ -66,7 +66,7 @@ class FinishInlineRename(text: String, line: Int) : AbstractCommand(text, line) 
     WriteAction.runAndWait<Throwable> {
       val fileEditorManager = FileEditorManager.getInstance(context.project)
       val editor = fileEditorManager.selectedTextEditor
-        ?: fileEditorManager.getAllEditors().filterIsInstance<TextEditor>().firstOrNull()?.editor
+        ?: fileEditorManager.allEditors.filterIsInstance<TextEditor>().firstOrNull()?.editor
         ?: throw IllegalStateException("Couldn't get text editor")
       val templateState = TemplateManagerImpl.getTemplateState(editor)
       templateState?.nextTab()

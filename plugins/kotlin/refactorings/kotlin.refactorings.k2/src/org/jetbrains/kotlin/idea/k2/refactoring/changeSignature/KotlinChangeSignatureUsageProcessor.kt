@@ -22,8 +22,7 @@ import com.intellij.refactoring.rename.ResolveSnapshotProvider
 import com.intellij.refactoring.rename.ResolveSnapshotProvider.ResolveSnapshot
 import com.intellij.usageView.UsageInfo
 import com.intellij.util.containers.MultiMap
-import org.jetbrains.kotlin.analysis.api.components.KaDiagnosticCheckerFilter
-import org.jetbrains.kotlin.analysis.api.components.directDiagnostics
+import org.jetbrains.kotlin.analysis.api.diagnostics.diagnostics
 import org.jetbrains.kotlin.analysis.api.fir.diagnostics.KaFirDiagnostic
 import org.jetbrains.kotlin.analysis.api.permissions.KaAllowAnalysisFromWriteAction
 import org.jetbrains.kotlin.analysis.api.permissions.KaAllowAnalysisOnEdt
@@ -36,7 +35,14 @@ import org.jetbrains.kotlin.asJava.unwrapped
 import org.jetbrains.kotlin.idea.KotlinLanguage
 import org.jetbrains.kotlin.idea.base.analysis.api.utils.shortenReferences
 import org.jetbrains.kotlin.idea.base.codeInsight.ShortenOptionsForIde
+import org.jetbrains.kotlin.idea.base.psi.addModifierKeyword
+import org.jetbrains.kotlin.idea.base.psi.getOrCreatePrimaryConstructor
 import org.jetbrains.kotlin.idea.base.psi.isEffectivelyActual
+import org.jetbrains.kotlin.idea.base.psi.removeModifierKeyword
+import org.jetbrains.kotlin.idea.base.psi.setCallableReceiverTypeReference
+import org.jetbrains.kotlin.idea.base.psi.setCallableTypeReference
+import org.jetbrains.kotlin.idea.base.psi.setModifierList
+import org.jetbrains.kotlin.idea.base.psi.setParameterTypeReference
 import org.jetbrains.kotlin.idea.base.util.useScope
 import org.jetbrains.kotlin.idea.k2.refactoring.changeSignature.usages.KotlinBaseChangeSignatureUsage
 import org.jetbrains.kotlin.idea.k2.refactoring.changeSignature.usages.KotlinByConventionCallUsage
@@ -79,13 +85,10 @@ import org.jetbrains.kotlin.psi.KtPsiFactory
 import org.jetbrains.kotlin.psi.KtPsiUtil
 import org.jetbrains.kotlin.psi.KtSuperTypeCallEntry
 import org.jetbrains.kotlin.psi.KtTypeReference
-import org.jetbrains.kotlin.psi.addRemoveModifier.setModifierList
-import org.jetbrains.kotlin.psi.createPrimaryConstructorIfAbsent
 import org.jetbrains.kotlin.psi.psiUtil.getElementTextWithContext
 import org.jetbrains.kotlin.psi.psiUtil.hasActualModifier
 import org.jetbrains.kotlin.psi.psiUtil.isExpectDeclaration
 import org.jetbrains.kotlin.psi.psiUtil.visibilityModifierType
-import org.jetbrains.kotlin.psi.typeRefHelpers.setReceiverTypeReference
 import org.jetbrains.kotlin.types.Variance
 import org.jetbrains.kotlin.types.expressions.OperatorConventions
 
@@ -380,7 +383,7 @@ class KotlinChangeSignatureUsageProcessor : ChangeSignatureUsageProcessor {
                     }
                 }
                 //update all types together not to break inference during `createType` for dependent type changes
-                parameterTypes.forEach { (param, typeRef) -> param.typeReference = typeRef }
+                parameterTypes.forEach { (param, typeRef) -> param.setParameterTypeReference(typeRef) }
             }
         }
 
@@ -397,7 +400,7 @@ class KotlinChangeSignatureUsageProcessor : ChangeSignatureUsageProcessor {
                 Variance.IN_VARIANCE,
                 true
             ) else null
-            (element as KtCallableDeclaration).setReceiverTypeReference(receiverTypeRef)?.let { shortenReferences(it) }
+            (element as KtCallableDeclaration).setCallableReceiverTypeReference(receiverTypeRef)?.let { shortenReferences(it) }
         }
 
         if (changeInfo.isVisibilityChanged() && !KtPsiUtil.isLocal(element)) {
@@ -409,13 +412,13 @@ class KotlinChangeSignatureUsageProcessor : ChangeSignatureUsageProcessor {
             val brokenSignature = allowAnalysisFromWriteAction {
                 allowAnalysisOnEdt {
                     analyze(element) {
-                        element.directDiagnostics(KaDiagnosticCheckerFilter.ONLY_COMMON_CHECKERS)
+                        element.diagnostics().directOnly(true)
                             .any { it.diagnosticClass == KaFirDiagnostic.InapplicableOperatorModifier::class }
                     }
                 }
             }
             if (brokenSignature) {
-                element.removeModifier(KtTokens.OPERATOR_KEYWORD)
+                element.removeModifierKeyword(KtTokens.OPERATOR_KEYWORD)
             }
         }
 
@@ -435,16 +438,16 @@ class KotlinChangeSignatureUsageProcessor : ChangeSignatureUsageProcessor {
         }
         when (element) {
             is KtCallableDeclaration -> element.setVisibility(newVisibilityToken)
-            is KtClass -> element.createPrimaryConstructorIfAbsent().setVisibility(newVisibilityToken)
+            is KtClass -> element.getOrCreatePrimaryConstructor().setVisibility(newVisibilityToken)
             else -> throw AssertionError("Invalid element: " + element.getElementTextWithContext())
         }
     }
 
     private fun KtModifierListOwner.setVisibility(visibilityToken: KtModifierKeywordToken) {
         if (visibilityToken == KtTokens.PUBLIC_KEYWORD) {
-            visibilityModifierType()?.let { removeModifier(it) }
+            visibilityModifierType()?.let { removeModifierKeyword(it) }
         } else {
-            addModifier(visibilityToken)
+            addModifierKeyword(visibilityToken)
         }
     }
 
@@ -510,9 +513,9 @@ class KotlinChangeSignatureUsageProcessor : ChangeSignatureUsageProcessor {
             }
         } else {
             if (element is KtClass) {
-                val constructor = element.createPrimaryConstructorIfAbsent()
+                val constructor = element.getOrCreatePrimaryConstructor()
                 if (element.hasActualModifier()) {
-                    constructor.addModifier(KtTokens.ACTUAL_KEYWORD)
+                    constructor.addModifierKeyword(KtTokens.ACTUAL_KEYWORD)
                 }
                 val oldParameterList = constructor.valueParameterList ?: error("Primary constructor has to have parameter list")
                 newParameterList = oldParameterList.replace(newParameterList) as KtParameterList
@@ -542,7 +545,12 @@ class KotlinChangeSignatureUsageProcessor : ChangeSignatureUsageProcessor {
             if (modifierList != null) {
                 val contextParameterList = modifierList.contextParameterList
                 val contextReceivers = if (contextParameterList == null) {
-                    modifierList.addBefore(newModifierList.contextParameterList!!, modifierList.firstChild)
+                    val firstModifier = modifierList.getModifier(KtTokens.MODIFIER_KEYWORDS)
+                    if (firstModifier != null) {
+                        modifierList.addBefore(newModifierList.contextParameterList!!, firstModifier)
+                    } else {
+                        modifierList.addAfter(newModifierList.contextParameterList!!, modifierList.lastChild)
+                    }
                 } else {
                     contextParameterList.replace(newModifierList.contextParameterList!!)
                 }
@@ -567,7 +575,7 @@ class KotlinChangeSignatureUsageProcessor : ChangeSignatureUsageProcessor {
         val returnTypeIsNeeded = isReturnTypeRequired(element)
 
         if (changeInfo.isReturnTypeChanged && returnTypeIsNeeded) {
-            element.typeReference = null
+            element.setCallableTypeReference(null)
             val returnType = changeInfo.aNewReturnType
             if (returnType != null) {
                 val typeReference = KtPsiFactory(element.project).createType(
@@ -576,7 +584,7 @@ class KotlinChangeSignatureUsageProcessor : ChangeSignatureUsageProcessor {
                     changeInfo.method,
                     Variance.OUT_VARIANCE
                 )
-                element.setTypeReference(typeReference)?.let { shortenReferences(it) }
+                element.setCallableTypeReference(typeReference)?.let { shortenReferences(it) }
             }
         }
     }

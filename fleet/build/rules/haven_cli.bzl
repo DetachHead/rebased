@@ -1,3 +1,4 @@
+load("@bazel_skylib//rules:common_settings.bzl", "BuildSettingInfo")
 load("@rules_java//java/common:java_common.bzl", "java_common")
 
 HAVEN_CLI_ATTR = {
@@ -14,7 +15,17 @@ HAVEN_CLI_ATTR = {
         default = Label("@bazel_tools//tools/jdk:current_java_runtime"),
         cfg = "exec",
     ),
+    "_telemetry_server": attr.label(default = Label("//fleet/build/cli:telemetry_server")),
 }
+
+# The JVM arguments of a Haven CLI worker. With `--@community//fleet/build/cli:telemetry_server`, the worker
+# serves telemetry, such as a coroutine dump, over a loopback HTTP server. The worker log shows its URL.
+# The JVM arguments are part of the worker key, so the flag starts a separate worker pool.
+def _haven_cli_jvm_flags(ctx):
+    flags = ["-Xmx1g"]
+    if ctx.attr._telemetry_server[BuildSettingInfo].value:
+        flags.append("-Dfleet.build.haven.telemetry.server.enabled=true")
+    return flags
 
 def run_haven_cli(
         ctx,
@@ -26,7 +37,7 @@ def run_haven_cli(
         progress_message = ""):
     java_runtime = ctx.attr._tool_java_runtime[java_common.JavaRuntimeInfo]
     ctx.actions.run(
-        mnemonic = "HavenCli",  # ensure all haven-cli workers are shared regardless of the mnemonic of the action
+        mnemonic = mnemonic,
         inputs = inputs,
         outputs = outputs,
         tools = [ctx.file._haven_cli_launcher, ctx.file._haven_cli, java_runtime.files] + tools,
@@ -36,8 +47,9 @@ def run_haven_cli(
             "supports-multiplex-workers": "1",
             "supports-worker-cancellation": "1",
             "supports-path-mapping": "1",
+            "worker-key-mnemonic": "HavenCli",  # ensure all haven-cli workers are shared regardless of the mnemonic of the action
         },
-        arguments = [
+        arguments = _haven_cli_jvm_flags(ctx) + [
             ctx.file._haven_cli_launcher.path,
             ctx.file._haven_cli.path,
         ] + arguments,

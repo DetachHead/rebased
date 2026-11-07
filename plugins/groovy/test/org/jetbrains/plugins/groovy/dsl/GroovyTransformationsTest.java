@@ -9,8 +9,8 @@ import org.jetbrains.plugins.groovy.util.TestUtils;
 
 public class GroovyTransformationsTest extends LightJavaCodeInsightFixtureTestCase {
   @Override
-  protected String getBasePath() {
-    return TestUtils.getTestDataPath() + "groovy/dsl/transform";
+  protected String getTestDataPath() {
+    return TestUtils.getAbsoluteTestDataPath() + "groovy/dsl/transform";
   }
 
   public void doPlainTest(String type) throws Throwable {

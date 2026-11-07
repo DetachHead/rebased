@@ -11,8 +11,8 @@ import java.util.Iterator;
 
 public abstract class GroovyParsingTestCase extends LightJavaCodeInsightFixtureTestCase {
   @Override
-  public String getBasePath() {
-    return TestUtils.getTestDataPath() + "parsing/groovy/";
+  public String getTestDataPath() {
+    return TestUtils.getAbsoluteTestDataPath() + "parsing/groovy/";
   }
 
   public void doTest() {

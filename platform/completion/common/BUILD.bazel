@@ -1,6 +1,5 @@
 load("@community//build:tests-options.bzl", "jps_test")
 load("@rules_jvm//:jvm.bzl", "jvm_library")
-load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 jps_test(
     name = "common-tests_test",
@@ -48,8 +47,6 @@ jvm_library(
     ],
 )
 
-content_module_jar(module = ":common")
-
 jvm_library(
     name = "common_test_lib",
     testonly = True,
@@ -85,7 +82,6 @@ exports_files(
     [
         "intellij.platform.completion.common.iml",
         "resources/intellij.platform.completion.common.xml",
-        "module-content.yaml",
     ],
     visibility = ["//visibility:public"],
 )
@@ -151,8 +147,8 @@ jvm_library(
         "//platform/testFramework/junit5:junit5_test_lib",
         "//libraries/kotlinx/serialization/json",
         "//libraries/kotlinx/serialization/json:json_test_lib",
-        "//libraries/junit5",
-        "//libraries/junit5:junit5_test_lib",
+        "//libraries/junit6",
+        "//libraries/junit6:junit6_test_lib",
         "//fleet/rhizomedb",
         "//fleet/rhizomedb:rhizomedb_test_lib",
     ],

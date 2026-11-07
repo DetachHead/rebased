@@ -54,7 +54,6 @@ import com.intellij.openapi.util.registry.EarlyAccessRegistryManager;
 import com.intellij.openapi.util.text.NaturalComparator;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.util.text.Strings;
-import com.intellij.openapi.vfs.CharsetToolkit;
 import com.intellij.platform.ide.bootstrap.SplashManagerKt;
 import com.intellij.platform.ide.bootstrap.StartupErrorReporter;
 import com.intellij.ui.AppUIUtil;
@@ -209,14 +208,15 @@ public final class ConfigImportHelper {
                 vmOptionFileChanged = false;
               }
               var disabledPluginsFileName = P3SupportKt.processPerProjectSupport().getDisabledPluginsFileName();
-              if (Files.isRegularFile(newConfigDir.resolve(disabledPluginsFileName))) {
-                currentlyDisabledPlugins = Files.readAllLines(newConfigDir.resolve(disabledPluginsFileName));
+              var disabledPluginsFile = newConfigDir.resolve(disabledPluginsFileName);
+              if (Files.isRegularFile(disabledPluginsFile)) {
+                currentlyDisabledPlugins = Files.readAllLines(disabledPluginsFile);
               }
-              else if (
-                !DisabledPluginsState.DISABLED_PLUGINS_FILENAME.equals(disabledPluginsFileName) &&
-                Files.isRegularFile(newConfigDir.resolve(DisabledPluginsState.DISABLED_PLUGINS_FILENAME))
-              ) {
-                currentlyDisabledPlugins = Files.readAllLines(newConfigDir.resolve(DisabledPluginsState.DISABLED_PLUGINS_FILENAME));
+              else if (!DisabledPluginsState.DISABLED_PLUGINS_FILENAME.equals(disabledPluginsFileName)) {
+                disabledPluginsFile = newConfigDir.resolve(DisabledPluginsState.DISABLED_PLUGINS_FILENAME);
+                if (Files.isRegularFile(disabledPluginsFile)) {
+                  currentlyDisabledPlugins = Files.readAllLines(disabledPluginsFile);
+                }
               }
             }
             tempBackup = backupAndDeleteCurrentConfig(newConfigDir, log, importSettings);
@@ -265,14 +265,7 @@ public final class ConfigImportHelper {
 
         if (currentlyDisabledPlugins != null) {
           try {
-            var newDisablePluginsFile = newConfigDir.resolve(P3SupportKt.processPerProjectSupport().getDisabledPluginsFileName());
-            var newDisabledPlugins = new LinkedHashSet<String>();
-            if (Files.isRegularFile(newDisablePluginsFile)) {
-              newDisabledPlugins.addAll(Files.readAllLines(newDisablePluginsFile, CharsetToolkit.getPlatformCharset()));
-            }
-            newDisabledPlugins.addAll(currentlyDisabledPlugins);
-            Files.write(newDisablePluginsFile, newDisabledPlugins, CharsetToolkit.getPlatformCharset());
-            log.info("Disabled plugins file updated with " + newDisabledPlugins.size() + " plugins");
+            amendDisabledPluginsFile(newConfigDir, currentlyDisabledPlugins, log);
           }
           catch (IOException e) {
             log.warn("Couldn't write the disabled plugins file", e);
@@ -411,6 +404,18 @@ public final class ConfigImportHelper {
 
   private static boolean doesVmOptionsFileExist(Path configDir) {
     return Files.isRegularFile(configDir.resolve(VMOptions.getFileName()));
+  }
+
+  private static void amendDisabledPluginsFile(Path newConfigDir, List<String> moreDisabledPlugins, Logger log) throws IOException {
+    var disabledPluginsFile = newConfigDir.resolve(P3SupportKt.processPerProjectSupport().getDisabledPluginsFileName());
+    var disabledPlugins = new LinkedHashSet<String>();
+    if (Files.isRegularFile(disabledPluginsFile)) {
+      disabledPlugins.addAll(Files.readAllLines(disabledPluginsFile));
+    }
+    if (disabledPlugins.addAll(moreDisabledPlugins)) {
+      Files.write(disabledPluginsFile, disabledPlugins);
+      log.info("Disabled plugins file updated with " + disabledPlugins.size() + " plugins");
+    }
   }
 
   private static void restart(List<String> args) {
@@ -858,7 +863,7 @@ public final class ConfigImportHelper {
   }
 
   private static Path computeOldPluginsDir(Path oldConfigDir, @Nullable Path oldIdeHome) {
-    var oldPluginsDir = oldConfigDir.resolve(PLUGINS);
+    @Nullable var oldPluginsDir = oldConfigDir.resolve(PLUGINS);
     if (!Files.isDirectory(oldPluginsDir)) {
       oldPluginsDir = null;
       if (oldIdeHome != null) {
@@ -913,10 +918,16 @@ public final class ConfigImportHelper {
         return FileVisitResult.CONTINUE;
       }
     });
+
     var disabledPluginsFileName = P3SupportKt.processPerProjectSupport().getDisabledPluginsFileName();
-    if (!disabledPluginsFileName.equals(DisabledPluginsState.DISABLED_PLUGINS_FILENAME) &&
-        Files.exists(oldConfigDir.resolve(DisabledPluginsState.DISABLED_PLUGINS_FILENAME)) && !Files.exists(newConfigDir.resolve(disabledPluginsFileName))) {
-      Files.copy(oldConfigDir.resolve(DisabledPluginsState.DISABLED_PLUGINS_FILENAME), newConfigDir.resolve(disabledPluginsFileName));
+    if (!disabledPluginsFileName.equals(DisabledPluginsState.DISABLED_PLUGINS_FILENAME)) {
+      var oldDisabledPluginsFile = oldConfigDir.resolve(DisabledPluginsState.DISABLED_PLUGINS_FILENAME);
+      if (Files.isRegularFile(oldDisabledPluginsFile)) {
+        var newDisabledPluginsFile = newConfigDir.resolve(disabledPluginsFileName);
+        if (!Files.isRegularFile(newDisabledPluginsFile)) {
+          Files.copy(oldDisabledPluginsFile, newDisabledPluginsFile);
+        }
+      }
     }
 
     var actionScript = findStartupActionScript(oldConfigDir, oldIdeHome, oldPluginsDir);
@@ -950,14 +961,14 @@ public final class ConfigImportHelper {
     updateVMOptions(newConfigDir, oldConfigDir, log);
   }
 
-  @SuppressWarnings({"KotlinInternalInJava", "UnnecessaryFullyQualifiedName"})
+  @SuppressWarnings("UnnecessaryFullyQualifiedName")
   public static void migrateLocalization(@NotNull Path oldConfigDir, @NotNull Path oldPluginsDir) {
     com.intellij.openapi.application.migrations.Localization242.INSTANCE.enableL10nIfPluginInstalled(parseVersionFromConfig(oldConfigDir), oldPluginsDir);
   }
 
   private static @Nullable Path findStartupActionScript(Path oldConfigDir, @Nullable Path oldIdeHome, Path oldPluginsDir) {
     if (Files.isDirectory(oldPluginsDir)) {
-      var oldSystemDir = oldConfigDir.getParent().resolve(SYSTEM);
+      @Nullable var oldSystemDir = oldConfigDir.getParent().resolve(SYSTEM);
       if (!Files.isDirectory(oldSystemDir)) {
         oldSystemDir = null;
         if (oldIdeHome != null) {
@@ -987,6 +998,7 @@ public final class ConfigImportHelper {
 
     var pluginsToMigrate = new ArrayList<IdeaPluginDescriptor>();
     var pluginsToDownload = new ArrayList<IdeaPluginDescriptor>();
+    var pluginsToDisable = new ArrayList<PluginId>();
 
     var brokenPluginVersions = fetchBrokenPluginsFromMarketplace(options, newConfigDir);
     if (!collectPluginsToMigrate(oldPluginsDir, options, brokenPluginVersions, pluginsToMigrate, pluginsToDownload)) {
@@ -1014,7 +1026,7 @@ public final class ConfigImportHelper {
     }
 
     if (!isUnitTestMode) {
-      migrateGlobalPlugins(newConfigDir, oldConfigDir, pluginsToMigrate, pluginsToDownload, options.log);
+      migrateGlobalPlugins(newConfigDir, oldConfigDir, pluginsToMigrate, pluginsToDownload, pluginsToDisable, options.log);
     }
 
     var filter = pendingUpdates.isEmpty() ? Predicates.<IdeaPluginDescriptor>alwaysFalse() : (Predicate<IdeaPluginDescriptor>)descriptor -> {
@@ -1034,6 +1046,10 @@ public final class ConfigImportHelper {
 
       // migrating plugins for which we weren't able to download updates
       migratePlugins(newPluginsDir, pluginsToDownload, log);
+    }
+
+    if (!pluginsToDisable.isEmpty()) {
+      amendDisabledPluginsFile(newConfigDir, ContainerUtil.map(pluginsToDisable, PluginId::getIdString), log);
     }
   }
 
@@ -1125,28 +1141,29 @@ public final class ConfigImportHelper {
     return true;
   }
 
-  @SuppressWarnings({"KotlinInternalInJava", "UnnecessaryFullyQualifiedName"})
-  private static void performMigrations(com.intellij.openapi.application.PluginMigrationOptions options) {
+  @SuppressWarnings("UnnecessaryFullyQualifiedName")
+  private static void performMigrations(PluginMigrationOptions options) {
     // WRITE IN MIGRATIONS HERE
     // Note that migrations are not taken into account for IDE updates through Toolbox
     new com.intellij.openapi.application.migrations.NotebooksMigration242().migratePlugins(options);
     new com.intellij.openapi.application.migrations.SpaceMigration252().migratePlugins(options);
     new com.intellij.openapi.application.migrations.BigDataToolsMigration253().migratePlugins(options);
+    new com.intellij.openapi.application.migrations.BigDataToolsMigration263().migratePlugins(options);
     new com.intellij.openapi.application.migrations.VcsPluginsMigration261().migratePlugins(options);
     new com.intellij.openapi.application.migrations.CwmMigration261().migratePlugins(options);
     new com.intellij.openapi.application.migrations.RustMigration262().migratePlugins(options);
+    new com.intellij.openapi.application.migrations.AIAssistantMigration263().migratePlugins(options);
   }
 
-  @SuppressWarnings({"KotlinInternalInJava", "UnnecessaryFullyQualifiedName"})
   private static void migrateGlobalPlugins(
     Path newConfigDir, Path oldConfigDir,
-    List<IdeaPluginDescriptor> toMigrate, List<IdeaPluginDescriptor> toDownload,
+    List<IdeaPluginDescriptor> toMigrate, List<IdeaPluginDescriptor> toDownload, List<PluginId> toDisable,
     Logger log
   ) {
     var currentProductVersion = PluginManagerCore.getBuildNumber().asStringWithoutProductCode();
     var previousVersion = parseVersionFromConfig(oldConfigDir);
-    var options = new com.intellij.openapi.application.PluginMigrationOptions(
-      previousVersion, currentProductVersion, newConfigDir, oldConfigDir, toMigrate, toDownload, log
+    var options = new PluginMigrationOptions(
+      previousVersion, currentProductVersion, newConfigDir, oldConfigDir, toMigrate, toDownload, toDisable, log
     );
     performMigrations(options);
     var downloadIds = toDownload.stream()

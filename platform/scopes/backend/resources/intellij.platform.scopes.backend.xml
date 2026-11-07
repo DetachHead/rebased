@@ -7,6 +7,7 @@
     <module name="intellij.platform.core"/>
     <module name="intellij.platform.core.ui"/>
     <module name="intellij.platform.ide.impl"/>
+    <module name="intellij.platform.ide.rpc"/>
     <module name="intellij.platform.kernel.backend"/>
     <module name="intellij.platform.lang.impl"/>
     <module name="intellij.platform.project"/>
@@ -17,6 +18,7 @@
   </dependencies>
   <!-- endregion -->
   <extensions defaultExtensionNs="com.intellij">
-    <platform.rpc.backend.remoteApiProvider implementation="com.intellij.platform.scopes.backend.ScopesStateApiProvider"/>
+    <platform.rpc.backend.remoteApiProvider implementation="com.intellij.platform.scopes.backend.ScopesStateApiProvider"
+                                            apiInterfaces="com.intellij.platform.scopes.ScopeModelApi"/>
   </extensions>
 </idea-plugin>

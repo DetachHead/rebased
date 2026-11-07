@@ -217,6 +217,12 @@ public class VirtualFileManagerImpl extends VirtualFileManager implements Dispos
     HelperKt.removeOnCompletion(asyncFileListeners, listener, coroutineScope);
   }
 
+  @Override
+  public void addAsyncFileListenerBackgroundable(@NotNull CoroutineScope coroutineScope, @NotNull AsyncFileListener listener) {
+    asyncFileListenersBackgroundable.add(listener);
+    HelperKt.removeOnCompletion(asyncFileListenersBackgroundable, listener, coroutineScope);
+  }
+
   @ApiStatus.Internal
   public @NotNull @Unmodifiable List<AsyncFileListener> withAsyncFileListeners(@NotNull @Unmodifiable List<? extends AsyncFileListener> listeners) {
     // copy to avoid modification during iteration later
@@ -426,7 +432,7 @@ public class VirtualFileManagerImpl extends VirtualFileManager implements Dispos
     if (!FileSystems.getDefault().equals(nioPath.getFileSystem())) return null;
     VirtualFileSystem fileSystem = getFileSystem(StandardFileSystems.FILE_PROTOCOL);
     if (fileSystem == null) return null;
-    String path = nioPath.toString();
+    String path = nioPath.toAbsolutePath().toString();
     return refresh ? fileSystem.refreshAndFindFileByPath(path) : fileSystem.findFileByPath(path);
   }
 }

@@ -8,6 +8,7 @@
     <module name="intellij.platform.core.impl"/>
     <module name="intellij.platform.execution"/>
     <module name="intellij.platform.execution.serviceView"/>
+    <module name="intellij.platform.ide.rpc"/>
     <module name="intellij.platform.kernel.backend"/>
     <module name="intellij.platform.project"/>
   </dependencies>
@@ -18,6 +19,7 @@
   </extensionPoints>
 
   <extensions defaultExtensionNs="com.intellij">
-    <platform.rpc.backend.remoteApiProvider implementation="com.intellij.platform.execution.serviceView.backend.BackendServiceViewRpcApiProvider"/>
+    <platform.rpc.backend.remoteApiProvider implementation="com.intellij.platform.execution.serviceView.backend.BackendServiceViewRpcApiProvider"
+                                            apiInterfaces="com.intellij.platform.execution.serviceView.splitApi.ServiceViewRpc"/>
   </extensions>
 </idea-plugin>

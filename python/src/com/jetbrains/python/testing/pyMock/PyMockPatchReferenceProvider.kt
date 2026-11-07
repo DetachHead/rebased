@@ -1,4 +1,4 @@
-// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.jetbrains.python.testing.pyMock
 
 import com.intellij.psi.PsiElement
@@ -10,25 +10,26 @@ import com.jetbrains.python.psi.PyCallExpression
 import com.jetbrains.python.psi.PyDecorator
 import com.jetbrains.python.psi.PyKeywordArgument
 import com.jetbrains.python.psi.PyStringLiteralExpression
-import com.jetbrains.python.psi.PyWithItem
 import com.jetbrains.python.psi.types.TypeEvalContext
 import org.jetbrains.annotations.ApiStatus
 
 /**
  * Provides references for the target string in `@patch("module.Class.attr")` and related
- * decorator calls and context managers.
+ * decorator calls, context managers, and pytest-mock `mocker.patch()` calls.
  *
  * Supported calls:
  * - `patch("target")` / `patch(target="target")` — dotted path to attribute being patched
  * - `patch.dict("target", ...)` / `patch.dict(in_dict="target", ...)` — dotted path to dict
  * - `patch.multiple("target", ...)` / `patch.multiple(target="target", ...)` — dotted path to module/class
+ * - `mocker.patch("target")`, `mocker.patch.dict(...)` and `mocker.patch.multiple(...)` from pytest-mock
  *
  * When `create=True` is present, references are marked soft (no unresolved error).
  */
 internal class PyMockPatchReferenceProvider : PsiReferenceProvider() {
   override fun getReferencesByElement(element: PsiElement, context: ProcessingContext): Array<PsiReference> {
     val str = element as? PyStringLiteralExpression ?: return emptyArray()
-    val callExpr = getPatchTargetCall(str) ?: return emptyArray()
+    val typeContext = TypeEvalContext.codeAnalysis(str.project, str.containingFile)
+    val callExpr = getPatchTargetCall(str, typeContext)?.call ?: return emptyArray()
 
     val createAllowed = isCreateAllowed(callExpr)
     return PyMockPatchTargetReferenceSet(str, createAllowed).createReferences()
@@ -49,9 +50,18 @@ internal class PyMockPatchReferenceProvider : PsiReferenceProvider() {
  */
 @ApiStatus.Internal
 fun getPatchCall(str: PyStringLiteralExpression): PyCallExpression? =
-  getPatchTargetCall(str)
+  getPatchTargetCall(str, TypeEvalContext.codeAnalysis(str.project, str.containingFile))?.call
 
-private fun getPatchTargetCall(str: PyStringLiteralExpression): PyCallExpression? {
+/** The kind of a patch call that takes a target string. */
+internal enum class PyPatchKind { PATCH, DICT, MULTIPLE }
+
+/** A patch call and its kind. */
+internal class PyPatchTargetCall(val call: PyCallExpression, val kind: PyPatchKind)
+
+/**
+ * Returns the patch call and its kind if [str] is the string target argument, or null otherwise.
+ */
+internal fun getPatchTargetCall(str: PyStringLiteralExpression, typeContext: TypeEvalContext): PyPatchTargetCall? {
   val keyword = str.parent as? PyKeywordArgument
   val argList = when (val parent = str.parent) {
     is PyArgumentList -> parent
@@ -64,25 +74,20 @@ private fun getPatchTargetCall(str: PyStringLiteralExpression): PyCallExpression
   val effectiveCall: PyCallExpression = when {
     callExpr is PyDecorator -> callExpr
     callExpr.parent is PyDecorator -> callExpr.parent as PyDecorator
-    callExpr.parent is PyWithItem -> callExpr
-    else -> return null
+    // A context manager or a plain call, such as `patch("target")` or `mocker.patch("target")`
+    else -> callExpr
   }
-
-  val typeContext = TypeEvalContext.codeAnalysis(str.project, str.containingFile)
 
   // Check which patch variant this is and validate the argument position
-  return when {
-    isPatchCall(effectiveCall, typeContext) ->
-      validateTargetArg(str, keyword, argList, effectiveCall, "target")
-
-    isPatchDictCall(effectiveCall, typeContext) ->
-      validateTargetArg(str, keyword, argList, effectiveCall, "in_dict")
-
-    isPatchMultipleCall(effectiveCall, typeContext) ->
-      validateTargetArg(str, keyword, argList, effectiveCall, "target")
-
-    else -> null
+  val kind = when {
+    isPatchCall(effectiveCall, typeContext) -> PyPatchKind.PATCH
+    isPatchDictCall(effectiveCall, typeContext) -> PyPatchKind.DICT
+    isPatchMultipleCall(effectiveCall, typeContext) -> PyPatchKind.MULTIPLE
+    else -> return null
   }
+  val keywordName = if (kind == PyPatchKind.DICT) "in_dict" else "target"
+  val call = validateTargetArg(str, keyword, argList, effectiveCall, keywordName) ?: return null
+  return PyPatchTargetCall(call, kind)
 }
 
 /**

@@ -4,9 +4,10 @@ package com.jetbrains.python.packaging
 import com.intellij.execution.ExecutionException
 import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.progress.runBlockingMaybeCancellable
-import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.project.getOpenedProjects
 import com.intellij.openapi.projectRoots.Sdk
+import com.intellij.python.sdk.backend.findPythonInterpreter
+import com.intellij.python.sdk.backend.findPythonInterpreterIfReady
 import com.jetbrains.python.getOrNull
 import com.jetbrains.python.onFailure
 import com.jetbrains.python.packaging.management.PythonPackageManager
@@ -16,20 +17,28 @@ import org.jetbrains.annotations.ApiStatus
 
 @ApiStatus.Internal
 internal open class PyPackageManagerBridge(private val sdk: Sdk) : PyPackageManager(sdk) {
-  protected val packageManager: PythonPackageManager = PythonPackageManager.forSdk(guessProject(), sdk = sdk)
-  protected val packageManagerUI: PythonPackageManagerUI = PythonPackageManagerUI.forPackageManager(packageManager)
+  /**
+   * The manager of [sdk], from the first open project that can use it. The old API is sync, but its blocking methods
+   * run off the EDT, so they wait for the registry of each project. This bridge does not know which project the SDK
+   * belongs to.
+   */
+  private suspend fun packageManager(): PythonPackageManager? = getOpenedProjects().firstNotNullOfOrNull { project ->
+    project.findPythonInterpreter(sdk)?.let { PythonPackageManager.forPythonInterpreter(project, it) }
+  }
 
   @Throws(ExecutionException::class)
   override fun install(requirements: MutableList<PyRequirement>?, extraArgs: MutableList<String>) {
     runBlockingMaybeCancellable {
-      packageManagerUI.installPyRequirementsBackground(requirements ?: emptyList(), extraArgs)
+      val manager = packageManager() ?: return@runBlockingMaybeCancellable
+      PythonPackageManagerUI.forPackageManager(manager).installPyRequirementsBackground(requirements ?: emptyList(), extraArgs)
     }
   }
 
   override fun refreshAndGetPackages(alwaysRefresh: Boolean): List<PyPackage?> {
     val pythonPackages = if (alwaysRefresh) {
       runBlockingMaybeCancellable {
-        packageManager.reloadPackages().onFailure {
+        val manager = packageManager() ?: return@runBlockingMaybeCancellable emptyList()
+        manager.reloadPackages().onFailure {
           @Suppress("UsagesOfObsoleteApi")
           thisLogger().warn("Failed to reload packages", PyExecutionException(it))
         }.getOrNull() ?: emptyList()
@@ -37,7 +46,7 @@ internal open class PyPackageManagerBridge(private val sdk: Sdk) : PyPackageMana
     }
     else {
       runBlockingMaybeCancellable {
-        packageManager.listInstalledPackages()
+        packageManager()?.listInstalledPackages() ?: emptyList()
       }
     }
 
@@ -46,8 +55,12 @@ internal open class PyPackageManagerBridge(private val sdk: Sdk) : PyPackageMana
 
 
   override fun getPackages(): List<PyPackage> {
-    return packageManagerUI.manager.listInstalledPackagesSnapshot().map { PyPackage(it.name, it.version) }
+    // A snapshot read, which can run on the EDT, so it cannot detect the interpreter. It asks the registry of each open
+    // project, because this bridge does not know which project the SDK belongs to.
+    val (project, interpreter) = getOpenedProjects().firstNotNullOfOrNull { project ->
+      project.findPythonInterpreterIfReady(sdk)?.let { project to it }
+    } ?: return emptyList()
+    return PythonPackageManager.forPythonInterpreter(project, interpreter).listInstalledPackagesSnapshot()
+      .map { PyPackage(it.name, it.version) }
   }
-
-  private fun guessProject() = getOpenedProjects().firstOrNull() ?: ProjectManager.getInstance().defaultProject
 }

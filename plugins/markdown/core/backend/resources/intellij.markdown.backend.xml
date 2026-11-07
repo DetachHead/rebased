@@ -7,6 +7,7 @@
       <module name="intellij.libraries.markdown"/>
       <module name="intellij.platform.analysis"/>
       <module name="intellij.platform.backend"/>
+      <module name="intellij.platform.builtInServer.impl"/>
       <module name="intellij.platform.core"/>
       <module name="intellij.platform.core.impl"/>
       <module name="intellij.platform.core.ui"/>
@@ -17,6 +18,7 @@
       <module name="intellij.platform.ide.core.impl"/>
       <module name="intellij.platform.ide.impl"/>
       <module name="intellij.platform.ide.progress"/>
+      <module name="intellij.platform.ide.rpc"/>
       <module name="intellij.platform.indexing"/>
       <module name="intellij.platform.kernel.backend"/>
       <module name="intellij.platform.lang"/>
@@ -35,17 +37,26 @@
       <action id="CopyReference" class="com.intellij.markdown.backend.reference.headers.MarkdownHeaderCopyAction" overrides="true"/>
     </actions>
     <extensions defaultExtensionNs="com.intellij">
+      <postStartupActivity implementation="org.intellij.plugins.markdown.settings.MarkdownSettingsMigration"/>
+      <applicationService serviceImplementation="com.intellij.markdown.backend.services.MarkdownFrontendRunnerRequestService" client="all"/>
       <highlightingPassFactory implementation="com.intellij.markdown.backend.editor.livepreview.MarkdownLivePreviewPassFactory"/>
+      <highlightingPassFactory implementation="com.intellij.markdown.backend.editor.fence.CodeFenceBackgroundHighlightingPassFactory"/>
+      <externalAnnotator language="Markdown"
+                         implementationClass="com.intellij.markdown.backend.inspections.MarkdownNonExistentInternetResourcesAnnotator"/>
       <platform.rpc.backend.remoteApiProvider
-        implementation="com.intellij.markdown.backend.editor.livepreview.MarkdownLivePreviewRemoteApiProvider"/>
+        implementation="com.intellij.markdown.backend.editor.livepreview.MarkdownLivePreviewRemoteApiProvider"
+        apiInterfaces="org.intellij.plugins.markdown.editor.livepreview.MarkdownLivePreviewRemoteApi"/>
       <completion.contributor
         language="Markdown" implementationClass="com.intellij.markdown.backend.completion.MarkdownAtPathCompletionContributor"/>
       <platform.rpc.backend.remoteApiProvider
-        implementation="com.intellij.markdown.backend.providers.MarkdownLinkOpenerApiProvider"/>
+        implementation="com.intellij.markdown.backend.providers.MarkdownLinkOpenerApiProvider"
+        apiInterfaces="org.intellij.plugins.markdown.service.MarkdownLinkOpenerRemoteApi"/>
       <platform.rpc.backend.remoteApiProvider
-        implementation="com.intellij.markdown.backend.providers.VirtualFileAccessorProvider"/>
+        implementation="com.intellij.markdown.backend.providers.VirtualFileAccessorProvider"
+        apiInterfaces="org.intellij.plugins.markdown.service.VirtualFileAccessor"/>
       <platform.rpc.backend.remoteApiProvider
-        implementation="com.intellij.markdown.backend.providers.MarkdownCommandRunnerApiProvider"/>
+        implementation="com.intellij.markdown.backend.providers.MarkdownCommandRunnerApiProvider"
+        apiInterfaces="org.intellij.plugins.markdown.service.MarkdownCommandRunnerRemoteApi"/>
       <stubElementRegistryExtension implementation="com.intellij.markdown.backend.index.MarkdownStubRegistryExtension"/>
 
       <longLineInspectionPolicy implementation="org.intellij.plugins.markdown.editor.MarkdownLongLineInspectionPolicy"/>
@@ -115,6 +126,7 @@
                        groupKey="markdown.inspection.group.ruby.name"
                        enabledByDefault="true"
                        level="WARNING"
+                       editorAttributes="INFO_ATTRIBUTES"
                        implementationClass="com.intellij.markdown.backend.inspections.MarkdownUnresolvedFileReferenceInspection"/>
 
       <localInspection language="Markdown"
@@ -150,11 +162,32 @@
                        level="WARNING"
                        implementationClass="com.intellij.markdown.backend.inspections.MarkdownSkillFrontMatterInspection"/>
 
+      <localInspection language="Markdown"
+                       shortName="MarkdownNonExistentInternetResource"
+                       bundle="messages.MarkdownBundle"
+                       key="markdown.unresolved.web.link.inspection.name"
+                       groupKey="markdown.inspection.group.ruby.name"
+                       enabledByDefault="false"
+                       level="WARNING"
+                       implementationClass="com.intellij.markdown.backend.inspections.MarkdownNonExistentInternetResourceInspection"/>
+
+      <localInspection language="Markdown"
+                       shortName="MarkdownLazyBlockQuoteContinuation"
+                       bundle="messages.MarkdownBundle"
+                       key="markdown.lazy.block.quote.continuation.inspection.name"
+                       groupKey="markdown.inspection.group.ruby.name"
+                       enabledByDefault="true"
+                       level="WEAK WARNING"
+                       implementationClass="com.intellij.markdown.backend.inspections.MarkdownLazyBlockQuoteContinuationInspection"/>
+
       <psi.referenceContributor language="Markdown" implementation="com.intellij.markdown.backend.reference.link.CommonLinkDestinationReferenceContributor"/>
       <psi.referenceContributor language="Markdown" implementation="com.intellij.markdown.backend.reference.link.AutoLinkWebReferenceContributor"/>
       <psi.referenceContributor language="Markdown" implementation="com.intellij.markdown.backend.reference.backtick.BacktickReferenceContributor"/>
       <psi.referenceContributor language="Markdown" implementation="com.intellij.markdown.backend.reference.github.GithubWikiLocalReferenceContributor"/>
       <psi.referenceContributor language="Markdown" implementation="com.intellij.markdown.backend.reference.test.TestPsiReferenceContributor"/>
+      <referencesSearch implementation="com.intellij.markdown.backend.lang.references.backtick.BacktickReferenceSearcher"/>
+      <referencesSearch implementation="com.intellij.markdown.backend.lang.references.paths.UrlEncodedFileReferenceSearcher"/>
+      <gotoDeclarationHandler implementation="com.intellij.markdown.backend.reference.link.MarkdownLinkTextGotoDeclarationHandler"/>
 
       <stubIndex implementation="com.intellij.markdown.backend.index.HeaderTextIndex"/>
       <stubIndex implementation="com.intellij.markdown.backend.index.HeaderAnchorIndex"/>
@@ -180,5 +213,11 @@
       <runLineMarkerContributor language="Markdown" implementationClass="com.intellij.markdown.backend.highlighting.markers.MarkdownRunLineMarkersProvider"/>
 
       <treeStructureProvider implementation="com.intellij.markdown.backend.projectTree.MarkdownTreeStructureProvider"/>
+
+      <useScopeEnlarger implementation="com.intellij.markdown.backend.lang.references.MarkdownReferenceUseScopeEnlarger"/>
     </extensions>
+    <applicationListeners>
+      <listener topic="com.intellij.ide.trustedProjects.TrustedProjectsListener"
+                class="org.intellij.plugins.markdown.settings.MarkdownSettingsMigration"/>
+    </applicationListeners>
 </idea-plugin>

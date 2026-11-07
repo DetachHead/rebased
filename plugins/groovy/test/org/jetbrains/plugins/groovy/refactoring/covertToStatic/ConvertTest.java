@@ -79,7 +79,7 @@ public class ConvertTest extends LightGroovyTestCase {
   }
 
   @Override
-  public final String getBasePath() {
-    return TestUtils.getTestDataPath() + "refactoring/convertToStatic";
+  public final String getTestDataPath() {
+    return TestUtils.getAbsoluteTestDataPath() + "refactoring/convertToStatic";
   }
 }

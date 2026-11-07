@@ -1,11 +1,13 @@
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.jetbrains.python.venv.sdk.evolution
 
 import com.intellij.openapi.projectRoots.Sdk
 import com.intellij.openapi.util.io.toNioPathOrNull
 import com.intellij.python.community.common.tools.ToolId
 import com.intellij.python.community.services.systemPython.createVenvFromSystemPython
-import com.intellij.python.pytools.PyTool
+import com.intellij.python.pytools.backend.PyTool
 import com.intellij.python.sdk.backend.PySdkBundle
+import com.intellij.python.sdk.backend.PythonInterpreter
 import com.intellij.python.sdk.backend.evolution.DiscoveredVenv
 import com.intellij.python.sdk.backend.evolution.EvoPyProject
 import com.intellij.python.sdk.backend.evolution.EvoRecreateSpec
@@ -26,6 +28,7 @@ import com.intellij.python.sdk.common.evolution.EvoRecreateDto
 import com.intellij.python.sdk.common.evolution.EvoSectionDto
 import com.intellij.python.venv.PipPyTool
 import com.intellij.python.venv.createVenv
+import com.intellij.python.venv.common.icons.PythonVenvCommonIcons
 import com.intellij.python.venv.sdk.flavors.VirtualEnvSdkFlavor
 import com.jetbrains.python.errorProcessing.PyResult
 import com.jetbrains.python.sdk.ModuleOrProject
@@ -63,9 +66,9 @@ internal class VenvEvoEnvironmentProvider : PyEvoEnvironmentProvider {
   /** An interpreter of this node's environments carries this flavor, which is what names this node as the active one. */
   override val sdkFlavor: Class<out PythonSdkFlavor<*>> get() = VirtualEnvSdkFlavor::class.java
   override val nodeKind: EvoNodeKind get() = EvoNodeKind.TOOL
-  override val label: String get() = tool.presentableName
+  override val label: String get() = PySdkBundle.message("evolution.node.label.pip")
   override val fusId: String get() = tool.fusId
-  override val icon: Icon get() = tool.icon
+  override val icon: Icon get() = PythonVenvCommonIcons.VirtualEnv
 
   /**
    * Every discovered virtualenv, one made by another tool included.
@@ -77,10 +80,10 @@ internal class VenvEvoEnvironmentProvider : PyEvoEnvironmentProvider {
    * The node claims no mark of its own: it creates its environments with the standard library's `venv`, which writes
    * nothing into `pyvenv.cfg` to say so. An environment naming no tool therefore reads as this node's own.
    */
-  override suspend fun loadSections(pyProject: EvoPyProject, fileSystem: FileSystem<PathHolder.Eel>, discovered: List<DiscoveredVenv>): EvoLoadResultDto {
+  override suspend fun loadSections(context: EvoToolContext, discovered: List<DiscoveredVenv>): EvoLoadResultDto {
     return EvoLoadResultDto.Ok(discovered.toInProjectAndOtherSections(
       owner = this,
-      baseDir = pyProject.baseDir,
+      baseDir = context.workspace.baseDir,
       icon = icon,
       label = PySdkBundle.message("evolution.section.in.project"),
     ))
@@ -104,16 +107,16 @@ internal class VenvEvoEnvironmentProvider : PyEvoEnvironmentProvider {
    * to take on this node's behalf. Owning it here means a failure is reported instead of silently yielding some other
    * kind of SDK.
    */
-  override suspend fun createSdkForExistingEnv(context: EvoToolContext, homePath: Path): PyResult<Sdk> =
+  override suspend fun createSdkForExistingEnv(context: EvoToolContext, homePath: Path): PyResult<PythonInterpreter> =
     createSdkGuessingTypeByPath(
       PathHolder.Eel(homePath),
       context.fileSystem,
-      ModuleOrProject.ModuleAndProject(context.pyProject.module),
+      ModuleOrProject.ModuleAndProject(context.pyProject.pyProject),
       null,
     )
 
   /** Creates a virtualenv from the system Python named by `token`, then types its SDK by path. */
-  override suspend fun createSdkForNewEnv(context: EvoToolContext, ref: PyInterpreterRef.CreateEnv): PyResult<Sdk> {
+  override suspend fun createSdkForNewEnv(context: EvoToolContext, ref: PyInterpreterRef.CreateEnv): PyResult<PythonInterpreter> {
     val venvDir = context.resolveNewVenvDir(ref)
     if (venvDir.exists()) return envExistsError(venvDir.fileName.toString())
     return createVenvIn(context, venvDir, ref.token)
@@ -131,7 +134,7 @@ internal class VenvEvoEnvironmentProvider : PyEvoEnvironmentProvider {
    * interpreter outside the project belongs to something else, whatever put it there.
    */
   override suspend fun recreateSpecFor(context: EvoToolContext, leaf: EvoLeafDto): EvoRecreateDto? {
-    leaf.ref.ownedEnvBinaryIn(context.pyProject.baseDir) ?: return null
+    leaf.ref.ownedEnvBinaryIn(context.workspace.baseDir) ?: return null
     val options = context.systemPythonOptions().takeIf { it.isNotEmpty() } ?: return null
     return EvoRecreateDto(options = options, canSyncPackages = false)
   }
@@ -142,7 +145,7 @@ internal class VenvEvoEnvironmentProvider : PyEvoEnvironmentProvider {
    * The delete comes first and its failure ends this: building over a directory that refused to go would leave the two
    * environments mixed together in one folder.
    */
-  override suspend fun recreateEnv(context: EvoToolContext, homePath: Path, spec: EvoRecreateSpec): PyResult<Sdk> {
+  override suspend fun recreateEnv(context: EvoToolContext, homePath: Path, spec: EvoRecreateSpec): PyResult<PythonInterpreter> {
     val venvDir = VirtualEnvReader().resolvePythonHomeFromPythonBinary(homePath)
     deleteEnvDir(venvDir).getOr { return it }
     return createVenvIn(context, venvDir, spec.baseToken)
@@ -156,14 +159,14 @@ internal class VenvEvoEnvironmentProvider : PyEvoEnvironmentProvider {
    * it — and an interpreter the scan did not list could then not build an environment at all, however the user had come
    * by it. `createVenv` validates the interpreter itself, so nothing was checked there either.
    */
-  private suspend fun createVenvIn(context: EvoToolContext, venvDir: Path, baseToken: String): PyResult<Sdk> {
+  private suspend fun createVenvIn(context: EvoToolContext, venvDir: Path, baseToken: String): PyResult<PythonInterpreter> {
     val basePython = baseToken.toNioPathOrNull()
                      ?: return PyResult.localizedError(PySdkBundle.message("evolution.error.base.python.not.found", baseToken))
     val venvPython = createVenv(basePython, venvDir).getOr { return it }
     return createSdkGuessingTypeByPath(
       PathHolder.Eel(venvPython),
       context.fileSystem,
-      ModuleOrProject.ModuleAndProject(context.pyProject.module),
+      ModuleOrProject.ModuleAndProject(context.pyProject.pyProject),
       null,
     )
   }
@@ -177,7 +180,7 @@ internal class VenvEvoEnvironmentProvider : PyEvoEnvironmentProvider {
    */
   override suspend fun addNewEnvSpec(context: EvoToolContext, section: EvoSectionDto): EvoAddNewDto? {
     val options = context.systemPythonOptions().takeIf { it.isNotEmpty() } ?: return null
-    val container = section.addNewFolderPath?.let { Path.of(it) } ?: context.pyProject.baseDir
+    val container = section.addNewFolderPath?.let { Path.of(it) } ?: context.workspace.baseDir
     val taken = listEntryNames(container)
     return EvoAddNewDto(
       name = firstFreeVenvDir(container).fileName.toString(),

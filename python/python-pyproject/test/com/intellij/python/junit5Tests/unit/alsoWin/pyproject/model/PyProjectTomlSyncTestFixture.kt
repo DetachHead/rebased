@@ -26,7 +26,7 @@ import com.intellij.project.stateStore
 import com.intellij.python.junit5Tests.unit.alsoWin.pyproject.div
 import com.intellij.python.pyproject.PY_PROJECT_TOML
 import com.intellij.python.pyproject.model.internal.PY_PROJECT_SYSTEM_ID
-import com.intellij.python.pyproject.model.internal.autoImportBridge.PyExternalSystemProjectAware
+import com.intellij.python.pyproject.model.internal.platformBridge.rebuildPyProjectModelForTest
 import com.intellij.python.pyproject.model.internal.workspaceBridge.pyProjectTomlEntity
 import com.intellij.testFramework.junit5.fixture.TestFixture
 import com.intellij.testFramework.junit5.fixture.projectFixture
@@ -87,13 +87,13 @@ internal const val BYSTANDER_PYTHON = "_bystander_python"
 
 
 /** Creates or modifies a `pyproject.toml` with the given `[project].name` inside this directory. */
-@RequiresWriteLock
+@RequiresWriteLock(generateAssertion = false /* IJPL-115548 */)
 internal fun VirtualFile.writePyprojectTomlWithProject(projectName: String) {
   writePyprojectToml("[project]\nname = \"$projectName\"")
 }
 
 /** Creates a `pyproject.toml` with the given  [content] this directory. */
-@RequiresWriteLock
+@RequiresWriteLock(generateAssertion = false /* IJPL-115548 */)
 internal fun VirtualFile.writePyprojectToml(content: String) {
   val tomlFile = findChild(PY_PROJECT_TOML) ?: createFile(PY_PROJECT_TOML)
   tomlFile.writeText(content)
@@ -103,7 +103,7 @@ internal fun VirtualFile.writePyprojectToml(content: String) {
 /**
  * Given [this] is a dir, creates uv workspace out of it. Returns names of children.
  */
-@RequiresWriteLock
+@RequiresWriteLock(generateAssertion = false /* IJPL-115548 */)
 internal fun VirtualFile.convertDirToUvWorkspace(workspaceName: String = name): List<String> {
   val member1Name = "${workspaceName}_one"
   val member2Name = "${workspaceName}_two"
@@ -164,17 +164,14 @@ internal fun pyProjectTomlSyncFixture(
  */
 internal class PyProjectTomlSyncTestFixture(val project: Project, val root: VirtualFile, val implicitModuleName: String = "") {
 
-  lateinit var sut: PyExternalSystemProjectAware
-
-  /** Triggers a full pyproject.toml sync (creates [sut] lazily on first call). */
+  /** Triggers a full pyproject.toml sync. */
   suspend fun reloadProject() {
-    if (!::sut.isInitialized) sut = PyExternalSystemProjectAware.create(project)
     // Tests default `Project.isExternalStorageEnabled` to true, which routes pyproject
     // module .iml content to `external_build_system/` instead of `.idea/<name>.iml`.
     // Disable that default so the sync flushes .iml files to the .idea/ folder, matching
     // a freshly-created real project (where external storage is off by default).
     doNotEnableExternalStorageByDefaultInTestsSuspend {
-      sut.reloadProjectImpl()
+      rebuildPyProjectModelForTest(project)
     }
   }
 

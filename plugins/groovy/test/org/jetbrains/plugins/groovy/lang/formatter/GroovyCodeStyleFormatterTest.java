@@ -5,8 +5,8 @@ import org.jetbrains.plugins.groovy.util.TestUtils;
 
 public class GroovyCodeStyleFormatterTest extends GroovyFormatterTestCase {
   @Override
-  public final String getBasePath() {
-    return TestUtils.getTestDataPath() + "groovy/codeStyle/";
+  public final String getTestDataPath() {
+    return TestUtils.getAbsoluteTestDataPath() + "groovy/codeStyle/";
   }
 
   public void testClass_decl1() throws Throwable { doTest(); }

@@ -6,9 +6,8 @@
     <module name="intellij.libraries.fastutil"/>
     <module name="intellij.libraries.gson"/>
     <module name="intellij.libraries.guava"/>
-    <module name="intellij.libraries.jackson"/>
-    <module name="intellij.libraries.jackson.jr.objects"/>
     <module name="intellij.libraries.jackson3"/>
+    <module name="intellij.libraries.jackson3.jr.objects"/>
     <module name="intellij.libraries.kotlinx.coroutines.core"/>
     <module name="intellij.libraries.netty.buffer"/>
     <module name="intellij.libraries.netty.codec.compression"/>
@@ -16,6 +15,8 @@
     <module name="intellij.platform.analysis"/>
     <module name="intellij.platform.builtInServer"/>
     <module name="intellij.platform.codeStyle"/>
+    <module name="intellij.platform.concurrency"/>
+    <module name="intellij.platform.consoleView"/>
     <module name="intellij.platform.core"/>
     <module name="intellij.platform.core.impl"/>
     <module name="intellij.platform.core.ui"/>
@@ -27,9 +28,12 @@
     <module name="intellij.platform.ide.core.plugins"/>
     <module name="intellij.platform.ide.impl"/>
     <module name="intellij.platform.ide.progress"/>
+    <module name="intellij.platform.ide.util.io.impl"/>
+    <module name="intellij.platform.ide.util.netty"/>
     <module name="intellij.platform.projectModel"/>
     <module name="intellij.platform.projectModel.impl"/>
     <module name="intellij.platform.util.ex"/>
+    <module name="intellij.platform.util.progress"/>
     <module name="intellij.platform.util.ui"/>
   </dependencies>
   <!-- endregion -->

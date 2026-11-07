@@ -96,8 +96,10 @@ internal class NonIncrementalContributors(private val project: Project) {
             newRoots.add(it.key)
           }
           newExcludedUrls.forEach {
-            nonExistingFilesRegistry.registerUrl(it, NonIncrementalMarker, EntityStorageKind.MAIN,
-                                                 NonExistingFileSetKind.EXCLUDED_FROM_CONTENT, recursive = true)
+            nonExistingFilesRegistry.registerUrl(
+              it,
+              NonExistingWorkspaceExclude.ByFileKind(NonIncrementalMarker, EntityStorageKind.MAIN, WorkspaceFileKindMask.ALL),
+            )
           }
           newFileSets.forEach { (root, sets) ->
             sets.forEach { set ->
@@ -134,7 +136,7 @@ internal class NonIncrementalContributors(private val project: Project) {
           }
         }
         else {
-          excludedUrls.add(virtualFileUrlManager.getOrCreateFromUrl(url))
+          excludedUrls.add(virtualFileUrlManager.storeAndGet(url))
         }
       }
       @Suppress("DEPRECATION", "removal")
@@ -169,7 +171,7 @@ internal class NonIncrementalContributors(private val project: Project) {
               }
             }
             else {
-              excludedUrls.add(virtualFileUrlManager.getOrCreateFromUrl(pointer.url))
+              excludedUrls.add(virtualFileUrlManager.storeAndGet(pointer.url))
             }
           }
         }
@@ -227,7 +229,7 @@ internal class NonIncrementalContributors(private val project: Project) {
     return result
   }
 
-  @RequiresWriteLock
+  @RequiresWriteLock(generateAssertion = false /* IJPL-115548 */)
   fun resetCache() {
     upToDate = false
   }

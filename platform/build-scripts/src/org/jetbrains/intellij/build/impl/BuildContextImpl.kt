@@ -3,8 +3,7 @@
 
 package org.jetbrains.intellij.build.impl
 
-import com.intellij.platform.ijent.community.buildConstants.isMultiRoutingFileSystemEnabledForProduct
-import com.intellij.platform.runtime.product.ProductMode
+import com.intellij.platform.buildScripts.concurrency.SharedCache
 import com.intellij.platform.runtime.product.serialization.ProductModulesSerialization
 import com.intellij.platform.runtime.product.serialization.RawProductModules
 import com.intellij.platform.runtime.product.serialization.ResourceFileResolver
@@ -15,14 +14,13 @@ import io.opentelemetry.api.common.Attributes
 import io.opentelemetry.api.trace.Span
 import kotlinx.collections.immutable.PersistentList
 import kotlinx.collections.immutable.persistentListOf
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.DelicateCoroutinesApi
-import kotlinx.coroutines.currentCoroutineContext
 import org.jetbrains.annotations.ApiStatus.Experimental
 import org.jetbrains.annotations.ApiStatus.Internal
 import org.jetbrains.intellij.build.ApplicationInfoProperties
 import org.jetbrains.intellij.build.ApplicationInfoPropertiesImpl
 import org.jetbrains.intellij.build.BuildContext
+import org.jetbrains.intellij.build.BuildHttpSession
+import org.jetbrains.intellij.build.BuildLifetime
 import org.jetbrains.intellij.build.BuildOptions
 import org.jetbrains.intellij.build.BuiltinModulesFileData
 import org.jetbrains.intellij.build.CompilationContext
@@ -35,6 +33,7 @@ import org.jetbrains.intellij.build.LibcImpl
 import org.jetbrains.intellij.build.LinuxDistributionCustomizer
 import org.jetbrains.intellij.build.LinuxLibcImpl
 import org.jetbrains.intellij.build.MacDistributionCustomizer
+import org.jetbrains.intellij.build.ModuleOutputProvider
 import org.jetbrains.intellij.build.OsFamily
 import org.jetbrains.intellij.build.PLATFORM_LOADER_JAR
 import org.jetbrains.intellij.build.ProductProperties
@@ -43,14 +42,16 @@ import org.jetbrains.intellij.build.WindowsDistributionCustomizer
 import org.jetbrains.intellij.build.classPath.PluginBuildResult
 import org.jetbrains.intellij.build.computeAppInfoXml
 import org.jetbrains.intellij.build.findProductModulesFile
-import org.jetbrains.intellij.build.impl.PlatformJarNames.PLATFORM_CORE_NIO_FS
-import org.jetbrains.intellij.build.impl.moduleRepository.MODULE_DESCRIPTORS_COMPACT_PATH
 import org.jetbrains.intellij.build.impl.moduleRepository.computeDescriptorsForAdditionalFrontendPlugins
 import org.jetbrains.intellij.build.impl.plugins.PluginAutoPublishList
+import org.jetbrains.intellij.build.impl.productInfo.ProductLaunchInputs
+import org.jetbrains.intellij.build.impl.productInfo.productJvmArguments
+import org.jetbrains.intellij.build.impl.productInfo.renderAdditionalJvmArguments
 import org.jetbrains.intellij.build.io.runProcess
 import org.jetbrains.intellij.build.jarCache.JarCacheManager
 import org.jetbrains.intellij.build.jarCache.LocalDiskJarCacheManager
 import org.jetbrains.intellij.build.jarCache.NonCachingJarCacheManager
+import org.jetbrains.intellij.build.loadApplicationInfoPropertiesForProduct
 import org.jetbrains.intellij.build.productRunner.IntellijProductRunner
 import org.jetbrains.intellij.build.productRunner.createDevModeProductRunner
 import org.jetbrains.intellij.build.telemetry.TraceManager.spanBuilder
@@ -66,14 +67,16 @@ import kotlin.io.path.inputStream
 import kotlin.io.path.pathString
 import kotlin.time.Duration
 
-@OptIn(DelicateCoroutinesApi::class)
-suspend fun createBuildContext(
+/**
+ * Creates the context of a product build. [lifetime] owns its shared tasks and caches, including the module output archives.
+ */
+fun createBuildContext(
   projectHome: Path,
   productProperties: ProductProperties,
   setupTracer: Boolean = true,
   proprietaryBuildTools: ProprietaryBuildTools = ProprietaryBuildTools.DUMMY,
   options: BuildOptions = BuildOptions(),
-  scope: CoroutineScope? = null,
+  lifetime: BuildLifetime,
 ): BuildContext {
   val context = createBuildContext(
     compilationContext = createCompilationContext(
@@ -81,11 +84,12 @@ suspend fun createBuildContext(
       buildOutputRootEvaluator = createBuildOutputRootEvaluator(projectHome, productProperties, options),
       options = options,
       setupTracer = setupTracer,
+      httpSession = lifetime.http,
     ),
     projectHome = projectHome,
     productProperties = productProperties,
     proprietaryBuildTools = proprietaryBuildTools,
-    scope = scope,
+    lifetime = lifetime,
   )
   context.cleanupJarCache()
   return context
@@ -93,39 +97,40 @@ suspend fun createBuildContext(
 
 @Experimental
 @Internal
-suspend fun createCompilationContext(
+fun createCompilationContext(
   projectHome: Path,
   productProperties: ProductProperties,
   options: BuildOptions,
-  scope: CoroutineScope,
+  lifetime: BuildLifetime,
   setupTracer: Boolean,
 ): CompilationContext {
   return normalizeCompilationContextForBuild(
     context = createCompilationContext(
-    projectHome = projectHome,
-    buildOutputRootEvaluator = createBuildOutputRootEvaluator(projectHome = projectHome, productProperties = productProperties, buildOptions = options),
-    options = options,
-    setupTracer = setupTracer,
+      projectHome = projectHome,
+      buildOutputRootEvaluator = createBuildOutputRootEvaluator(projectHome = projectHome, productProperties = productProperties, buildOptions = options),
+      options = options,
+      setupTracer = setupTracer,
+      httpSession = lifetime.http,
     ),
-    scope = scope,
+    lifetime = lifetime,
   )
 }
 
 @Internal
 fun normalizeCompilationContextForBuild(
   context: CompilationContext,
-  scope: CoroutineScope?,
+  lifetime: BuildLifetime?,
   isBazelBacked: Boolean = isRunningFromBazelOut(),
 ): CompilationContext {
   val bazelAwareContext = when (context) {
-    is CompilationContextImpl -> context.toBazelIfNeeded(scope, isBazelBacked)
+    is CompilationContextImpl -> context.toBazelIfNeeded(lifetime, isBazelBacked)
     else -> context
   }
   return if (bazelAwareContext.options.unpackCompiledClassesArchives) {
-    bazelAwareContext.toArchivedIfNeeded(scope)
+    bazelAwareContext.toArchivedIfNeeded(lifetime)
   }
   else {
-    bazelAwareContext.toArchivedContext(scope)
+    bazelAwareContext.toArchivedContext(lifetime)
   }
 }
 
@@ -134,9 +139,9 @@ fun createBuildContext(
   projectHome: Path,
   productProperties: ProductProperties,
   proprietaryBuildTools: ProprietaryBuildTools = ProprietaryBuildTools.DUMMY,
-  scope: CoroutineScope? = null,
+  lifetime: BuildLifetime,
 ): BuildContextImpl {
-  val normalizedCompilationContext = normalizeCompilationContextForBuild(compilationContext, scope)
+  val normalizedCompilationContext = normalizeCompilationContextForBuild(compilationContext, lifetime)
   val jarCacheManager = normalizedCompilationContext.options.jarCacheDir?.let {
     LocalDiskJarCacheManager(
       cacheDir = it,
@@ -146,18 +151,24 @@ fun createBuildContext(
   } ?: NonCachingJarCacheManager
   return BuildContextImpl(
     compilationContext = normalizedCompilationContext,
+    lifetime = lifetime,
     productProperties = productProperties,
     windowsDistributionCustomizer = productProperties.createWindowsCustomizer(projectHome),
     linuxDistributionCustomizer = productProperties.createLinuxCustomizer(projectHome),
     macDistributionCustomizer = productProperties.createMacCustomizer(projectHome),
     proprietaryBuildTools = proprietaryBuildTools,
-    applicationInfo = ApplicationInfoPropertiesImpl(project = normalizedCompilationContext.project, productProperties = productProperties, buildOptions = normalizedCompilationContext.options),
+    applicationInfo = ApplicationInfoPropertiesImpl(
+      project = normalizedCompilationContext.project,
+      productProperties = productProperties,
+      buildOptions = normalizedCompilationContext.options
+    ),
     jarCacheManager = jarCacheManager,
   )
 }
 
 class BuildContextImpl internal constructor(
   internal val compilationContext: CompilationContext,
+  override val lifetime: BuildLifetime,
   override val productProperties: ProductProperties,
   override val windowsDistributionCustomizer: WindowsDistributionCustomizer?,
   override val linuxDistributionCustomizer: LinuxDistributionCustomizer?,
@@ -170,6 +181,9 @@ class BuildContextImpl internal constructor(
   ),
   @JvmField internal val jarCacheManager: JarCacheManager,
 ) : BuildContext, CompilationContext by compilationContext {
+  override val httpSession: BuildHttpSession
+    get() = lifetime.http
+
   private val distFiles = ConcurrentLinkedQueue<DistFile>()
 
   private val extraExecutablePatterns = AtomicReference<Map<OsFamily, PersistentList<String>>>(java.util.Map.of())
@@ -201,7 +215,7 @@ class BuildContextImpl internal constructor(
     }
   }
 
-  override suspend fun cleanupJarCache() {
+  override fun cleanupJarCache() {
     jarCacheManager.cleanup()
   }
 
@@ -252,12 +266,13 @@ class BuildContextImpl internal constructor(
 
   companion object {
     @Deprecated("Use `createBuildContext`", ReplaceWith("createBuildContext(projectHome, productProperties, proprietaryBuildTools, options)"))
-    suspend fun createContext(
+    fun createContext(
       projectHome: Path,
       productProperties: ProductProperties,
       setupTracer: Boolean = true,
       proprietaryBuildTools: ProprietaryBuildTools = ProprietaryBuildTools.DUMMY,
       options: BuildOptions = BuildOptions(),
+      lifetime: BuildLifetime,
     ): BuildContext {
       return createBuildContext(
         projectHome = projectHome,
@@ -265,11 +280,12 @@ class BuildContextImpl internal constructor(
         setupTracer = setupTracer,
         proprietaryBuildTools = proprietaryBuildTools,
         options = options,
+        lifetime = lifetime,
       )
     }
   }
 
-  private val builtinModules = blockingLazy("provided module list") {
+  private val builtinModules = sharedLazy(lifetime, "provided module list") {
     if (isStepSkipped(BuildOptions.PROVIDED_MODULES_LIST_STEP) || !shouldBuildDistributions()) {
       null
     }
@@ -295,22 +311,13 @@ class BuildContextImpl internal constructor(
   }
 
   private val bundledPluginModulesForModularLoader by lazy {
-    productProperties.rootModuleForModularLoader?.let { rootModule ->
-      loadRawProductModules(rootModule, productProperties.productMode, this@BuildContextImpl).bundledPluginMainModules.map {
-        it.name
-      }
+    productProperties.rootModuleForModularLoader?.let {
+      getBundledPluginModules(productProperties, outputProvider)
     }
   }
 
   override fun getDistFiles(os: OsFamily?, arch: JvmArchitecture?, libcImpl: LibcImpl?): Collection<DistFile> {
-    val result = distFiles.filterTo(mutableListOf()) {
-      (os == null && arch == null && libcImpl == null) ||
-      (os == null || it.os == null || it.os == os) &&
-      (arch == null || it.arch == null || it.arch == arch) &&
-      (libcImpl == null || it.libcImpl == null || it.libcImpl == libcImpl)
-    }
-    result.sortWith(compareBy({ it.relativePath }, { it.os }, { it.arch }))
-    return result
+    return selectDistFiles(distFiles, os, arch, libcImpl)
   }
 
   override fun findApplicationInfoModule(): JpsModule = outputProvider.findRequiredModule(productProperties.applicationInfoModule)
@@ -319,7 +326,7 @@ class BuildContextImpl internal constructor(
     compilationContext.notifyArtifactBuilt(artifactPath)
   }
 
-  private val _frontendModuleFilter = blockingLazy("frontend module filter") {
+  private val _frontendModuleFilter = sharedLazy(lifetime, "frontend module filter") {
     val rootModule = productProperties.embeddedFrontendRootModule
     if (rootModule != null && options.enableEmbeddedFrontend) {
       FrontendModuleFilterImpl.createFrontendModuleFilter(project = project)
@@ -331,23 +338,26 @@ class BuildContextImpl internal constructor(
 
   override fun getFrontendModuleFilter(): FrontendModuleFilter = _frontendModuleFilter.get()
 
-  private val embeddedFrontendProductContext = suspendingLazy("embedded frontend product context") {
+  private val embeddedFrontendProductContext = sharedLazy(lifetime, "embedded frontend product context") {
     if (options.enableEmbeddedFrontend) {
       val factory = productProperties.embeddedFrontendProperties
       if (factory != null) {
-        return@suspendingLazy createCopyForProduct(factory(), paths.projectHome, prepareForBuild = false)
+        return@sharedLazy createCopyForProduct(factory(), paths.projectHome, prepareForBuild = false)
       }
     }
     null
   }
 
-  override suspend fun getEmbeddedFrontendProductContext(): BuildContext? = embeddedFrontendProductContext.await()
+  override fun getEmbeddedFrontendProductContext(): BuildContext? = embeddedFrontendProductContext.get()
 
-  private val layoutOfAdditionalFrontendOnlyPlugins = suspendingLazy("layout of additional frontend only plugins") {
-    computeDescriptorsForAdditionalFrontendPlugins(this@BuildContextImpl, distributionState().platformLayout)
+  // The layout fills the descriptor cache of the given platform layout, so the result is cached per layout identity.
+  private val layoutOfAdditionalFrontendOnlyPlugins = SharedCache<PlatformLayout, List<PluginBuildResult>>(lifetime.sharedTasks)
+
+  override fun getLayoutOfAdditionalFrontendOnlyPlugins(platformLayout: PlatformLayout): List<PluginBuildResult> {
+    return layoutOfAdditionalFrontendOnlyPlugins.getOrPut(platformLayout) {
+      computeDescriptorsForAdditionalFrontendPlugins(this, platformLayout)
+    }
   }
-
-  override suspend fun getLayoutOfAdditionalFrontendOnlyPlugins(): List<PluginBuildResult> = layoutOfAdditionalFrontendOnlyPlugins.await()
 
   private val _contentModuleFilter by lazy { computeContentModuleFilter() }
 
@@ -369,7 +379,7 @@ class BuildContextImpl internal constructor(
     return shouldBuildDistributions() && options.targetOs.contains(os) && (options.targetArch == null || options.targetArch == arch)
   }
 
-  override suspend fun createCopyForProduct(
+  override fun createCopyForProduct(
     productProperties: ProductProperties,
     projectHomeForCustomizers: Path,
     prepareForBuild: Boolean,
@@ -394,18 +404,16 @@ class BuildContextImpl internal constructor(
 
     @Suppress("DEPRECATION")
     val artifactDir = if (prepareForBuild) paths.artifactDir.resolve(productProperties.productCode ?: newAppInfo.productCode) else null
-    val copyContext = currentCoroutineContext()
-    val copyScope = object : CoroutineScope {
-      override val coroutineContext = copyContext
-    }
+    // the copy shares the lifetime of this context, so its caches end with the build that owns both
     val compilationContextCopy = compilationContext.createCopy(
       messages = messages,
       options = options,
       paths = computeBuildPaths(options = options, buildOut = buildOut, projectHome = paths.projectHome, artifactDir = artifactDir),
-      scope = copyScope,
+      lifetime = null,
     )
     val copy = BuildContextImpl(
       compilationContext = compilationContextCopy,
+      lifetime = lifetime,
       productProperties = productProperties,
       windowsDistributionCustomizer = productProperties.createWindowsCustomizer(projectHomeForCustomizers),
       linuxDistributionCustomizer = productProperties.createLinuxCustomizer(projectHomeForCustomizers),
@@ -426,80 +434,29 @@ class BuildContextImpl internal constructor(
   }
 
   override fun getAdditionalJvmArguments(os: OsFamily, arch: JvmArchitecture, isScript: Boolean, isPortableDist: Boolean, isQodana: Boolean): List<String> {
-    fun String.quoteIfNeeded(): String = if (isScript) '"' + this + '"' else this
+    return renderAdditionalJvmArguments(
+      jvm = productJvmArguments(launchInputs(), bundledRuntime.version),
+      os = os,
+      arch = arch,
+      openedPackages = getCommandLineArgumentsForOpenPackages(context = this, os),
+      isScript = isScript,
+      isPortableDist = isPortableDist,
+      isQodana = isQodana,
+    )
+  }
 
-    val jvmArgs = ArrayList<String>()
-
-    val macroName = when (os) {
-      OsFamily.WINDOWS -> "%IDE_HOME%"
-      OsFamily.MACOS -> $$"$APP_PACKAGE$${if (isPortableDist) "" else "/Contents"}"
-      OsFamily.LINUX -> $$"$IDE_HOME"
-    }
-    val useMultiRoutingFs = !isQodana && isMultiRoutingFileSystemEnabledForProduct(productProperties.platformPrefix)
-
-    val bcpJarNames = productProperties.xBootClassPathJarNames + if (useMultiRoutingFs) listOf(PLATFORM_CORE_NIO_FS) else emptyList()
-    if (bcpJarNames.isNotEmpty()) {
-      val (pathSeparator, dirSeparator) = if (os == OsFamily.WINDOWS) ";" to "\\" else ":" to "/"
-      val bootCp = bcpJarNames.joinToString(pathSeparator) { arrayOf(macroName, "lib", it).joinToString(dirSeparator) }
-      jvmArgs.add("-Xbootclasspath/a:${bootCp}".quoteIfNeeded())
-    }
-
-    if (productProperties.enableCds) {
-      val cacheDir = if (os == OsFamily.WINDOWS) "%IDE_CACHE_DIR%\\" else $$"$IDE_CACHE_DIR/"
-      jvmArgs.add("-XX:SharedArchiveFile=${cacheDir}${productProperties.baseFileName}${buildNumber}.jsa")
-      jvmArgs.add("-XX:+AutoCreateSharedArchive")
-    }
-    else {
-      productProperties.classLoader?.let {
-        jvmArgs.add("-Djava.system.class.loader=${it}")
-      }
-    }
-
-    jvmArgs.add("-Didea.vendor.name=${applicationInfo.shortCompanyName}")
-    jvmArgs.add("-Didea.paths.selector=${systemSelector}")
-
-    // require bundled JNA dispatcher lib
-    jvmArgs.add("-Djna.boot.library.path=${macroName}/lib/jna/${arch.dirName}".quoteIfNeeded())
-    jvmArgs.add("-Djna.nosys=true")
-    jvmArgs.add("-Djna.noclasspath=true")
-    jvmArgs.add("-Dpty4j.preferred.native.folder=${macroName}/lib/pty4j".quoteIfNeeded())
-    jvmArgs.add("-Dio.netty.allocator.type=pooled")
-
-    // require bundled Skiko
-    jvmArgs.add("-Dskiko.library.path=${macroName}/lib/skiko-awt-runtime-all".quoteIfNeeded())
-
-    if (useModularLoader || generateRuntimeModuleRepository) {
-      jvmArgs.add("-Dintellij.platform.runtime.repository.path=${macroName}/${MODULE_DESCRIPTORS_COMPACT_PATH}".quoteIfNeeded())
-    }
-    if (useModularLoader) {
-      jvmArgs.add("-Dintellij.platform.root.module=${productProperties.rootModuleForModularLoader!!}")
-      jvmArgs.add("-Dintellij.platform.product.mode=${productProperties.productMode.id}")
-    }
-
-    if (productProperties.platformPrefix != null) {
-      jvmArgs.add("-Didea.platform.prefix=${productProperties.platformPrefix}")
-    }
-
-    jvmArgs.addAll(productProperties.additionalIdeJvmArguments)
-    jvmArgs.addAll(productProperties.getAdditionalContextDependentIdeJvmArguments(this))
-
-    if (productProperties.useSplash) {
-      @Suppress("SpellCheckingInspection", "RedundantSuppression")
-      jvmArgs.add("-Dsplash=true")
-    }
-
-    // https://youtrack.jetbrains.com/issue/IDEA-269280
-    jvmArgs.add("-Daether.connector.resumeDownloads=false")
-
-    jvmArgs.add("-Dcompose.swing.render.on.graphics=true")
-
-    if (bundledRuntime.version >= 25) {
-      jvmArgs.add("--enable-native-access=ALL-UNNAMED")
-    }
-
-    jvmArgs.addAll(getCommandLineArgumentsForOpenPackages(context = this, os))
-
-    return jvmArgs
+  /** What [org.jetbrains.intellij.build.impl.productInfo.computeProductLaunchModel] reads of this context. */
+  internal fun launchInputs(): ProductLaunchInputs {
+    return ProductLaunchInputs(
+      properties = productProperties,
+      applicationInfo = applicationInfo,
+      buildNumber = buildNumber,
+      bundledPluginModules = getBundledPluginModules(),
+      useModularLoader = useModularLoader,
+      generateRuntimeModuleRepository = generateRuntimeModuleRepository,
+      bootClassPathJarNames = bootClassPathJarNames,
+      applicationInfoOf = { loadApplicationInfoPropertiesForProduct(it, this) },
+    )
   }
 
   override fun addExtraExecutablePattern(os: OsFamily, pattern: String) {
@@ -514,22 +471,22 @@ class BuildContextImpl internal constructor(
     computeAppInfoXml(appInfo = applicationInfo, context = this)
   }
 
-  private val devModeProductRunner = suspendingLazy("dev mode product runner") {
+  private val devModeProductRunner = sharedLazy(lifetime, "dev mode product runner") {
     createDevModeProductRunner(this@BuildContextImpl)
   }
 
-  override suspend fun createProductRunner(additionalPluginModules: List<String>): IntellijProductRunner {
+  override fun createProductRunner(additionalPluginModules: List<String>): IntellijProductRunner {
     return spanBuilder("create product runner")
       .setAttribute("additional.plugin.module.count", additionalPluginModules.size.toLong())
       .use {
         when {
-          additionalPluginModules.isEmpty() -> devModeProductRunner.await()
+          additionalPluginModules.isEmpty() -> devModeProductRunner.get()
           else -> createDevModeProductRunner(additionalPluginModules = additionalPluginModules, context = this@BuildContextImpl)
         }
       }
   }
 
-  override suspend fun runProcess(
+  override fun runProcess(
     args: List<String>,
     workingDir: Path?,
     timeout: Duration,
@@ -551,12 +508,12 @@ class BuildContextImpl internal constructor(
     PluginAutoPublishList(this)
   }
 
-  private val distributionState = suspendingLazy("Creating distribution state") {
+  private val distributionState = sharedLazy(lifetime, "Creating distribution state") {
     createDistributionState(this@BuildContextImpl)
   }
 
-  override suspend fun distributionState(): DistributionBuilderState {
-    return distributionState.await()
+  override fun distributionState(): DistributionBuilderState {
+    return distributionState.get()
   }
 }
 
@@ -571,21 +528,18 @@ private fun isNightly(buildNumber: String): Boolean {
   return buildNumber.count { it == '.' } <= 1
 }
 
-/**
- * Loads raw data from product-modules.xml file located in module [rootModuleName], for a product running in [productMode].
- * It doesn't use files from module output directories, so it works even if the modules aren't compiled yet.
- */
+/** Reads product-modules.xml and its includes from module sources. */
 @Internal
-fun loadRawProductModules(rootModuleName: String, productMode: ProductMode, context: CompilationContext): RawProductModules {
-  val productModulesFile = findProductModulesFile(clientMainModuleName = rootModuleName, provider = context.outputProvider)
+fun loadRawProductModules(rootModuleName: String, outputProvider: ModuleOutputProvider): RawProductModules {
+  val productModulesFile = findProductModulesFile(clientMainModuleName = rootModuleName, provider = outputProvider)
                            ?: error("Cannot find product-modules.xml file in $rootModuleName")
   val resolver = object : ResourceFileResolver {
     override fun readResourceFile(moduleId: RuntimeModuleId, relativePath: String): InputStream? {
-      return context.findFileInModuleSources(context.outputProvider.findRequiredModule(moduleId.name), relativePath)?.inputStream()
+      return outputProvider.findFileInModuleSources(outputProvider.findRequiredModule(moduleId.name), relativePath)?.inputStream()
     }
 
     override fun toString(): String {
-      return "source file based resolver for '${context.paths.projectHome}' project"
+      return "source file based resolver for '$rootModuleName' product"
     }
   }
   return ProductModulesSerialization.readProductModulesAndMergeIncluded(productModulesFile.inputStream(), productModulesFile.pathString, resolver)

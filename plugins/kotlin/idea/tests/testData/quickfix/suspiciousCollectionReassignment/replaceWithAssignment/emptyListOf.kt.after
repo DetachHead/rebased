@@ -11,4 +11,3 @@ fun test(otherList: List<Int>) {
 fun foo() {}
 fun bar() {}
 // FUS_QUICKFIX_NAME: org.jetbrains.kotlin.idea.codeInsight.inspections.SuspiciousCollectionReassignmentInspection$ReplaceWithAssignmentFix
-// FUS_K2_QUICKFIX_NAME: org.jetbrains.kotlin.idea.codeInsight.inspections.SuspiciousCollectionReassignmentInspection$ReplaceWithAssignmentFix

@@ -47,8 +47,9 @@
 - *a:getProcessManagement():com.intellij.platform.eel.EelProcessManagementApi
 - *a:spawnProcess(com.intellij.platform.eel.EelExecApi$ExecuteProcessOptions,kotlin.coroutines.Continuation):java.lang.Object
 *f:com.intellij.platform.eel.EelExecApi$EnvironmentVariablesDeferred
+- <init>(kotlinx.coroutines.Deferred):V
 - *f:await(kotlin.coroutines.Continuation):java.lang.Object
-- *f:getDeferred():kotlinx.coroutines.Deferred
+- *f:getDeferred():com.intellij.platform.eel.SafeDeferred
 *f:com.intellij.platform.eel.EelExecApi$EnvironmentVariablesException
 - java.io.IOException
 - com.intellij.platform.eel.EelError
@@ -250,11 +251,11 @@ f:com.intellij.platform.eel.EelExecWindowsApiHelpersKt
 - com.intellij.platform.eel.EelPlatform$Posix
 - <init>(com.intellij.platform.eel.EelPlatform$Arch):V
 - getArch():com.intellij.platform.eel.EelPlatform$Arch
-*f:com.intellij.platform.eel.EelPlatform$HarmonyOS
+*f:com.intellij.platform.eel.EelPlatform$Linux
 - com.intellij.platform.eel.EelPlatform$Posix
 - <init>(com.intellij.platform.eel.EelPlatform$Arch):V
 - getArch():com.intellij.platform.eel.EelPlatform$Arch
-*f:com.intellij.platform.eel.EelPlatform$Linux
+*f:com.intellij.platform.eel.EelPlatform$OHOS
 - com.intellij.platform.eel.EelPlatform$Posix
 - <init>(com.intellij.platform.eel.EelPlatform$Arch):V
 - getArch():com.intellij.platform.eel.EelPlatform$Arch
@@ -283,7 +284,6 @@ f:com.intellij.platform.eel.EelPlatformKt
 - *sf:isWindows(com.intellij.platform.eel.EelPlatform):Z
 - *sf:isX86(com.intellij.platform.eel.EelPlatform):Z
 - *sf:isX86_64(com.intellij.platform.eel.EelPlatform):Z
-- *sf:osNameAsEelOsFamily(java.lang.String):com.intellij.platform.eel.EelOsFamily
 *:com.intellij.platform.eel.EelPosixApi
 - com.intellij.platform.eel.EelApi
 - a:getExec():com.intellij.platform.eel.EelExecPosixApi
@@ -292,9 +292,9 @@ f:com.intellij.platform.eel.EelPlatformKt
 - a:getUserInfo():com.intellij.platform.eel.EelUserPosixInfo
 *:com.intellij.platform.eel.EelPosixProcess
 - com.intellij.platform.eel.EelProcess
-- *a:terminate(kotlin.coroutines.Continuation):java.lang.Object
+- *a:sendSignal(com.intellij.platform.eel.UnixSignal,kotlin.coroutines.Continuation):java.lang.Object
 *:com.intellij.platform.eel.EelProcess
-- *a:convertToJavaProcess():java.lang.Process
+- convertToJavaProcess():java.lang.Process
 - *a:getExitCode():com.intellij.platform.eel.SafeDeferred
 - *a:getPid():com.intellij.platform.eel.EelApi$Pid
 - *a:getStderr():com.intellij.platform.eel.channels.EelReceiveChannel
@@ -329,6 +329,9 @@ f:com.intellij.platform.eel.EelPlatformKt
 - a:getPid():com.intellij.platform.eel.EelApi$Pid
 - a:getStartInstant():java.time.Instant
 - a:getUser():java.lang.String
+*f:com.intellij.platform.eel.EelProcessKt
+- *sf:convertToJVMProcess(com.intellij.platform.eel.EelProcess):java.lang.Process
+- *sf:terminate(com.intellij.platform.eel.EelPosixProcess,kotlin.coroutines.Continuation):java.lang.Object
 *:com.intellij.platform.eel.EelProcessManagementApi
 - *a:getDescriptor():com.intellij.platform.eel.EelDescriptor
 - *a:kill(J,kotlin.coroutines.Continuation):java.lang.Object
@@ -445,9 +448,17 @@ f:com.intellij.platform.eel.EelTunnelsApiKt
 - com.intellij.platform.eel.EelTunnelsApi
 *:com.intellij.platform.eel.EelTunnelsWindowsApi
 - com.intellij.platform.eel.EelTunnelsApi
-*Fc:com.intellij.platform.eel.EelUnavailableException
+*a:com.intellij.platform.eel.EelUnavailableException
 - java.io.IOException
+- *sf:Companion:com.intellij.platform.eel.EelUnavailableException$Companion
 - getMessage():java.lang.String
+*c:com.intellij.platform.eel.EelUnavailableException$CommunicationFailure
+- com.intellij.platform.eel.EelUnavailableException
+*f:com.intellij.platform.eel.EelUnavailableException$Companion
+*a:com.intellij.platform.eel.EelUnavailableException$Conclusive
+- com.intellij.platform.eel.EelUnavailableException
+*c:com.intellij.platform.eel.EelUnavailableException$IntendedExit
+- com.intellij.platform.eel.EelUnavailableException$Conclusive
 *:com.intellij.platform.eel.EelUserInfo
 - a:getHome():com.intellij.platform.eel.path.EelPath
 *:com.intellij.platform.eel.EelUserPosixInfo
@@ -535,6 +546,8 @@ f:com.intellij.platform.eel.EelTunnelsApiKt
 - f:await(kotlin.coroutines.Continuation):java.lang.Object
 - f:getState():com.intellij.platform.eel.SafeDeferred$State
 - f:invokeWhenCompleted(kotlin.jvm.functions.Function1):V
+- *f:map(kotlin.jvm.functions.Function1):com.intellij.platform.eel.SafeDeferred
+- f:start():Z
 *f:com.intellij.platform.eel.SafeDeferred$CancelledDeferred
 - com.intellij.platform.eel.SafeDeferred$DeferredException
 - <init>(java.util.concurrent.CancellationException):V
@@ -545,12 +558,13 @@ f:com.intellij.platform.eel.EelTunnelsApiKt
 *f:com.intellij.platform.eel.SafeDeferred$FailedDeferred
 - com.intellij.platform.eel.SafeDeferred$DeferredException
 - <init>(java.lang.Throwable):V
+- getCause():java.lang.Throwable
 *:com.intellij.platform.eel.SafeDeferred$State
 *f:com.intellij.platform.eel.SafeDeferred$State$Active
 - com.intellij.platform.eel.SafeDeferred$State
 - sf:INSTANCE:com.intellij.platform.eel.SafeDeferred$State$Active
 *f:com.intellij.platform.eel.SafeDeferred$State$Canceled
-- com.intellij.platform.eel.SafeDeferred$State$FinishedUnsuccessfully
+- com.intellij.platform.eel.SafeDeferred$State$MappedError
 - <init>(java.util.concurrent.CancellationException):V
 - getError():java.util.concurrent.CancellationException
 - throwWrapped():java.lang.Void
@@ -559,19 +573,59 @@ f:com.intellij.platform.eel.EelTunnelsApiKt
 - <init>(java.lang.Object):V
 - f:getValue():java.lang.Object
 *f:com.intellij.platform.eel.SafeDeferred$State$Failed
-- com.intellij.platform.eel.SafeDeferred$State$FinishedUnsuccessfully
-- <init>(java.lang.Throwable):V
+- com.intellij.platform.eel.SafeDeferred$State$MappedError
+- <init>(java.lang.Throwable,java.lang.Throwable):V
 - getError():java.lang.Throwable
 - throwWrapped():java.lang.Void
 *:com.intellij.platform.eel.SafeDeferred$State$Finished
 - com.intellij.platform.eel.SafeDeferred$State
-*:com.intellij.platform.eel.SafeDeferred$State$FinishedUnsuccessfully
-- com.intellij.platform.eel.SafeDeferred$State$Finished
+*:com.intellij.platform.eel.SafeDeferred$State$MappedError
+- com.intellij.platform.eel.SafeDeferred$State$Unsuccessful
 - a:getError():java.lang.Throwable
 - a:throwWrapped():java.lang.Void
+*f:com.intellij.platform.eel.SafeDeferred$State$UnmappedError
+- com.intellij.platform.eel.SafeDeferred$State$Unsuccessful
+- <init>(com.intellij.platform.eel.SafeDeferred,java.lang.Throwable):V
+- f:await(kotlin.coroutines.Continuation):java.lang.Object
+*:com.intellij.platform.eel.SafeDeferred$State$Unsuccessful
+- com.intellij.platform.eel.SafeDeferred$State$Finished
 f:com.intellij.platform.eel.SafeDeferredKt
 - *sf:computeDeferred(java.util.Map,kotlinx.coroutines.CoroutineScope,java.lang.Object,kotlin.jvm.functions.Function2):com.intellij.platform.eel.SafeDeferred
-- *sf:map(com.intellij.platform.eel.SafeDeferred,kotlin.jvm.functions.Function1):com.intellij.platform.eel.SafeDeferred
+- *sf:toSafeDeferred(kotlinx.coroutines.Deferred,kotlin.jvm.functions.Function2):com.intellij.platform.eel.SafeDeferred
+*e:com.intellij.platform.eel.UnixSignal
+- java.lang.Enum
+- sf:SIGABRT:com.intellij.platform.eel.UnixSignal
+- sf:SIGALRM:com.intellij.platform.eel.UnixSignal
+- sf:SIGBUS:com.intellij.platform.eel.UnixSignal
+- sf:SIGCHLD:com.intellij.platform.eel.UnixSignal
+- sf:SIGCONT:com.intellij.platform.eel.UnixSignal
+- sf:SIGFPE:com.intellij.platform.eel.UnixSignal
+- sf:SIGHUP:com.intellij.platform.eel.UnixSignal
+- sf:SIGILL:com.intellij.platform.eel.UnixSignal
+- sf:SIGINT:com.intellij.platform.eel.UnixSignal
+- sf:SIGIO:com.intellij.platform.eel.UnixSignal
+- sf:SIGKILL:com.intellij.platform.eel.UnixSignal
+- sf:SIGPIPE:com.intellij.platform.eel.UnixSignal
+- sf:SIGPROF:com.intellij.platform.eel.UnixSignal
+- sf:SIGQUIT:com.intellij.platform.eel.UnixSignal
+- sf:SIGSEGV:com.intellij.platform.eel.UnixSignal
+- sf:SIGSTOP:com.intellij.platform.eel.UnixSignal
+- sf:SIGSYS:com.intellij.platform.eel.UnixSignal
+- sf:SIGTERM:com.intellij.platform.eel.UnixSignal
+- sf:SIGTRAP:com.intellij.platform.eel.UnixSignal
+- sf:SIGTSTP:com.intellij.platform.eel.UnixSignal
+- sf:SIGTTIN:com.intellij.platform.eel.UnixSignal
+- sf:SIGTTOU:com.intellij.platform.eel.UnixSignal
+- sf:SIGURG:com.intellij.platform.eel.UnixSignal
+- sf:SIGUSR1:com.intellij.platform.eel.UnixSignal
+- sf:SIGUSR2:com.intellij.platform.eel.UnixSignal
+- sf:SIGVTALRM:com.intellij.platform.eel.UnixSignal
+- sf:SIGWINCH:com.intellij.platform.eel.UnixSignal
+- sf:SIGXCPU:com.intellij.platform.eel.UnixSignal
+- sf:SIGXFSZ:com.intellij.platform.eel.UnixSignal
+- s:getEntries():kotlin.enums.EnumEntries
+- s:valueOf(java.lang.String):com.intellij.platform.eel.UnixSignal
+- s:values():com.intellij.platform.eel.UnixSignal[]
 *f:com.intellij.platform.eel.WindowsEnvironmentVariablesOptionsBuilder
 - <init>():V
 - f:build():com.intellij.platform.eel.EelExecWindowsApi$WindowsEnvironmentVariablesOptions

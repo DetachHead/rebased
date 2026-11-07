@@ -6,7 +6,7 @@ import com.jetbrains.env.python.PySDKRule
 import org.junit.Rule
 
 class PySdkFlavorLocalTest : PySdkFlavorTestBase() {
-  override val sdkRule: PySDKRule = PySDKRule(null)
+  override val sdkRule: PySDKRule = PySDKRule({ projectRule.project }, null)
 
   @Rule
   @JvmField

@@ -1,8 +1,10 @@
 // Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.jetbrains.python.newProjectWizard
 
+import com.intellij.facet.ui.FacetConfigurationQuickFix
 import com.intellij.facet.ui.ValidationResult
 import com.intellij.openapi.application.EDT
+import com.intellij.openapi.application.UI
 import com.intellij.openapi.application.edtWriteAction
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
@@ -13,9 +15,17 @@ import com.intellij.openapi.util.NlsSafe
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.platform.DirectoryProjectGenerator
 import com.intellij.platform.ProjectGeneratorPeer
+import com.intellij.platform.eel.EelApi
+import com.intellij.platform.eel.EelDescriptor
+import com.intellij.platform.eel.provider.toEelApi
+import com.intellij.platform.ide.progress.ModalTaskOwner
+import com.intellij.platform.ide.progress.runWithModalProgressBlocking
 import com.intellij.platform.ide.progress.withBackgroundProgress
-import com.intellij.python.pyproject.model.internal.startAutoImportIfNeeded
+import com.intellij.python.pyproject.model.internal.startPyProjectModelSyncIfNeeded
+import com.intellij.python.sdk.backend.getPythonInfo
+import com.intellij.python.sdk.backend.getSdkAPI
 import com.intellij.util.concurrency.annotations.RequiresEdt
+import com.jetbrains.python.DEFAULT_EEL_FOR_NEW_PROJECTS
 import com.jetbrains.python.PyBundle
 import com.jetbrains.python.Result
 import com.jetbrains.python.TraceContext
@@ -34,6 +44,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.jetbrains.annotations.TestOnly
 import org.jetbrains.annotations.VisibleForTesting
+import javax.swing.JComponent
 import kotlin.reflect.jvm.jvmName
 
 /**
@@ -57,6 +68,12 @@ abstract class PyV3ProjectBaseGenerator<TYPE_SPECIFIC_SETTINGS : PyV3ProjectType
   private companion object {
     val log = fileLogger()
   }
+
+  /**
+   * The peer of the last [createPeer] call. This generator is a singleton, but each dialog gets its own peer.
+   */
+  private var generatorPeer: PyV3GeneratorPeer<TYPE_SPECIFIC_SETTINGS>? = null
+
   private val baseSettings = PyV3BaseProjectSettings()
   private var uiServices: PyV3UIServices = PyV3UIServicesProd
   val newProjectName: @NlsSafe String get() = _newProjectName ?: "${name.replace(" ", "")}Project"
@@ -72,7 +89,7 @@ abstract class PyV3ProjectBaseGenerator<TYPE_SPECIFIC_SETTINGS : PyV3ProjectType
   }
 
 
-  @RequiresEdt
+  @RequiresEdt(generateAssertion = false /* IJPL-115548 */)
   override fun generateProject(project: Project, baseDir: VirtualFile, settings: PyV3BaseProjectSettings, module: Module) {
     val coroutineScope = project.service<MyService>().coroutineScope
     coroutineScope.launch(TraceContext(PyBundle.message("trace.context.new.project.wizard"), coroutineScope)) {
@@ -88,7 +105,7 @@ abstract class PyV3ProjectBaseGenerator<TYPE_SPECIFIC_SETTINGS : PyV3ProjectType
   ) {
     generateProjectImpl(settings, module, baseDir)
     log.info("Import started by project generator")
-    startAutoImportIfNeeded(module.project, "PyV3 generation")
+    startPyProjectModelSyncIfNeeded(module.project, "PyV3 generation")
   }
 
   private suspend fun generateProjectImpl(
@@ -97,7 +114,7 @@ abstract class PyV3ProjectBaseGenerator<TYPE_SPECIFIC_SETTINGS : PyV3ProjectType
     baseDir: VirtualFile,
   ) {
     val project = module.project
-    val (sdk, interpreterStatistics) = settings.generateAndGetSdk(module, baseDir, supportsNotEmptyModuleStructure).getOr {
+    val (interpreter, interpreterStatistics) = settings.generateAndGetSdk(module, baseDir, supportsNotEmptyModuleStructure).getOr {
       withContext(Dispatchers.EDT) {
         uiServices.errorSink.emit(it.error, project)
       }
@@ -108,9 +125,15 @@ abstract class PyV3ProjectBaseGenerator<TYPE_SPECIFIC_SETTINGS : PyV3ProjectType
       baseDir.refresh(false, true)
     }
 
-    val pythonVersion = withContext(Dispatchers.IO) { sdk.version }
+    val pythonInfo = interpreter.getPythonInfo().getOr {
+      withContext(Dispatchers.EDT) {
+        uiServices.errorSink.emit(it.error, project)
+      }
+      return // Since we failed to generate a project, we do not need to go any further
+    }
+
     logPythonNewProjectGenerated(interpreterStatistics,
-                                 pythonVersion,
+                                 pythonInfo.languageLevel,
                                  this@PyV3ProjectBaseGenerator,
                                  emptyList())
 
@@ -119,27 +142,57 @@ abstract class PyV3ProjectBaseGenerator<TYPE_SPECIFIC_SETTINGS : PyV3ProjectType
     // So we expand it right after SDK generation, but if there are no files yet, we do it again after project generation
     uiServices.expandProjectTreeView(project)
     withBackgroundProgress(project, PyBundle.message("python.project.model.progress.title.generating"), cancellable = true) {
-      typeSpecificSettings.generateProject(module, baseDir, sdk).onFailure {
+      typeSpecificSettings.generateProject(module, baseDir, interpreter.getSdkAPI()).onFailure {
         uiServices.errorSink.emit(it, project)
       }
-      refreshPaths(project, sdk)
+      refreshPaths(project, interpreter.getSdkAPI())
     }
     uiServices.expandProjectTreeView(project)
   }
 
 
   override fun createPeer(): ProjectGeneratorPeer<PyV3BaseProjectSettings> =
-    PyV3GeneratorPeer(baseSettings, typeSpecificUI?.let { Pair(it, typeSpecificSettings) }, uiServices)
+    PyV3GeneratorPeer(baseSettings,
+                      typeSpecificUI?.let { Pair(it, typeSpecificSettings) },
+                      uiServices,
+                      DEFAULT_EEL_FOR_NEW_PROJECTS).also { generatorPeer = it }
 
-  override fun validate(baseDirPath: String): ValidationResult =
-    when (val pathOrError = validatePath(baseDirPath)) {
+  override fun validate(baseDirPath: String): ValidationResult {
+    val peer = generatorPeer
+    return when (val pathOrError = validatePath(baseDirPath, (peer?.eel ?: DEFAULT_EEL_FOR_NEW_PROJECTS).descriptor)) {
       is Result.Success -> {
         ValidationResult.OK
       }
-      is Result.Failure -> ValidationResult(pathOrError.error.message)
+      is Result.Failure -> {
+        val quickFix = if (peer != null) {
+          pathOrError.error.wrongEelDescriptor?.let {
+            ChangeEelFix(it) { newEelApi ->
+              withContext(Dispatchers.UI) {
+                peer.showUIForEel(newEelApi)
+              }
+            }
+          }
+        }
+        else null
+        ValidationResult(pathOrError.error.message, quickFix)
+      }
     }
+  }
 
 
   @Service(Service.Level.PROJECT)
   private class MyService(val coroutineScope: CoroutineScope)
+}
+
+/**
+ * "Click here to switch from Local to WSL" button for example.
+ */
+private class ChangeEelFix(private val newEel: EelDescriptor, private val onEelChaned: suspend (EelApi) -> Unit) :
+  FacetConfigurationQuickFix(PyBundle.message("new.project.switch.eel", newEel.name)) {
+  @RequiresEdt
+  override fun run(place: JComponent?) {
+    runWithModalProgressBlocking(ModalTaskOwner.guess(), PyBundle.message("new.project.switch.eel", newEel.name)) {
+      onEelChaned(newEel.toEelApi())
+    }
+  }
 }

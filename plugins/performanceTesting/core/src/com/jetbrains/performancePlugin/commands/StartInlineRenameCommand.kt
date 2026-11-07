@@ -40,7 +40,7 @@ class StartInlineRenameCommand(text: String, line: Int) : AbstractCommand(text, 
       var editor = dataContext.getData(CommonDataKeys.EDITOR)
 
       if (editor == null) {
-        editor = FileEditorManager.getInstance(project).getAllEditors().filterIsInstance<TextEditor>().firstOrNull()?.editor
+        editor = FileEditorManager.getInstance(project).allEditors.filterIsInstance<TextEditor>().firstOrNull()?.editor
         if (editor == null) {
           actionCallback.reject("Couldn't get text editor")
           return@Runnable

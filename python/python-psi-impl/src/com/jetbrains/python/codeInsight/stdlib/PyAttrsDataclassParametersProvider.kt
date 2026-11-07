@@ -29,7 +29,8 @@ internal class PyAttrsDataclassParametersProvider : PyDataclassParametersProvide
 
     val args = PyDataclassFieldStubUtil.parseCommonFieldCallArgs(call, usePositionalDefault = false) ?: return null
     val resolver = PyAttrsDataclassType.resolver
-    val hasFactory = args.factory.let { it != null && it.text != PyNames.NONE }
+    val factory = args.factory
+    val hasFactory = factory != null && factory.text != PyNames.NONE
 
     if (args.default != null && !resolver.resolvesToOmittedDefault(args.default)) {
       val callee = (args.default as? PyCallExpression)?.callee as? PyReferenceExpression

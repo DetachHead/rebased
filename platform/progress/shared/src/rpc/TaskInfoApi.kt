@@ -3,6 +3,7 @@ package com.intellij.platform.ide.progress.rpc
 
 import com.intellij.openapi.util.NlsContexts.ProgressText
 import com.intellij.openapi.util.NlsContexts.ProgressTitle
+import com.intellij.platform.ide.progress.BackgroundTaskOwnerKind
 import com.intellij.platform.ide.progress.TaskCancellation
 import com.intellij.platform.ide.progress.TaskStatus
 import com.intellij.platform.ide.progress.suspender.TaskSuspension
@@ -70,6 +71,7 @@ sealed interface TaskInfoEvent {
    * A task exists on the backend. [projectId] is `null` for tasks of the default project; a non-null id
    * refers to the project shared between the peers, resolvable on the frontend via
    * [com.intellij.platform.project.findProjectOrNull].
+   * [ownerKind] specifies the frames that show the task. The [projectId] is used only for [BackgroundTaskOwnerKind.PROJECT].
    */
   @Serializable
   data class TaskAdded(
@@ -80,6 +82,7 @@ sealed interface TaskInfoEvent {
     val suspension: TaskSuspension,
     val status: TaskStatus,
     val visibleInStatusBar: Boolean,
+    val ownerKind: BackgroundTaskOwnerKind = BackgroundTaskOwnerKind.PROJECT,
   ) : TaskInfoEvent
 
   @Serializable

@@ -11,11 +11,11 @@ import com.intellij.openapi.project.DumbAwareAction
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.openapi.vfs.toNioPathOrNull
-import com.intellij.platform.eel.annotations.NativePath
 import com.intellij.platform.eel.path.EelPath
 import com.intellij.platform.eel.path.EelPathException
 import com.intellij.platform.eel.provider.asNioPath
 import com.intellij.platform.eel.provider.getEelDescriptor
+import com.intellij.platform.util.annotations.paths.OsPath
 import com.intellij.terminal.frontend.toolwindow.impl.createTerminalTab
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -86,7 +86,7 @@ internal class RevealFileInReworkedTerminalAction : DumbAwareAction(), ActionRem
     return if (remotePath != null) getNearestDirectory(remotePath) else null
   }
 
-  private fun getRemotePath(path: @NativePath String, project: Project): Path? {
+  private fun getRemotePath(path: @OsPath String, project: Project): Path? {
     val eelDescriptor = project.getEelDescriptor()
     val eelPath = try {
       EelPath.parse(path, eelDescriptor)

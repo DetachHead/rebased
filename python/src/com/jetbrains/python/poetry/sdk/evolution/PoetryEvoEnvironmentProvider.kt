@@ -5,9 +5,11 @@ import com.intellij.openapi.util.NlsSafe
 import com.intellij.openapi.util.io.toNioPathOrNull
 import com.intellij.python.community.common.tools.ToolId
 import com.intellij.python.community.impl.poetry.backend.PoetryPyTool
+import com.intellij.python.community.impl.poetry.common.icons.PythonCommunityImplPoetryCommonIcons
 import com.intellij.python.community.impl.poetry.common.POETRY_TOOL_ID
-import com.intellij.python.pytools.PyTool
+import com.intellij.python.pytools.backend.PyTool
 import com.intellij.python.sdk.backend.PySdkBundle
+import com.intellij.python.sdk.backend.PythonInterpreter
 import com.intellij.python.sdk.backend.evolution.DiscoveredVenv
 import com.intellij.python.sdk.backend.evolution.EvoPyProject
 import com.intellij.python.sdk.backend.evolution.EvoRecreateSpec
@@ -30,7 +32,7 @@ import com.intellij.python.sdk.common.evolution.EvoRecreateDto
 import com.intellij.python.sdk.common.evolution.EvoSectionDto
 import com.jetbrains.python.errorProcessing.PyResult
 import com.jetbrains.python.getOrNull
-import com.jetbrains.python.sdk.add.v2.FileSystem
+import com.jetbrains.python.sdk.add.v2.EelOrJustPath.Companion.asEelOrJustPath
 import com.jetbrains.python.sdk.add.v2.PathHolder
 import com.jetbrains.python.sdk.evolution.deleteEnvDir
 import com.jetbrains.python.sdk.evolution.systemPythonOptions
@@ -48,6 +50,8 @@ private const val VERSIONS_KEY: String = "poetry.systemPythons"
 
 internal class PoetryEvoEnvironmentProvider : PyToolEvoEnvironmentProvider() {
   override val tool: PyTool get() = PoetryPyTool.getInstance()
+  override val label: String get() = PySdkBundle.message("evolution.node.label.poetry")
+  override val icon get() = PythonCommunityImplPoetryCommonIcons.Poetry
   override val toolId: ToolId get() = POETRY_TOOL_ID
 
   /** An interpreter of this node's environments carries this flavor, which is what names this node as the active one. */
@@ -62,8 +66,8 @@ internal class PoetryEvoEnvironmentProvider : PyToolEvoEnvironmentProvider() {
    * list. Built here they went through the uncached entry point and made the node scan the machine twice — once for
    * these rows and once for the choices every row now carries.
    */
-  override suspend fun loadSections(pyProject: EvoPyProject, fileSystem: FileSystem<PathHolder.Eel>, discovered: List<DiscoveredVenv>): EvoLoadResultDto {
-    val projectDir = pyProject.baseDir
+  override suspend fun loadSections(context: EvoToolContext, discovered: List<DiscoveredVenv>): EvoLoadResultDto {
+    val projectDir = context.workspace.baseDir
     // Exactly the project's `.venv` — poetry's only in-project location, it can't be `.venv1` nor more than one. Shown
     // if it exists, even when poetry did not create it, and then no "add new"; otherwise the row that creates it.
     val inProjectVenv = discovered.firstOrNull { it.venvRoot == defaultVenvDir(projectDir) }
@@ -83,12 +87,12 @@ internal class PoetryEvoEnvironmentProvider : PyToolEvoEnvironmentProvider() {
    */
   override suspend fun decorate(context: EvoToolContext, result: EvoLoadResultDto): EvoLoadResultDto {
     if (result !is EvoLoadResultDto.Ok) return result
-    val projectDir = context.pyProject.baseDir
+    val projectDir = context.workspace.baseDir
     val options = context.cached(VERSIONS_KEY) { systemPythonOptions(projectDir, context.fileSystem) }
     if (options.isEmpty()) return result
     // Poetry's cache environments, as full env-root paths. Force `virtualenvs.in-project=false` (as the v2 dialog does)
     // so poetry enumerates the cache envs even when an in-project `.venv` exists — otherwise it reports only `.venv`.
-    val poetryEnvRoots: List<Path> = runPoetry(projectDir, "env", "list", "--full-path", inProjectEnv = false).getOrNull()
+    val poetryEnvRoots: List<Path> = runPoetry(projectDir.asEelOrJustPath(), "env", "list", "--full-path", inProjectEnv = false).getOrNull()
       ?.lineSequence()
       ?.map { Path.of(it.removeSuffix("(Activated)").trim()) }
       ?.filter { it.name.isNotBlank() }
@@ -124,8 +128,8 @@ internal class PoetryEvoEnvironmentProvider : PyToolEvoEnvironmentProvider() {
   }
 
   /** Adopts an existing poetry env (in-project `.venv` or a cache env) as a poetry-typed SDK. */
-  override suspend fun createSdkForExistingEnv(context: EvoToolContext, homePath: Path): PyResult<Sdk> =
-    createPoetrySdk(context.pyProject.baseDir, PathHolder.Eel(homePath), context.fileSystem)
+  override suspend fun createSdkForExistingEnv(context: EvoToolContext, homePath: Path): PyResult<PythonInterpreter> =
+    createPoetrySdk(context.workspace.moduleOrProject, context.workspace.baseDir, PathHolder.Eel(homePath), context.fileSystem)
 
   /**
    * Creates a poetry env from the base Python in `token`, where the row that asked for it says.
@@ -135,11 +139,12 @@ internal class PoetryEvoEnvironmentProvider : PyToolEvoEnvironmentProvider() {
    * frontend fills it with the row's own create token, and a per-version row's token is a base interpreter path. So
    * "is it set" answered yes for every row, and every environment was built in the project.
    */
-  override suspend fun createSdkForNewEnv(context: EvoToolContext, ref: PyInterpreterRef.CreateEnv): PyResult<Sdk> {
+  override suspend fun createSdkForNewEnv(context: EvoToolContext, ref: PyInterpreterRef.CreateEnv): PyResult<PythonInterpreter> {
     val poetryExecutable = executableOrNull(context.fileSystem) ?: return toolMissing()
-    val baseDir = context.pyProject.baseDir
+    val baseDir = context.workspace.baseDir
     val inProject = ref.folder?.toNioPathOrNull()?.normalize() == defaultVenvDir(baseDir).normalize()
     return createNewPoetrySdk(
+      moduleOrProject = context.workspace.moduleOrProject,
       moduleBasePath = baseDir,
       basePythonBinaryPath = PathHolder.Eel(Path.of(ref.token)),
       fileSystem = context.fileSystem,
@@ -164,13 +169,13 @@ internal class PoetryEvoEnvironmentProvider : PyToolEvoEnvironmentProvider() {
    * [recreateEnv] rebuilds either kind, each where it stands.
    */
   override suspend fun recreateSpecFor(context: EvoToolContext, leaf: EvoLeafDto): EvoRecreateDto? {
-    val options = context.cached(VERSIONS_KEY) { systemPythonOptions(context.pyProject.baseDir, context.fileSystem) }
+    val options = context.cached(VERSIONS_KEY) { systemPythonOptions(context.workspace.baseDir, context.fileSystem) }
       .takeIf { it.isNotEmpty() } ?: return null
     leaf.versionGroup?.let { version ->
       val own = options.firstOrNull { PySdkBundle.message("evolution.python.version", it.title) == version } ?: return null
       return EvoRecreateDto(options = listOf(own), canSyncPackages = true)
     }
-    leaf.ref.ownedEnvBinaryIn(context.pyProject.baseDir) ?: return null
+    leaf.ref.ownedEnvBinaryIn(context.workspace.baseDir) ?: return null
     return EvoRecreateDto(options = options, canSyncPackages = true)
   }
 
@@ -185,9 +190,9 @@ internal class PoetryEvoEnvironmentProvider : PyToolEvoEnvironmentProvider() {
    * `virtualenvs.in-project` then puts the new environment back in the same place. Passing it for a cache environment
    * moved that environment into the project, which is not what a rebuild does.
    */
-  override suspend fun recreateEnv(context: EvoToolContext, homePath: Path, spec: EvoRecreateSpec): PyResult<Sdk> {
+  override suspend fun recreateEnv(context: EvoToolContext, homePath: Path, spec: EvoRecreateSpec): PyResult<PythonInterpreter> {
     val poetryExecutable = executableOrNull(context.fileSystem) ?: return toolMissing()
-    val projectDir = context.pyProject.baseDir
+    val projectDir = context.workspace.baseDir
     val envHome = VirtualEnvReader().resolvePythonHomeFromPythonBinary(homePath)
     val inProject = envHome.normalize().startsWith(projectDir.normalize())
     if (inProject) {
@@ -195,9 +200,10 @@ internal class PoetryEvoEnvironmentProvider : PyToolEvoEnvironmentProvider() {
     }
     else {
       // By the name poetry knows it by, which is the folder's own name — `poetry env list` prints exactly these.
-      runPoetry(projectDir, "env", "remove", envHome.name, inProjectEnv = false).getOr { return it }
+      runPoetry(projectDir.asEelOrJustPath(), "env", "remove", envHome.name, inProjectEnv = false).getOr { return it }
     }
     return createNewPoetrySdk(
+      moduleOrProject = context.workspace.moduleOrProject,
       moduleBasePath = projectDir,
       basePythonBinaryPath = PathHolder.Eel(Path.of(spec.baseToken)),
       fileSystem = context.fileSystem,
@@ -214,7 +220,7 @@ internal class PoetryEvoEnvironmentProvider : PyToolEvoEnvironmentProvider() {
    * unlike uv's and pip's freely-named folders.
    */
   override suspend fun addNewEnvSpec(context: EvoToolContext, section: EvoSectionDto): EvoAddNewDto? {
-    val baseDir = context.pyProject.baseDir
+    val baseDir = context.workspace.baseDir
     val options = context.cached(VERSIONS_KEY) { systemPythonOptions(baseDir, context.fileSystem) }
       .takeIf { it.isNotEmpty() } ?: return null
     val dir = defaultVenvDir(section.addNewFolderPath?.let { Path.of(it) } ?: baseDir)

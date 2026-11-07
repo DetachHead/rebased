@@ -3,7 +3,6 @@ package org.jetbrains.kotlin.onboarding.maven
 
 import com.intellij.icons.AllIcons
 import com.intellij.openapi.application.ApplicationInfo
-import com.intellij.openapi.application.EDT
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.NlsSafe
 import com.intellij.platform.feedback.dialog.BlockBasedFeedbackDialogWithEmail
@@ -16,14 +15,13 @@ import com.intellij.platform.feedback.dialog.uiBlocks.SegmentedButtonBlock
 import com.intellij.platform.feedback.dialog.uiBlocks.TextAreaBlock
 import com.intellij.platform.feedback.dialog.uiBlocks.TopLabelBlock
 import com.intellij.platform.feedback.impl.notification.ThanksForFeedbackNotification
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.encodeToJsonElement
 import org.jetbrains.idea.maven.project.MavenProjectsManager
 import org.jetbrains.idea.maven.server.MavenDistributionsCache
+import org.jetbrains.kotlin.onboarding.BuildProcessSatisfactionUtil
 import org.jetbrains.kotlin.onboarding.KotlinNewUserTracker
 import java.time.LocalDate
 import java.time.temporal.ChronoUnit
@@ -40,6 +38,8 @@ internal data class MavenBuildProcessSatisfactionDialogData(
     val daysOfKotlinUsage: Int,
     val daysOfKotlinWithMavenUsage: Int,
     val daysOfMavenUsage: Int,
+    val kotlinFileCount: Int,
+    val javaFileCount: Int,
     val commonData: CommonFeedbackSystemData
 ) : SystemDataJsonSerializable {
     override fun serializeToJson(json: Json): JsonElement = json.encodeToJsonElement(this)
@@ -50,7 +50,7 @@ internal class MavenBuildProcessSatisfactionDialog(
     forTest: Boolean
 ) : BlockBasedFeedbackDialogWithEmail<MavenBuildProcessSatisfactionDialogData>(project, forTest) {
     /** Increase the additional number when feedback format is changed */
-    override val myFeedbackJsonVersion: Int = super.myFeedbackJsonVersion + 1
+    override val myFeedbackJsonVersion: Int = super.myFeedbackJsonVersion + 2
 
     private fun getMavenVersion(): String? {
         val mavenProjectsManager = MavenProjectsManager.getInstance(project)
@@ -76,7 +76,7 @@ internal class MavenBuildProcessSatisfactionDialog(
         return ChronoUnit.DAYS.between(this, LocalDate.now()).toInt()
     }
 
-    private fun collectData(): MavenBuildProcessSatisfactionDialogData {
+    override suspend fun computeSystemInfoData(): MavenBuildProcessSatisfactionDialogData {
         val pomCount = MavenProjectsManager.getInstance(project).projects.size
         val mavenVersion = getMavenVersion() ?: "UNKNOWN"
         val kotlinVersion = getKotlinVersions().maxOrNull() ?: "UNKNOWN"
@@ -86,6 +86,8 @@ internal class MavenBuildProcessSatisfactionDialog(
         val daysOfKotlinWithMavenUsage =
             MavenBuildProcessSatisfactionSurveyStore.getInstance().getFirstKotlinMavenUsageDate()?.daysSinceDate() ?: 0
         val daysOfMavenUsage = MavenBuildProcessSatisfactionSurveyStore.getInstance().getFirstMavenUsageDate()?.daysSinceDate() ?: 0
+        val kotlinFileCount = BuildProcessSatisfactionUtil.getKotlinFileCount(project)
+        val javaFileCount = BuildProcessSatisfactionUtil.getJavaFileCount(project)
 
         return MavenBuildProcessSatisfactionDialogData(
             mavenVersion = mavenVersion,
@@ -96,13 +98,10 @@ internal class MavenBuildProcessSatisfactionDialog(
             daysOfMavenUsage = daysOfMavenUsage,
             daysOfKotlinWithMavenUsage = daysOfKotlinWithMavenUsage,
             commonData = CommonFeedbackSystemData.getCurrentData(),
+            kotlinFileCount = kotlinFileCount,
+            javaFileCount = javaFileCount,
         )
     }
-
-    override suspend fun computeSystemInfoData(): MavenBuildProcessSatisfactionDialogData =
-        withContext(Dispatchers.EDT) {
-            collectData()
-        }
 
     override val zendeskTicketTitle: String = "Kotlin Maven Build Process in-IDE Feedback"
     override val zendeskFeedbackType: String = "Kotlin Maven Build Process Feedback"
@@ -131,6 +130,12 @@ internal class MavenBuildProcessSatisfactionDialog(
             }
             row(MavenFeedbackBundle.message("build.process.info.days.of.kotlin.maven.usage")) {
                 label(systemInfoData.daysOfKotlinWithMavenUsage.toString())
+            }
+            row(MavenFeedbackBundle.message("build.process.info.number.of.java.files")) {
+                label(systemInfoData.javaFileCount.toString())
+            }
+            row(MavenFeedbackBundle.message("build.process.info.number.of.kotlin.files")) {
+                label(systemInfoData.kotlinFileCount.toString())
             }
         }
     }

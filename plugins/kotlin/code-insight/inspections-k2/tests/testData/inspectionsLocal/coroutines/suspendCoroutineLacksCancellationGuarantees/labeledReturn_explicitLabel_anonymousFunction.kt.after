@@ -7,7 +7,7 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlin.coroutines.suspendCoroutine
 
 suspend fun baz(): String {
-    return suspendCancellableCoroutine(sc@fun (c) {
+    return suspendCancellableCoroutine(sc@ fun(c) {
         return@sc
     })
 }

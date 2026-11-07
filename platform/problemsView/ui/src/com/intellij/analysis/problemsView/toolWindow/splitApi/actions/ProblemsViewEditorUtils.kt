@@ -2,6 +2,7 @@
 package com.intellij.analysis.problemsView.toolWindow.splitApi.actions
 
 import com.intellij.openapi.editor.ClientEditorManager
+import com.intellij.openapi.editor.Document
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.fileEditor.FileEditorManager
@@ -9,6 +10,8 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.psi.PsiDocumentManager
 import com.intellij.psi.PsiFile
+import com.intellij.util.concurrency.annotations.RequiresEdt
+import com.intellij.util.concurrency.annotations.RequiresReadLock
 import com.intellij.util.ui.UIUtil
 import org.jetbrains.annotations.ApiStatus
 
@@ -21,28 +24,33 @@ object ProblemsViewEditorUtils {
     }
   }
 
-  fun getEditor(psi: PsiFile, showEditor: Boolean): Editor? {
-    val file = psi.virtualFile ?: return null
-    val document = PsiDocumentManager.getInstance(psi.project).getDocument(psi) ?: return null
-    val editor = ClientEditorManager.getCurrentInstance().editors(document, psi.project).firstOrNull { !it.isViewer } ?: return null
-    if (!showEditor || UIUtil.isShowing(editor.component)) {
-      return editor
-    }
 
-    val manager = FileEditorManager.getInstance(psi.project) ?: return null
-    if (manager.allEditors.none { UIUtil.isAncestor(it.component, editor.component) }) {
-      return null
-    }
+  @RequiresReadLock
+  //for the legacy, monolithic implementation of `ShowProblemsViewQuickFixesAction`
+  fun getEditor(psi: PsiFile): Editor? {
+    val project = psi.project
+    val document = PsiDocumentManager.getInstance(project).getDocument(psi) ?: return null
 
-    manager.openFile(file, false, true)
-    return if (UIUtil.isShowing(editor.component)) editor else null
+    return getEditor(document, project)
   }
 
-  fun getEditor(file: VirtualFile, project: Project, showEditor: Boolean): Editor? {
-    val document = FileDocumentManager.getInstance().getDocument(file) ?: return null
-    val editor = ClientEditorManager.getCurrentInstance().editors(document, project).firstOrNull { !it.isViewer } ?: return null
+  @RequiresReadLock
+  fun getEditor(file: VirtualFile, project: Project): Editor? {
+    if (!file.isValid) return null
 
-    if (!showEditor || UIUtil.isShowing(editor.component)) {
+    val document = FileDocumentManager.getInstance().getDocument(file) ?: return null
+    return getEditor(document, project)
+  }
+
+  fun getEditor(document: Document, project: Project): Editor? {
+    return ClientEditorManager.getCurrentInstance().editors(document, project).firstOrNull { !it.isViewer }
+  }
+
+  @RequiresEdt
+  fun openEditorIfNeeded(file: VirtualFile, project: Project, editor: Editor): Editor? {
+    if (editor.isDisposed) return null
+
+    if (UIUtil.isShowing(editor.component)) {
       return editor
     }
 
@@ -51,7 +59,9 @@ object ProblemsViewEditorUtils {
       return null
     }
 
+    if (!file.isValid) return null
     manager.openFile(file, false, true)
+
     return if (UIUtil.isShowing(editor.component)) editor else null
   }
 }

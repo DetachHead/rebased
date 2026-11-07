@@ -1,6 +1,38 @@
+load("@community//build:bazel_targets_json.bzl", "current_bazel_targets_json")
 load("@community//build:tests-options.bzl", "jps_test")
 load("@rules_jvm//:jvm.bzl", "jvm_library")
 load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
+
+BAZEL_TARGETS_JSON = current_bazel_targets_json()
+
+jps_test(
+    name = "build-tests_test",
+    timeout = "moderate",
+    data = [
+        ":testData",
+        "@community//java/java-tests:testData",
+        BAZEL_TARGETS_JSON,
+    ],
+    jvm_flags = [
+        "-Dintellij.build.bazel.targets.json.file=$(rlocationpath %s)" % BAZEL_TARGETS_JSON,
+    ],
+    tags = ["community-compiler-test"],
+    runtime_deps = [":build-tests_test_lib"],
+)
+### skip generation section `test intellij.platform.jps.build.tests`
+
+filegroup(
+    name = "testData",
+    srcs = glob(["testData/**"]),
+    visibility = ["//visibility:public"],
+)
+
+### auto-generated section `dev intellij.platform.jps.build` start
+content_module_jar(
+    libraries = ["@lib//:platform-jps-build-qdox-java-parser"],
+    module = ":build",
+)
+### auto-generated section `dev intellij.platform.jps.build` end
 
 ### auto-generated section `build intellij.platform.jps.build` start
 jvm_library(
@@ -58,26 +90,15 @@ jvm_library(
         "@lib//:kotlin-stdlib-provided",
         "//libraries/hash4j",
         "//libraries/jetbrains/annotations",
-        "//libraries/mvstore",
-        "//libraries/http-client",
         "//libraries/maven-resolver-provider",
         "//libraries/netty/codec-protobuf:libraries-netty-codec-protobuf",
         "//libraries/netty/codec-http:libraries-netty-codec-http",
         "//libraries/netty/buffer",
-        "@lib//:kotlin-metadata",
+        "//libraries/kotlin/metadata",
         "//libraries/kotlinx/coroutines/core",
         "//platform/eel",
         "//platform/eel-nioFs",
     ],
-)
-
-content_module_jar(
-    libraries = [
-        # do not sort,
-        "@lib//:platform-jps-build-qdox-java-parser",
-        "@lib//:kotlin-metadata",
-    ],
-    module = ":build",
 )
 
 jvm_library(
@@ -123,12 +144,11 @@ jvm_library(
         "@lib//:kotlin-stdlib-provided",
         "//libraries/hash4j:hash4j_test_lib",
         "//libraries/jetbrains/annotations:annotations_test_lib",
-        "//libraries/mvstore:mvstore_test_lib",
-        "//libraries/http-client:http-client_test_lib",
         "//libraries/maven-resolver-provider:maven-resolver-provider_test_lib",
         "//libraries/netty/codec-protobuf:libraries-netty-codec-protobuf_test_lib",
         "//libraries/netty/codec-http:libraries-netty-codec-http_test_lib",
         "//libraries/netty/buffer:buffer_test_lib",
+        "//libraries/kotlin/metadata:metadata_test_lib",
         "//libraries/kotlinx/coroutines/core:core_test_lib",
         "//platform/eel:eel_test_lib",
         "//platform/eel-nioFs:eel-nioFs_test_lib",
@@ -141,7 +161,6 @@ exports_files(
     [
         "intellij.platform.jps.build.iml",
         "resources/intellij.platform.jps.build.xml",
-        "module-content.yaml",
     ],
     visibility = ["//visibility:public"],
 )
@@ -206,6 +225,10 @@ jvm_library(
         "//jps/model-serialization:model-serialization-tests_test_lib",
         "//platform/testFramework",
         "//platform/testFramework:testFramework_test_lib",
+        "//platform/testFramework/impl",
+        "//platform/testFramework/impl:impl_test_lib",
+        "//platform/bazel-runfiles",
+        "//platform/bazel-runfiles:bazel-runfiles_test_lib",
         "//java/compiler/instrumentation-util",
         "//java/compiler/instrumentation-util:instrumentation-util_test_lib",
         "@lib//:eclipse",
@@ -225,11 +248,6 @@ jvm_library(
         "//libraries/assertj-core:assertj-core_test_lib",
         "//libraries/hash4j",
         "//libraries/hash4j:hash4j_test_lib",
-        "@lib//:platform-jps-build-tests-jqwik",
-        "//libraries/mvstore",
-        "//libraries/mvstore:mvstore_test_lib",
-        "//libraries/memoryfilesystem",
-        "//libraries/memoryfilesystem:memoryfilesystem_test_lib",
         "//jps/model-test-framework:model-testFramework",
         "//jps/model-test-framework:model-testFramework_test_lib",
         "//platform/util-ex",
@@ -242,8 +260,8 @@ jvm_library(
         "//platform/lang-api:lang_test_lib",
         "//libraries/junit4",
         "//libraries/junit4:junit4_test_lib",
-        "//libraries/junit5",
-        "//libraries/junit5:junit5_test_lib",
+        "//libraries/junit6",
+        "//libraries/junit6:junit6_test_lib",
     ],
 )
 ### auto-generated section `build intellij.platform.jps.build.tests` end
@@ -256,10 +274,3 @@ exports_files(
     visibility = ["//visibility:public"],
 )
 ### auto-generated section `iml intellij.platform.jps.build.tests` end
-
-### auto-generated section `test intellij.platform.jps.build.tests` start
-jps_test(
-    name = "build-tests_test",
-    runtime_deps = [":build-tests_test_lib"],
-)
-### auto-generated section `test intellij.platform.jps.build.tests` end

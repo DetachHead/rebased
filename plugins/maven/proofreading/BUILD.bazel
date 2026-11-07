@@ -11,6 +11,10 @@ jps_test(
 
 ### skip generation section `test intellij.maven.proofreading.tests`
 
+### auto-generated section `dev intellij.maven.proofreading` start
+content_module_jar(module = ":proofreading")
+### auto-generated section `dev intellij.maven.proofreading` end
+
 ### auto-generated section `build intellij.maven.proofreading` start
 jvm_library(
     name = "proofreading",
@@ -39,8 +43,6 @@ jvm_library(
     ],
 )
 
-content_module_jar(module = ":proofreading")
-
 jvm_library(
     name = "proofreading_test_lib",
     testonly = True,
@@ -58,10 +60,6 @@ jvm_library(
         "//platform/core-api:core_test_lib",
         "//plugins/maven:maven_test_lib",
         "//xml/xml-psi-api:psi_test_lib",
-        "//platform/testFramework",
-        "//platform/testFramework:testFramework_test_lib",
-        "//plugins/grazie/src/test:grazie-tests",
-        "//plugins/grazie/src/test:grazie-tests_test_lib",
     ],
 )
 ### auto-generated section `build intellij.maven.proofreading` end

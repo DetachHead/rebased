@@ -5,9 +5,9 @@ package org.jetbrains.intellij.build.productLayout
 private const val MODULE_SET_PLUGIN_MODULE_PREFIX: String = "intellij.moduleSet.plugin."
 
 private val HAND_WRITTEN_MODULE_SET_PLUGIN_MODULES: Set<String> = setOf(
-  "intellij.grid.core.plugin",
-  "intellij.libraries.misc.plugin",
+  "intellij.jna.plugin",
   "intellij.platform.bookmarks.plugin",
+  "intellij.platform.compose.plugin",
   "intellij.platform.execution.serviceView.plugin",
   "intellij.platform.navbar.plugin",
   "intellij.platform.problemView.plugin",
@@ -19,6 +19,9 @@ private val HAND_WRITTEN_MODULE_SET_PLUGIN_MODULES: Set<String> = setOf(
   "intellij.platform.testRunner.plugin",
   "intellij.platform.todo.plugin",
   "intellij.platform.vcs.plugin",
+  "intellij.profiler.asyncOne.plugin",
+  "intellij.pty4j.plugin",
+  "intellij.xml.plugin",
 )
 
 fun isModuleSetPluginModuleName(moduleName: String): Boolean {

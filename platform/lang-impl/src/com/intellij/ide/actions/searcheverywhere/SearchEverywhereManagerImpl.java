@@ -65,7 +65,7 @@ import static com.intellij.ide.actions.searcheverywhere.statistics.SearchEverywh
  */
 @Deprecated
 public final class SearchEverywhereManagerImpl implements SearchEverywhereManager {
-  public static final String ALL_CONTRIBUTORS_GROUP_ID = "SearchEverywhereContributor.All";
+  public static final String ALL_CONTRIBUTORS_GROUP_ID = SearchEverywhereManager.ALL_CONTRIBUTORS_GROUP_ID;
   public static final String LOCATION_SETTINGS_KEY = "search.everywhere.popup";
 
   public static final DataKey<Boolean> IS_SELECT_SEARCH_TEXT = DataKey.create("search.everywhere.is.select.search.text");
@@ -213,12 +213,6 @@ public final class SearchEverywhereManagerImpl implements SearchEverywhereManage
         scheduleWriteAction(alarm);
       }
     }, 0);
-  }
-
-  @Override
-  public @NotNull SearchEverywhereUI getCurrentlyShownUI() {
-    checkIsShown();
-    return mySearchEverywhereUI;
   }
 
   private WindowStateService getStateService() {
@@ -376,7 +370,8 @@ public final class SearchEverywhereManagerImpl implements SearchEverywhereManage
   @ApiStatus.Internal
   @Override
   public SearchEverywherePopupInstance getCurrentlyShownPopupInstance() {
-    return getCurrentlyShownUI();
+    checkIsShown();
+    return mySearchEverywhereUI;
   }
 
   private @NotNull SearchEverywhereUI createView(Project project, List<SearchEverywhereContributor<?>> contributors,

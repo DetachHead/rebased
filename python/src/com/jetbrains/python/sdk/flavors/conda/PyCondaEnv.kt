@@ -1,6 +1,7 @@
 // Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.jetbrains.python.sdk.flavors.conda
 
+import com.jetbrains.python.sdk.ModuleOrProject
 import com.intellij.execution.target.FullPathOnTarget
 import com.intellij.execution.target.TargetEnvironmentConfiguration
 import com.intellij.execution.target.TargetedCommandLineBuilder
@@ -9,6 +10,7 @@ import com.intellij.openapi.components.service
 import com.intellij.openapi.projectRoots.Sdk
 import com.intellij.openapi.util.registry.RegistryManager
 import com.intellij.python.community.execService.BinaryToExec
+import com.intellij.python.sdk.backend.PythonInterpreter
 import com.jetbrains.python.errorProcessing.PyResult
 import com.jetbrains.python.sdk.conda.createCondaSdkFromExistingEnvironment
 import kotlinx.coroutines.CoroutineScope
@@ -17,6 +19,7 @@ import kotlinx.coroutines.async
 import org.jetbrains.annotations.ApiStatus
 import java.nio.file.Path
 import kotlin.time.Duration.Companion.seconds
+import com.intellij.openapi.project.Project
 
 @ApiStatus.Internal
 data class PyCondaEnv(
@@ -46,8 +49,23 @@ data class PyCondaEnv(
     }
   }
 
-  suspend fun createSdkFromThisEnv(targetConfig: TargetEnvironmentConfiguration?, existingSdk: List<Sdk>, workingDirectory: Path): PyResult<Sdk> =
-    PyCondaCommand(fullCondaPathOnTarget, targetConfig).createCondaSdkFromExistingEnvironment(envIdentity, existingSdk, workingDirectory)
+  /** Creates an SDK for this env. The interpreter belongs to the PyProject of [moduleOrProject], or is shared. */
+  suspend fun createSdkFromThisEnv(
+    moduleOrProject: ModuleOrProject,
+    targetConfig: TargetEnvironmentConfiguration?,
+    existingSdk: List<Sdk>,
+    workingDirectory: Path,
+  ): PyResult<PythonInterpreter> =
+    PyCondaCommand(fullCondaPathOnTarget, targetConfig).createCondaSdkFromExistingEnvironment(moduleOrProject, envIdentity, existingSdk, workingDirectory)
+
+  /** [createSdkFromThisEnv] for a shared interpreter, which belongs to no PyProject. */
+  suspend fun createSdkFromThisEnv(
+    project: Project,
+    targetConfig: TargetEnvironmentConfiguration?,
+    existingSdk: List<Sdk>,
+    workingDirectory: Path,
+  ): PyResult<PythonInterpreter> =
+    createSdkFromThisEnv(ModuleOrProject.ProjectOnly(project), targetConfig, existingSdk, workingDirectory)
 
 
   /**

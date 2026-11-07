@@ -11,36 +11,53 @@ import com.intellij.filePrediction.features.FilePredictionFeaturesCache
 import com.intellij.filePrediction.features.history.FilePredictionHistoryBaseTest
 import com.intellij.filePrediction.features.history.FilePredictionNGramFeatures
 import com.intellij.filePrediction.references.ExternalReferencesResult.Companion.FAILED_COMPUTATION
+import com.intellij.openapi.application.EDT
 import com.intellij.openapi.fileEditor.FileEditorManager
+import com.intellij.platform.testFramework.junit5.codeInsight.fixture.codeInsightFixture
+import com.intellij.platform.testFramework.junit5.codeInsight.fixture.codeInsightProjectFixture
+import com.intellij.testFramework.common.timeoutRunBlocking
+import com.intellij.testFramework.junit5.TestApplication
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertNotNull
+import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.Test
 
+@TestApplication
 class FilePredictionContextFeaturesTest : FilePredictionHistoryBaseTest() {
+  private val projectFixture = codeInsightProjectFixture()
+  private val myFixture by codeInsightFixture(projectFixture)
 
   private fun doTest(builder: FilePredictionTestProjectBuilder, vararg expected: Pair<String, FilePredictionFeature>) {
     doTestContextFeatures(builder, ConstFileFeaturesProducer(*expected))
   }
 
-  private fun doTestContextFeatures(builder: FilePredictionTestProjectBuilder, featuresProvider: FileFeaturesProducer) {
-    val root = builder.create(myFixture)
-    assertNotNull("Cannot create test project", root)
+  private fun doTestContextFeatures(builder: FilePredictionTestProjectBuilder, featuresProvider: FileFeaturesProducer): Unit = timeoutRunBlocking {
+    withContext(Dispatchers.EDT) {
+      val root = builder.create(myFixture)
+      assertNotNull(root, "Cannot create test project")
 
-    val file = FilePredictionTestDataHelper.findMainTestFile(root)
-    assertNotNull("Cannot find main project file", file)
+      val file = FilePredictionTestDataHelper.findMainTestFile(root)
+      assertNotNull(file, "Cannot find main project file")
 
-    val manager = FileEditorManager.getInstance(myFixture.project)
+      val manager = FileEditorManager.getInstance(myFixture.project)
 
-    val prevFile = manager.selectedEditor?.file
-    assertTrue("Cannot open main file because it's already opened", prevFile != file)
+      val prevFile = manager.selectedEditor?.file
+      assertTrue(prevFile != file, "Cannot open main file because it's already opened")
 
-    val provider = FilePredictionContextFeatures()
-    val emptyCache = FilePredictionFeaturesCache(FAILED_COMPUTATION, FilePredictionNGramFeatures(emptyMap()))
-    val actual = provider.calculateFileFeatures(myFixture.project, file!!, prevFile, emptyCache)
-    val expected = featuresProvider.produce(myFixture.project)
-    for (feature in expected.entries) {
-      assertTrue("Cannot find feature '${feature.key}' in $actual", actual.containsKey(feature.key))
-      assertEquals("The value of feature '${feature.key}' is different from expected", feature.value, actual[feature.key])
+      val provider = FilePredictionContextFeatures()
+      val emptyCache = FilePredictionFeaturesCache(FAILED_COMPUTATION, FilePredictionNGramFeatures(emptyMap()))
+      val actual = provider.calculateFileFeatures(myFixture.project, file!!, prevFile, emptyCache)
+      val expected = featuresProvider.produce(myFixture.project)
+      for (feature in expected.entries) {
+        assertTrue(actual.containsKey(feature.key), "Cannot find feature '${feature.key}' in $actual")
+        assertEquals(feature.value, actual[feature.key], "The value of feature '${feature.key}' is different from expected")
+      }
     }
   }
 
+  @Test
   fun `test no opened files`() {
     val builder = FilePredictionTestProjectBuilder("com")
     doTest(
@@ -49,6 +66,7 @@ class FilePredictionContextFeaturesTest : FilePredictionHistoryBaseTest() {
     )
   }
 
+  @Test
   fun `test single opened file`() {
     val builder = FilePredictionTestProjectBuilder("com")
       .open("com/test/Foo.txt")
@@ -58,6 +76,7 @@ class FilePredictionContextFeaturesTest : FilePredictionHistoryBaseTest() {
     )
   }
 
+  @Test
   fun `test opened main file`() {
     val builder = FilePredictionTestProjectBuilder("com")
       .openMain()
@@ -68,6 +87,7 @@ class FilePredictionContextFeaturesTest : FilePredictionHistoryBaseTest() {
     )
   }
 
+  @Test
   fun `test several opened files`() {
     val builder = FilePredictionTestProjectBuilder("com")
       .open("com/test/Foo.txt")
@@ -78,6 +98,7 @@ class FilePredictionContextFeaturesTest : FilePredictionHistoryBaseTest() {
     )
   }
 
+  @Test
   fun `test main and several other opened files`() {
     val builder = FilePredictionTestProjectBuilder("com")
       .open("com/test/Foo.txt")
@@ -89,6 +110,7 @@ class FilePredictionContextFeaturesTest : FilePredictionHistoryBaseTest() {
     )
   }
 
+  @Test
   fun `test closed file`() {
     val builder = FilePredictionTestProjectBuilder("com")
       .openMain()
@@ -99,6 +121,7 @@ class FilePredictionContextFeaturesTest : FilePredictionHistoryBaseTest() {
     )
   }
 
+  @Test
   fun `test re-opened file`() {
     val builder = FilePredictionTestProjectBuilder("com")
       .openMain().closeMain().openMain()
@@ -109,6 +132,7 @@ class FilePredictionContextFeaturesTest : FilePredictionHistoryBaseTest() {
     )
   }
 
+  @Test
   fun `test select already opened file`() {
     val builder = FilePredictionTestProjectBuilder("com")
       .openMain()
@@ -119,6 +143,7 @@ class FilePredictionContextFeaturesTest : FilePredictionHistoryBaseTest() {
     )
   }
 
+  @Test
   fun `test switching between opened file`() {
     val builder = FilePredictionTestProjectBuilder("com")
       .openMain()
@@ -131,6 +156,7 @@ class FilePredictionContextFeaturesTest : FilePredictionHistoryBaseTest() {
     )
   }
 
+  @Test
   fun `test switching between opened file without main`() {
     val builder = FilePredictionTestProjectBuilder("com")
       .open("com/test/Bar.txt")
@@ -143,6 +169,7 @@ class FilePredictionContextFeaturesTest : FilePredictionHistoryBaseTest() {
     )
   }
 
+  @Test
   fun `test switching between opened file with closed main`() {
     val builder = FilePredictionTestProjectBuilder("com")
       .openMain()

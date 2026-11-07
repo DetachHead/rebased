@@ -16,6 +16,7 @@ import com.intellij.openapi.editor.ex.EditorSettingsExternalizable;
 import com.intellij.openapi.editor.impl.softwrap.SoftWrapAppliancePlaces;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.projectRoots.Sdk;
+import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.util.Key;
 import com.intellij.openapi.wm.IdeFocusManager;
 import com.jetbrains.python.PyBundle;
@@ -51,8 +52,16 @@ public class PythonDebugLanguageConsoleView extends DuplexConsoleView<ConsoleVie
   /**
    * @param testMode this console will be used to display test output and should support TC messages
    */
+  @SuppressWarnings("IncorrectParentDisposable") // the project is the shortest lifetime available before the adoption
   public PythonDebugLanguageConsoleView(final Project project, Sdk sdk, ConsoleView consoleView, final boolean testMode) {
-    super(consoleView, new PythonConsoleView(project, PyBundle.message("python.console"), sdk, testMode));
+    super(consoleView, createPydevConsoleView(project, sdk, testMode, consoleView));
+
+    // The super constructor made this console the owner of the two consoles. This console needs an owner of its own,
+    // because a RunContentDescriptor adopts it much later. XDebugSessionImpl.init makes that descriptor, and the
+    // project can close first. A failure in the window would leave this console at the Disposer root, where it holds
+    // the project through the message bus connections of the two consoles. Disposer.register moves this console to
+    // the descriptor at the adoption, so the project owns it only until then.
+    Disposer.tryRegister(project, this);
 
     if (consoleView instanceof ConsoleViewImpl) {
       var console = this.getPydevConsoleView();
@@ -76,6 +85,40 @@ public class PythonDebugLanguageConsoleView extends DuplexConsoleView<ConsoleVie
 
   public PythonDebugLanguageConsoleView(final Project project, Sdk sdk) {
     this(project, sdk, TextConsoleBuilderFactory.getInstance().createBuilder(project).getConsole(), false);
+  }
+
+  /**
+   * Makes the secondary console, and disposes {@code primaryConsoleView} if the secondary console fails.
+   * <p>
+   * {@link ConsoleViewImpl} registers itself in the Disposer in its own constructor. {@link DuplexConsoleView} then
+   * adopts both consoles, but only after the two exist. A failure between the two steps leaves the primary console at
+   * the Disposer root. The console keeps a message bus connection of the project, so the project leaks.
+   * <p>
+   * A project can close while a debug adapter starts a session for a subprocess. The constructor of
+   * {@link PythonConsoleView} then throws {@code AlreadyDisposedException}.
+   * <p>
+   * Both consoles get the project as the owner here. {@link DuplexConsoleView} moves them under itself when it adopts
+   * them. Its own constructor calls {@code getComponent()} on both consoles before the adoption, and that call fails
+   * on a closing project. The project owns the consoles in that case, so neither one stays at the Disposer root.
+   */
+  @SuppressWarnings("IncorrectParentDisposable") // the project is the shortest lifetime available before the adoption
+  private static PythonConsoleView createPydevConsoleView(Project project, Sdk sdk, boolean testMode, ConsoleView primaryConsoleView) {
+    Disposer.tryRegister(project, primaryConsoleView);
+    try {
+      PythonConsoleView pydevConsoleView = new PythonConsoleView(project, PyBundle.message("python.console"), sdk, testMode);
+      Disposer.tryRegister(project, pydevConsoleView);
+      return pydevConsoleView;
+    }
+    catch (Throwable e) {
+      // The caller must see why the console did not appear, so a failure of the release keeps the first cause.
+      try {
+        Disposer.dispose(primaryConsoleView);
+      }
+      catch (Throwable releaseError) {
+        e.addSuppressed(releaseError);
+      }
+      throw e;
+    }
   }
 
   @Override

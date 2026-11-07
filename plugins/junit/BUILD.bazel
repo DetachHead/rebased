@@ -1,6 +1,40 @@
-load("@community//platform/build-scripts/bazel-rules:dev_dist_plugin.bzl", "dev_dist_plugin")
+load("@jps_dynamic_deps_community//:targets.bzl", "dev_dist_plugin")
 load("@rules_jvm//:jvm.bzl", "jvm_library")
-load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "dev_dist_plugin_jar")
+
+### auto-generated section `dev intellij.junit` start
+dev_dist_plugin(
+    content_modules = [
+        # do not sort,
+        "intellij.junit.properties",
+        "intellij.junit.vcs",
+        "intellij.junit.dashboard",
+        "intellij.libraries.hamcrest",
+        "intellij.libraries.junit4",
+        "intellij.junit.rt",
+        "intellij.junit.v5.rt",
+        "intellij.junit.v6.rt",
+    ],
+    descriptor = "resources/META-INF/plugin.xml",
+    jars = {
+        "lib/junit.jar": ["intellij.junit"],
+        "lib/junit-rt.jar": ["intellij.junit.rt"],
+        "lib/junit5-rt.jar": ["intellij.junit.v5.rt"],
+        "lib/junit6-rt.jar": ["intellij.junit.v6.rt"],
+    },
+    main_module = "intellij.junit",
+    mode_refused_content_modules = {
+        "frontend": [
+            "intellij.junit.properties",
+            "intellij.junit.vcs",
+            "intellij.junit.dashboard",
+        ],
+    },
+    module_jar_paths = {
+        "intellij.libraries.hamcrest": "lib/intellij.libraries.hamcrest.jar",
+        "intellij.libraries.junit4": "lib/intellij.libraries.junit4.jar",
+    },
+)
+### auto-generated section `dev intellij.junit` end
 
 ### auto-generated section `build intellij.junit` start
 jvm_library(
@@ -22,6 +56,7 @@ jvm_library(
     exports = ["//jvm/jvm-analysis-api:analysis"],
     deps = [
         # do not sort,
+        "@lib//:kotlin-stdlib",
         "//java/execution/openapi:java-execution",
         "//java/openapi:java",
         "//java/java-syntax:syntax",
@@ -41,7 +76,6 @@ jvm_library(
         "//platform/projectModel-api:projectModel",
         "//platform/refactoring",
         "//platform/testRunner",
-        "//platform/vcs-api:vcs",
         "//plugins/junit_rt:junit-rt",
         "//java/compiler/openapi:java-compiler",
         "//platform/platform-impl:ide-impl",
@@ -63,6 +97,7 @@ jvm_library(
         "//platform/core-ui",
         "//platform/core-impl",
         "//platform/execution",
+        "//platform/consoleView",
         "//platform/statistics",
         "//platform/forms_rt:java-guiForms-rt",
         "//java/java-frontback-psi-api:frontback-psi",
@@ -107,7 +142,6 @@ jvm_library(
         "//platform/projectModel-api:projectModel_test_lib",
         "//platform/refactoring:refactoring_test_lib",
         "//platform/testRunner:testRunner_test_lib",
-        "//platform/vcs-api:vcs_test_lib",
         "//plugins/junit_rt:junit-rt_test_lib",
         "//java/compiler/openapi:java-compiler_test_lib",
         "//platform/platform-impl:ide-impl_test_lib",
@@ -129,6 +163,7 @@ jvm_library(
         "//platform/core-ui:core-ui_test_lib",
         "//platform/core-impl:core-impl_test_lib",
         "//platform/execution:execution_test_lib",
+        "//platform/consoleView:consoleView_test_lib",
         "//platform/statistics:statistics_test_lib",
         "//platform/forms_rt:java-guiForms-rt_test_lib",
         "//java/java-frontback-psi-api:frontback-psi_test_lib",
@@ -148,48 +183,3 @@ exports_files(
     visibility = ["//visibility:public"],
 )
 ### auto-generated section `iml intellij.junit` end
-
-### auto-generated section `dev intellij.junit` start
-dev_dist_plugin(
-    content_modules = [
-        "//libraries/hamcrest",
-        "//libraries/junit4",
-    ],
-    descriptor = "resources/META-INF/plugin.xml",
-    descriptor_module = ":junit",
-    descriptors = {
-        "@community//libraries/hamcrest:resources/intellij.libraries.hamcrest.xml": "intellij.libraries.hamcrest.xml",
-        "@community//libraries/junit4:resources/intellij.libraries.junit4.xml": "intellij.libraries.junit4.xml",
-        "@community//plugins/junit/properties:resources/intellij.junit.properties.xml": "intellij.junit.properties.xml",
-    },
-    libraries = [
-        "@lib//:libraries-hamcrest-hamcrest",
-        "@lib//:libraries-junit4-_j_unit4",
-    ],
-    main_module = "intellij.junit",
-    prepacked_content_modules = ["//plugins/junit/properties:properties_content_module_jar"],
-    prepacked_layout_jars = [
-        ":junit-rt_dev_dist_plugin_jar",
-        ":junit5-rt_dev_dist_plugin_jar",
-        ":junit6-rt_dev_dist_plugin_jar",
-    ],
-)
-
-dev_dist_plugin_jar(
-    modules = ["//plugins/junit_rt:junit-rt"],
-    plugin_main_module = "intellij.junit",
-    relative_output_file = "junit-rt.jar",
-)
-
-dev_dist_plugin_jar(
-    modules = ["//plugins/junit5_rt:junit-v5-rt"],
-    plugin_main_module = "intellij.junit",
-    relative_output_file = "junit5-rt.jar",
-)
-
-dev_dist_plugin_jar(
-    modules = ["//plugins/junit6_rt:junit-v6-rt"],
-    plugin_main_module = "intellij.junit",
-    relative_output_file = "junit6-rt.jar",
-)
-### auto-generated section `dev intellij.junit` end

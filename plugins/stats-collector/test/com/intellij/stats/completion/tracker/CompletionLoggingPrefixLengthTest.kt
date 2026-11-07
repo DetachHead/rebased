@@ -3,15 +3,18 @@ package com.intellij.stats.completion.tracker
 
 import com.intellij.completion.ml.util.prefix
 import org.assertj.core.api.Assertions.assertThat
+import org.junit.jupiter.api.BeforeEach
+import org.junit.jupiter.api.Test
 
 class CompletionLoggingPrefixLengthTest: CompletionLoggingTestBase() {
-  override fun setUp() {
-    super.setUp()
+  @BeforeEach
+  fun addClasses(): Unit = onEdt {
     myFixture.addClass("interface Rum {}")
     myFixture.addClass("interface Runn {}")
   }
 
-  fun `test completion with prefix 0 after dot`() {
+  @Test
+  fun `test completion with prefix 0 after dot`(): Unit = onEdt {
     myFixture.type('.')
     myFixture.completeBasic()
 
@@ -21,7 +24,8 @@ class CompletionLoggingPrefixLengthTest: CompletionLoggingTestBase() {
     assertThat(prefixLength).isEqualTo(0)
   }
 
-  fun `test completion with prefix 2 after dot`() {
+  @Test
+  fun `test completion with prefix 2 after dot`(): Unit = onEdt {
     myFixture.type(".ru")
     myFixture.completeBasic()
 
@@ -31,7 +35,8 @@ class CompletionLoggingPrefixLengthTest: CompletionLoggingTestBase() {
   }
 
 
-  fun `test completion with prefix 3`() {
+  @Test
+  fun `test completion with prefix 3`(): Unit = onEdt {
     myFixture.type('\b')
     myFixture.type("Run")
     myFixture.completeBasic()
@@ -44,7 +49,8 @@ class CompletionLoggingPrefixLengthTest: CompletionLoggingTestBase() {
   }
 
 
-  fun `test completion with prefix 1`() {
+  @Test
+  fun `test completion with prefix 1`(): Unit = onEdt {
     myFixture.type('\b')
     myFixture.type('R')
     myFixture.completeBasic()

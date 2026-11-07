@@ -1,4 +1,4 @@
-// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.projectRoots.impl;
 
 import com.intellij.openapi.application.Application;
@@ -24,20 +24,23 @@ import com.intellij.openapi.roots.ProjectRootManager;
 import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.vfs.DiskQueryRelay;
-import com.intellij.openapi.vfs.LocalFileSystem;
+import com.intellij.openapi.vfs.StandardFileSystems;
 import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.openapi.vfs.VirtualFileManager;
 import com.intellij.platform.eel.provider.EelProviderUtil;
 import com.intellij.util.ArrayUtil;
 import com.intellij.util.Consumer;
 import com.intellij.util.NullableConsumer;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.text.UniqueNameGenerator;
+import kotlinx.collections.immutable.ExtensionsKt;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.ide.PooledThreadExecutor;
 
 import java.awt.Component;
+import java.nio.file.FileSystems;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -76,7 +79,8 @@ public final class SdkConfigurationUtil {
       suggestedDir = getSuggestedSdkRoot(sdkTypes[0], Path.of(project.getProjectFilePath()));
     }
     else {
-      suggestedDir = getSuggestedSdkRoot(sdkTypes[0]);
+      var root = ExtensionsKt.toImmutableList(FileSystems.getDefault().getRootDirectories()).getFirst();
+      suggestedDir = getSuggestedSdkRoot(sdkTypes[0], root);
     }
     FileChooser.chooseFiles(descriptor, project, suggestedDir, new FileChooser.FileChooserConsumer() {
       @Override
@@ -364,7 +368,7 @@ public final class SdkConfigurationUtil {
   @ApiStatus.Internal
   public static @Nullable Sdk createAndAddSDK(@NotNull Project project, @NotNull Path path, @NotNull SdkType sdkType) {
     VirtualFile sdkHome = WriteAction.compute(() -> {
-      return LocalFileSystem.getInstance().refreshAndFindFileByNioFile(path);
+      return VirtualFileManager.getInstance().refreshAndFindFileByNioPath(path);
     });
     if (sdkHome == null) return null;
     return createAndAddSDK(sdkHome, sdkType, () -> ProjectJdkTable.getInstance(project));
@@ -383,7 +387,7 @@ public final class SdkConfigurationUtil {
                                                @NotNull SdkType sdkType,
                                                @NotNull Supplier<? extends @NotNull ProjectJdkTable> projectJdkTableSupplier) {
     VirtualFile sdkHome = WriteAction.compute(() -> {
-      return LocalFileSystem.getInstance().refreshAndFindFileByPath(FileUtil.toSystemIndependentName(path));
+      return StandardFileSystems.local().refreshAndFindFileByPath(FileUtil.toSystemIndependentName(path));
     });
     if (sdkHome == null) return null;
     return createAndAddSDK(sdkHome, sdkType, projectJdkTableSupplier);
@@ -415,7 +419,7 @@ public final class SdkConfigurationUtil {
   /// @return newly created incomplete SDK, or null.
   public static @Nullable Sdk createIncompleteSDK(@NotNull String path, @NotNull SdkType sdkType) {
     VirtualFile sdkHome = WriteAction.compute(() -> {
-      return LocalFileSystem.getInstance().refreshAndFindFileByPath(FileUtil.toSystemIndependentName(path));
+      return StandardFileSystems.local().refreshAndFindFileByPath(FileUtil.toSystemIndependentName(path));
     });
     if (sdkHome == null) return null;
 
@@ -505,20 +509,12 @@ public final class SdkConfigurationUtil {
     });
   }
 
-  /**
-   * @deprecated Please use {@link SdkConfigurationUtil#getSuggestedSdkRoot(SdkType, Path)}
-   */
-  @Deprecated
-  public static @Nullable VirtualFile getSuggestedSdkRoot(@NotNull SdkType sdkType) {
-    return doGetSuggestedSdkRoot(sdkType.suggestHomePath());
-  }
-
   public static @Nullable VirtualFile getSuggestedSdkRoot(@NotNull SdkType sdkType, @NotNull Path path) {
     return doGetSuggestedSdkRoot(sdkType.suggestHomePath(path));
   }
 
   private static @Nullable VirtualFile doGetSuggestedSdkRoot(@Nullable String homePath) {
-    return homePath == null ? null : LocalFileSystem.getInstance().findFileByPath(homePath);
+    return homePath == null ? null : StandardFileSystems.local().findFileByPath(homePath);
   }
 
   public static @NotNull List<String> filterExistingPaths(@NotNull SdkType sdkType, Collection<String> sdkHomes, final Sdk[] sdks) {

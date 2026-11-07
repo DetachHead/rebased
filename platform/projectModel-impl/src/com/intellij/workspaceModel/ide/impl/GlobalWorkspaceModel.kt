@@ -65,7 +65,7 @@ import kotlin.system.measureTimeMillis
 @OptIn(EntityStorageInstrumentationApi::class)
 @ApiStatus.Internal
 class GlobalWorkspaceModels internal constructor() {
-  internal var virtualFileManager: VirtualFileUrlManager = createIdeVirtualFileUrlManager()
+  internal var virtualFileManager: VirtualFileUrlManager = IdeVirtualFileUrlManagerImpl()
 
   internal val globalWorkspaceModelCache = GlobalWorkspaceModelCache.getInstance()?.apply {
     setVirtualFileUrlManager(virtualFileManager)
@@ -82,7 +82,7 @@ class GlobalWorkspaceModels internal constructor() {
 
   @TestOnly
   fun resetVirtualFileUrlManager() {
-    virtualFileManager = createIdeVirtualFileUrlManager()
+    virtualFileManager = IdeVirtualFileUrlManagerImpl()
     globalWorkspaceModelCache?.setVirtualFileUrlManager(virtualFileManager)
   }
 }
@@ -238,7 +238,7 @@ class GlobalWorkspaceModel internal constructor(
     globalWorkspaceModels.resetVirtualFileUrlManager()
   }
 
-  @RequiresWriteLock
+  @RequiresWriteLock(generateAssertion = false /* IJPL-115548 */)
   private fun initializeBridges(change: Map<Class<*>, List<EntityChange<*>>>, builder: MutableEntityStorage) {
     ThreadingAssertions.assertWriteAccess()
 
@@ -276,7 +276,7 @@ class GlobalWorkspaceModel internal constructor(
     }
   }
 
-  @RequiresWriteLock
+  @RequiresWriteLock(generateAssertion = false /* IJPL-115548 */)
   private fun onChanged(change: VersionedStorageChange) {
     ThreadingAssertions.assertWriteAccess()
 
@@ -294,7 +294,7 @@ class GlobalWorkspaceModel internal constructor(
     isFromGlobalWorkspaceModel = false
   }
 
-  @RequiresWriteLock
+  @RequiresWriteLock(generateAssertion = false /* IJPL-115548 */)
   fun applyStateToProject(targetProject: Project): Unit = applyStateToProjectTimeMs.addMeasuredTime {
     ThreadingAssertions.assertWriteAccess()
 
@@ -320,7 +320,7 @@ class GlobalWorkspaceModel internal constructor(
     )
   }
 
-  @RequiresWriteLock
+  @RequiresWriteLock(generateAssertion = false /* IJPL-115548 */)
   fun syncEntitiesWithProject(sourceProject: Project): Unit = syncEntitiesWithProjectTimeMs.addMeasuredTime {
     ThreadingAssertions.assertWriteAccess()
 
@@ -465,7 +465,7 @@ class GlobalWorkspaceModel internal constructor(
   }
 }
 
-private fun VirtualFileUrl.createCopyAtManager(manager: VirtualFileUrlManager): VirtualFileUrl = manager.getOrCreateFromUrl(url)
+private fun VirtualFileUrl.createCopyAtManager(manager: VirtualFileUrlManager): VirtualFileUrl = manager.storeAndGet(url)
 
 private fun ExcludeUrlEntity.copy(entitySource: EntitySource, manager: VirtualFileUrlManager): ExcludeUrlEntityBuilder {
   return ExcludeUrlEntity(url.createCopyAtManager(manager), entitySource)

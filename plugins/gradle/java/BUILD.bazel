@@ -1,6 +1,10 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
 load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
+### auto-generated section `dev intellij.gradle.java` start
+content_module_jar(module = ":java")
+### auto-generated section `dev intellij.gradle.java` end
+
 ### auto-generated section `build intellij.gradle.java` start
 jvm_library(
     name = "java",
@@ -53,6 +57,7 @@ jvm_library(
         "//platform/workspace/storage",
         "//java/execution/impl",
         "//platform/lang-impl",
+        "//platform/buildView",
         "//java/openapi:java",
         "//java/java-syntax:syntax",
         "//java/java-impl:impl",
@@ -83,13 +88,12 @@ jvm_library(
         "//java/java-frontback-psi-api:frontback-psi",
         "//platform/eel-provider",
         "//platform/execution",
+        "//platform/consoleView",
         "//platform/testRunner",
         "//plugins/properties/properties-psi-impl:backend-psi",
         "//plugins/gradle/properties",
     ],
 )
-
-content_module_jar(module = ":java")
 
 jvm_library(
     name = "java_test_lib",
@@ -136,6 +140,7 @@ jvm_library(
         "//platform/workspace/storage:storage_test_lib",
         "//java/execution/impl:impl_test_lib",
         "//platform/lang-impl:lang-impl_test_lib",
+        "//platform/buildView:buildView_test_lib",
         "//java/openapi:java_test_lib",
         "//java/java-syntax:syntax_test_lib",
         "//java/java-impl:impl_test_lib",
@@ -166,6 +171,7 @@ jvm_library(
         "//java/java-frontback-psi-api:frontback-psi_test_lib",
         "//platform/eel-provider:eel-provider_test_lib",
         "//platform/execution:execution_test_lib",
+        "//platform/consoleView:consoleView_test_lib",
         "//platform/testRunner:testRunner_test_lib",
         "//plugins/properties/properties-psi-impl:backend-psi_test_lib",
         "//plugins/gradle/properties:properties_test_lib",

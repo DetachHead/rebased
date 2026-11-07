@@ -3,7 +3,7 @@ package com.intellij.psi.util
 
 import com.intellij.openapi.diagnostic.Attachment
 import com.intellij.openapi.diagnostic.logger
-import com.intellij.openapi.diagnostic.rethrowControlFlowException
+import com.intellij.diagnostic.rethrowControlFlowException
 import com.intellij.openapi.util.TextRange
 import com.intellij.psi.ContributedReferenceHost
 import com.intellij.psi.ElementManipulators

@@ -1,4 +1,4 @@
-// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.platform.eel.annotations
 
 import org.jetbrains.annotations.ApiStatus
@@ -7,6 +7,8 @@ import org.jetbrains.annotations.ApiStatus
  * This annotation should be applied to strings that could be directly used to construct [java.nio.file.Path] instances.
  * These strings are either local to the IDE process or have prefix pointing to the specific environment.
  * This environment could be, for example, a WSL machine or a Docker container.
+ *
+ * Obsolete: use [com.intellij.platform.util.annotations.paths.NioPath] instead.
  */
 @Retention(AnnotationRetention.SOURCE)
 @Target(
@@ -19,6 +21,7 @@ import org.jetbrains.annotations.ApiStatus
   AnnotationTarget.TYPE,
 )
 @ApiStatus.Internal
+@ApiStatus.Obsolete
 annotation class MultiRoutingFileSystemPath
 
 /**
@@ -28,7 +31,7 @@ annotation class MultiRoutingFileSystemPath
  *
  * It should not be directly used in the [java.nio.file.Path] constructions methods [java.nio.file.Path.of] and [java.nio.file.Paths.get].
  *
- * @see NativeContext
+ * Obsolete: use [com.intellij.platform.util.annotations.paths.OsPath] instead.
  */
 @Retention(AnnotationRetention.SOURCE)
 @Target(
@@ -41,6 +44,7 @@ annotation class MultiRoutingFileSystemPath
   AnnotationTarget.TYPE,
 )
 @ApiStatus.Internal
+@ApiStatus.Obsolete
 annotation class NativePath
 
 /**
@@ -53,6 +57,8 @@ annotation class NativePath
  *
  * Applicable targets include properties, fields, local variables, value parameters,
  * property getters, property setters, and type usage.
+ *
+ * Obsolete: use [com.intellij.platform.util.annotations.paths.Filename] instead.
  */
 
 @Retention(AnnotationRetention.SOURCE)
@@ -66,8 +72,12 @@ annotation class NativePath
   AnnotationTarget.TYPE,
 )
 @ApiStatus.Internal
+@ApiStatus.Obsolete
 annotation class Filename
 
+/**
+ * Obsolete: use [com.intellij.platform.util.annotations.paths.LocalPath] instead.
+ */
 @Retention(AnnotationRetention.SOURCE)
 @Target(
   AnnotationTarget.PROPERTY,
@@ -79,4 +89,5 @@ annotation class Filename
   AnnotationTarget.TYPE,
 )
 @ApiStatus.Internal
+@ApiStatus.Obsolete
 annotation class LocalPath

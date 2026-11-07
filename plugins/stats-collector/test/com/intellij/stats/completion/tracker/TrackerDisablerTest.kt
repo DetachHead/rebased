@@ -4,23 +4,27 @@ package com.intellij.stats.completion.tracker
 import com.intellij.codeInsight.lookup.Lookup
 import com.intellij.lang.java.JavaLanguage
 import com.intellij.stats.completion.CompletionStatsPolicy
-import junit.framework.TestCase
+import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.Test
 
 class TrackerDisablerTest : CompletionLoggingTestBase() {
-  fun `test disabler works`() = doTest(true)
+  @Test
+  fun `test disabler works`(): Unit = doTest(true)
 
-  fun `test tracked without disabler`() = doTest(false)
+  @Test
+  fun `test tracked without disabler`(): Unit = doTest(false)
 
-  private fun doTest(shouldDisable: Boolean) {
+  private fun doTest(shouldDisable: Boolean): Unit = onEdt {
     val disabler = registerDisabler(shouldDisable)
     myFixture.completeBasic()
     myFixture.finishLookup(Lookup.NORMAL_SELECT_CHAR)
-    TestCase.assertTrue(disabler.checked)
+    assertTrue(disabler.checked)
     if (shouldDisable) {
-      TestCase.assertTrue(trackedEvents.isEmpty())
+      assertTrue(trackedEvents.isEmpty())
     }
     else {
-      TestCase.assertFalse(trackedEvents.isEmpty())
+      assertFalse(trackedEvents.isEmpty())
     }
   }
 

@@ -51,7 +51,14 @@ data class IdeInfo(
 ) {
   val isFrontend: Boolean = platformPrefix == PlatformUtils.JETBRAINS_CLIENT_PREFIX
 
-  companion object;
+  companion object {
+    /**
+     * Resolves [IdeInfo] by product code.
+     * Delegates to [IdeInfoType.fromProductCode] and retrieves the registered instance from DI.
+     */
+    fun fromProductCode(productCode: String): IdeInfo =
+      di.direct.instance<IdeInfo>(IdeInfoType.fromProductCode(productCode))
+  }
 
   init {
     if (isFrontend) {
@@ -80,6 +87,7 @@ data class IdeInfo(
         "RD" -> "JetBrains.Rider"
         "WRS" -> "writerside"
         "GW" -> "gateway"
+        "JB" -> "ij-void"
         else -> error("Unknown product code: $productCode")
       }
 
@@ -90,6 +98,7 @@ data class IdeInfo(
       "RM" -> "rubymine"
       "PY" -> "pycharm"
       "RR" -> "RustRover"
+      "JB" -> "light"
       else -> installerFilePrefix
     }
 

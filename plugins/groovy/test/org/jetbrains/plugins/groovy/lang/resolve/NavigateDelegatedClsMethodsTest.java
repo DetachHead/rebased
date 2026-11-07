@@ -14,11 +14,11 @@ import org.junit.Assert;
 
 public class NavigateDelegatedClsMethodsTest extends LightGroovyTestCase {
 
-  private final String basePath = TestUtils.getTestDataPath() + "resolve/clsMethod";
+  private final String basePath = TestUtils.getAbsoluteTestDataPath() + "resolve/clsMethod";
   private final LightProjectDescriptor projectDescriptor = GebTestsTest.DESCRIPTOR;
 
   @Override
-  public final String getBasePath() {
+  public final String getTestDataPath() {
     return basePath;
   }
 

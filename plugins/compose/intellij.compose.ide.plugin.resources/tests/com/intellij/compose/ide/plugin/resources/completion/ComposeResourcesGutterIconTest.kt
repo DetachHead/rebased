@@ -6,11 +6,13 @@ import com.android.ide.common.vectordrawable.VdPreview
 import com.android.ide.common.vectordrawable.VdPreview.TargetSize
 import com.android.tools.idea.rendering.GutterIconFactory
 import com.android.utils.XmlUtils
+import com.intellij.compose.ide.plugin.resources.COMPOSE_RESOURCES_TEST_DATA_RELATIVE_PATH
 import com.intellij.compose.ide.plugin.resources.vectorDrawable.preview.BaseVectorDrawablePreviewRenderer.RenderResult
 import com.intellij.compose.ide.plugin.resources.vectorDrawable.preview.ComposeResourcesDrawablePreviewRenderer
 import com.intellij.openapi.fileEditor.FileDocumentManager
-import com.intellij.openapi.vfs.LocalFileSystem
+import com.intellij.openapi.vfs.StandardFileSystems
 import com.intellij.openapi.vfs.VirtualFile
+import com.intellij.openapi.vfs.VirtualFileManager
 import com.intellij.testFramework.PlatformTestUtil
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import com.intellij.ui.scale.ScaleContext.Companion.create
@@ -37,11 +39,11 @@ class ComposeResourcesGutterIconTest : BasePlatformTestCase() {
   private val maxWidth get() = JBUI.scale(16)
 
   fun `test XML produces matching icon`() {
-    val path = "plugins/compose/intellij.compose.ide.plugin.resources/testData/vectordrawable/test_fill_gradient.xml"
+    val path = "$COMPOSE_RESOURCES_TEST_DATA_RELATIVE_PATH/vectordrawable/test_fill_gradient.xml"
     val file = File(PlatformTestUtil.getCommunityPath(), path)
     assertTrue("Test image not found: ${file.absolutePath}", file.exists())
 
-    val vf = LocalFileSystem.getInstance().findFileByPath(file.absolutePath)
+    val vf = StandardFileSystems.local().findFileByPath(file.absolutePath)
     kAssertNotNull(vf, "Could not find VirtualFile for: ${file.absolutePath}")
 
     val gutterIcon = createXmlAndroidGutterIcon(vf, maxWidth)
@@ -107,7 +109,7 @@ class ComposeResourcesGutterIconTest : BasePlatformTestCase() {
     val tempFile = createTempFile(suffix = ".png")
     try {
       tempFile.writeBytes("not a valid image".toByteArray())
-      LocalFileSystem.getInstance().refreshAndFindFileByNioFile(tempFile)?.let { vf ->
+      VirtualFileManager.getInstance().refreshAndFindFileByNioPath(tempFile)?.let { vf ->
         val icon = ComposeResourcesGutterIconFactory.renderBitmapDrawable(vf, maxWidth)
         assertNull("Invalid image should return null", icon)
       }
@@ -121,7 +123,7 @@ class ComposeResourcesGutterIconTest : BasePlatformTestCase() {
     val tempFile = createTempFile(suffix = ".png")
     try {
       tempFile.writeBytes(ByteArray(0))
-      LocalFileSystem.getInstance().refreshAndFindFileByNioFile(tempFile)?.let { vf ->
+      VirtualFileManager.getInstance().refreshAndFindFileByNioPath(tempFile)?.let { vf ->
         val icon = ComposeResourcesGutterIconFactory.renderBitmapDrawable(vf, maxWidth)
         assertNull("Empty file should return null", icon)
       }
@@ -172,7 +174,7 @@ class ComposeResourcesGutterIconTest : BasePlatformTestCase() {
         baos.toByteArray()
       }
       tempFile.writeBytes(bytes)
-      val vf = LocalFileSystem.getInstance().refreshAndFindFileByNioFile(tempFile)
+      val vf = VirtualFileManager.getInstance().refreshAndFindFileByNioPath(tempFile)
       kAssertNotNull(vf, "Should find temp file as VirtualFile")
       block(vf)
     }

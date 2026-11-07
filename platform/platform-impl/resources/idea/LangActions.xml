@@ -65,6 +65,8 @@
     <group id="NewProjectOrModuleGroup">
     </group>
 
+    <group id="NonModalWelcomeNewProjectGroup"/>
+
     <reference ref="SaveFileAsTemplate">
       <add-to-group group-id="FileMenu" anchor="after" relative-to-action="FileOtherSettingsGroup"/>
     </reference>
@@ -202,8 +204,13 @@
       <add-to-group group-id="GoToMenu" anchor="after" relative-to-action="NavigateInFileGroup"/>
     </group>
 
-    <!-- Code -->
+    <!-- Each customized toolbar Floating.CodeToolbar.XXX must include this group -->
+    <group id="Floating.CodeToolbar.Extensions" searchable="false"/>
+    <!-- Reformat, Comment, common actions with code -->
+    <group id="Floating.CodeToolbar.Additional" searchable="false"/>
+
     <group id="Floating.CodeToolbar" popup="false" searchable="false">
+      <reference ref="Floating.CodeToolbar.Extensions"/>
       <reference ref="Floating.CodeToolbar.Extract"/>
       <group id="Floating.CodeToolbar.Surround" popup="true"
              searchable="false">
@@ -211,6 +218,7 @@
         <reference ref="Floating.CodeToolbar.SurroundWithTryCatchFinally"/>
         <reference ref="Floating.CodeToolbar.SurroundWithIf"/>
       </group>
+      <reference ref="Floating.CodeToolbar.Additional"/>
     </group>
 
     <reference ref="CodeFloatingToolbar.GotoNextMenu"/>
@@ -298,7 +306,7 @@
 
       <group id="CommentGroup">
         <reference ref="CommentByLineComment">
-          <add-to-group group-id="Floating.CodeToolbar" anchor="after" relative-to-action="Floating.CodeToolbar.Surround" />
+          <add-to-group group-id="Floating.CodeToolbar.Additional"/>
         </reference>
         <reference ref="CommentByBlockComment"/>
       </group>
@@ -306,7 +314,7 @@
       <!-- disabled in rebased -->
       <group id="CodeFormatGroup" class="com.intellij.openapi.actionSystem.EmptyActionGroup">
         <reference ref="ReformatCode">
-          <add-to-group group-id="Floating.CodeToolbar" anchor="after" relative-to-action="CommentByLineComment" />
+          <add-to-group group-id="Floating.CodeToolbar.Additional" anchor="after" relative-to-action="CommentByLineComment" />
         </reference>
         <reference ref="ShowReformatFileDialog"/>
         <reference ref="AutoIndentLines"/>
@@ -407,6 +415,7 @@
 
     <group id="NewGroup" popup="true" searchable="false">
       <reference ref="NewFile"/>
+      <reference ref="WelcomeNewEmptyFile"/>
       <reference ref="NewScratchFile"/>
       <reference ref="NewDir"/>
       <group id="FileTemplateSeparatorGroup" searchable="false"/> <!-- kept for backward compatibility -->
@@ -517,7 +526,7 @@
 
     <reference ref="EncodingPanelActions"/>
 
-    <group id="NavbarPopupMenu">
+    <group id="NavbarPopupMenu" searchable="false">
       <reference ref="WeighingNewGroup"/>
       <reference ref="AssociateWithFileType"/>
       <separator/>
@@ -714,13 +723,6 @@
 
     <reference ref="IdeScriptingConsole">
       <add-to-group group-id="MaintenanceGroup"/>
-    </reference>
-
-    <reference ref="CompletionQualityStats">
-      <add-to-group group-id="Internal" anchor="last"/>
-    </reference>
-    <reference ref="ShowControlFlowAction">
-      <add-to-group group-id="Internal" anchor="last"/>
     </reference>
 
     <reference ref="FileChooser.LightEditGotoOpenedFile">

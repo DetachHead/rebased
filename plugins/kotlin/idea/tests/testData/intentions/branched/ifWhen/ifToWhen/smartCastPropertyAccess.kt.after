@@ -2,13 +2,15 @@
 class MyClass(val property: String)
 
 fun test(obj: Any) {
-    when {
-        obj is MyClass && obj.property == "a" -> {
+    when (obj) {
+        is MyClass if obj.property == "a" -> {
             println("a")
         }
-        obj is MyClass && obj.property == "b" -> {
+
+        is MyClass if obj.property == "b" -> {
             println("b")
         }
+
         else -> {
             println("other")
         }

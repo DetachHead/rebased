@@ -1,13 +1,14 @@
 // Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.jetbrains.jsonSchema;
 
-import com.intellij.ide.trustedProjects.TrustedFiles;
+import com.intellij.ide.TrustedFiles;
 import com.intellij.ide.trustedProjects.TrustedProjects;
 import com.intellij.openapi.util.io.IoTestUtil;
 import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.util.io.NioFiles;
 import com.intellij.openapi.vfs.LocalFileSystem;
 import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.openapi.vfs.VirtualFileManager;
 import com.intellij.openapi.vfs.newvfs.impl.VfsRootAccess;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.PsiManager;
@@ -367,7 +368,7 @@ public class JsonSchemaUntrustedResolveTest extends BasePlatformTestCase {
   }
 
   private static VirtualFile findLocalFile(Path path) {
-    VirtualFile file = LocalFileSystem.getInstance().refreshAndFindFileByNioFile(path);
+    VirtualFile file = VirtualFileManager.getInstance().refreshAndFindFileByNioPath(path);
     assertNotNull("Expected file on disk: " + path, file);
     return file;
   }

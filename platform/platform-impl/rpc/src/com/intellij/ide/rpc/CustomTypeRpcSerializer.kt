@@ -5,7 +5,7 @@ import com.intellij.idea.AppMode
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.client.currentSessionOrNull
 import com.intellij.openapi.diagnostic.fileLogger
-import com.intellij.openapi.diagnostic.rethrowControlFlowException
+import com.intellij.diagnostic.rethrowControlFlowException
 import com.intellij.openapi.extensions.ExtensionPointName
 import com.intellij.util.PlatformUtils
 import fleet.openmap.SerializedValue

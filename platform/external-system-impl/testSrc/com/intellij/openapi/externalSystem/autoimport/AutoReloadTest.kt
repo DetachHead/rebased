@@ -986,11 +986,8 @@ class AutoReloadTest : AutoReloadTestCase() {
       assertStateAndReset(numReload = 1, notified = false, event = "reload")
       ignoredSettingsFile.modify()
       assertStateAndReset(numReload = 0, notified = false, event = "settings file ignored modification")
-      markDirty()
-      ignoredSettingsFile.modify()
-      assertStateAndReset(numReload = 0, notified = true, event = "settings file ignored modification with dirty AI state")
       scheduleProjectReload()
-      assertStateAndReset(numReload = 1, notified = false, event = "reload")
+      assertStateAndReset(numReload = 0, notified = false, event = "skip reload for project with ignored modification")
       ignoredSettingsFile.delete()
       assertStateAndReset(numReload = 0, notified = true, event = "settings files deletion")
       scheduleProjectReload()
@@ -1011,8 +1008,7 @@ class AutoReloadTest : AutoReloadTestCase() {
       onceWhenReloading {
         propertiesFile.modify(INTERNAL)
       }
-      markDirty()
-      scheduleProjectReload()
+      forceReloadProject()
       assertStateAndReset(numReload = 1, notified = true, event = "settings file modification during reload")
     }
   }

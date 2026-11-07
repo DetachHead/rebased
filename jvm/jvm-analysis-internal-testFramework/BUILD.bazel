@@ -7,8 +7,8 @@ jvm_provided_library(
 )
 
 jvm_provided_library(
-    name = "libraries_junit5_provided",
-    lib = "//libraries/junit5",
+    name = "libraries_junit6_provided",
+    lib = "//libraries/junit6",
 )
 
 jvm_library(
@@ -38,6 +38,7 @@ jvm_library(
         "//platform/projectModel-api:projectModel",
         "//platform/refactoring",
         "//platform/execution",
+        "//platform/consoleView",
         "//platform/testFramework",
         "//java/java-impl-refactorings:impl-refactorings",
         "//platform/smRunner",
@@ -50,7 +51,7 @@ jvm_library(
         "//java/codeserver/core",
         "//java/java-frontback-psi-api:frontback-psi",
         ":libraries_junit4_provided",
-        ":libraries_junit5_provided",
+        ":libraries_junit6_provided",
     ],
 )
 
@@ -79,6 +80,7 @@ jvm_library(
         "//platform/projectModel-api:projectModel_test_lib",
         "//platform/refactoring:refactoring_test_lib",
         "//platform/execution:execution_test_lib",
+        "//platform/consoleView:consoleView_test_lib",
         "//platform/testFramework:testFramework_test_lib",
         "//java/java-impl-refactorings:impl-refactorings_test_lib",
         "//platform/smRunner:smRunner_test_lib",
@@ -92,8 +94,8 @@ jvm_library(
         "//java/java-frontback-psi-api:frontback-psi_test_lib",
         "//libraries/junit4",
         "//libraries/junit4:junit4_test_lib",
-        "//libraries/junit5",
-        "//libraries/junit5:junit5_test_lib",
+        "//libraries/junit6",
+        "//libraries/junit6:junit6_test_lib",
     ],
 )
 ### auto-generated section `build intellij.jvm.analysis.internal.testFramework` end

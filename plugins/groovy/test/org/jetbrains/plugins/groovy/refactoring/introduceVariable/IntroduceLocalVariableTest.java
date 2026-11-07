@@ -18,8 +18,8 @@ import org.jetbrains.plugins.groovy.util.TestUtils;
  */
 public class IntroduceLocalVariableTest extends GrIntentionTestCase {
   @Override
-  protected String getBasePath() {
-    return TestUtils.getTestDataPath() + "intentions/introduceLocalVariable/";
+  protected String getTestDataPath() {
+    return TestUtils.getAbsoluteTestDataPath() + "intentions/introduceLocalVariable/";
   }
 
   public void testMethodCall1() { doTest(); }

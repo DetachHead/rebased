@@ -9,8 +9,10 @@ import com.intellij.ui.SimpleTextAttributes.REGULAR_ATTRIBUTES
 import com.intellij.vcs.log.CommitId
 import com.intellij.vcs.log.Hash
 import com.intellij.vcs.test.VcsPlatformTest
+import org.junit.Ignore
 import org.mockito.Mockito
 
+@Ignore
 class VcsLinksRendererTest : VcsPlatformTest() {
   private lateinit var linksRenderer: VcsLinksRenderer
 

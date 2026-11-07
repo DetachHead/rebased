@@ -3,12 +3,11 @@ fun test(foo: String) {
         "1" -> {
             println("1")
         }
-    }
-
-    if (foo == "a") {
-        // some comments for "a"
+        "a" -> {
+            // some comments for "a"
 // AFTER-WARNING: Parameter 's' is never used
-        println("a");
+            println("a");
+        }
     }
 }
 

@@ -5,7 +5,6 @@
     <module name="intellij.libraries.gson"/>
     <module name="intellij.libraries.guava"/>
     <module name="intellij.libraries.jcef"/>
-    <module name="intellij.libraries.jna"/>
     <module name="intellij.libraries.kotlin.reflect"/>
     <module name="intellij.libraries.kotlinx.collections.immutable"/>
     <module name="intellij.libraries.kotlinx.serialization.core"/>
@@ -13,7 +12,9 @@
     <module name="intellij.libraries.miglayout.swing"/>
     <module name="intellij.platform.analysis"/>
     <module name="intellij.platform.analysis.impl"/>
+    <module name="intellij.platform.backend.workspace"/>
     <module name="intellij.platform.codeStyle"/>
+    <module name="intellij.platform.concurrency"/>
     <module name="intellij.platform.core"/>
     <module name="intellij.platform.core.impl"/>
     <module name="intellij.platform.core.ui"/>
@@ -27,8 +28,10 @@
     <module name="intellij.platform.ide.impl"/>
     <module name="intellij.platform.ide.internal"/>
     <module name="intellij.platform.ide.progress"/>
+    <module name="intellij.platform.ide.ui"/>
     <module name="intellij.platform.ide.updateChecker"/>
     <module name="intellij.platform.indexing"/>
+    <module name="intellij.platform.jbr"/>
     <module name="intellij.platform.lang"/>
     <module name="intellij.platform.lang.core"/>
     <module name="intellij.platform.locking.impl"/>
@@ -40,8 +43,10 @@
     <module name="intellij.platform.statistics"/>
     <module name="intellij.platform.ui.jcef"/>
     <module name="intellij.platform.util.coroutines"/>
+    <module name="intellij.platform.util.progress"/>
     <module name="intellij.platform.util.ui"/>
     <module name="intellij.platform.workspace.jps"/>
+    <module name="intellij.platform.workspace.storage"/>
   </dependencies>
   <!-- endregion -->
 

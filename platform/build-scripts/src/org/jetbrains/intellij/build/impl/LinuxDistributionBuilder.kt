@@ -4,8 +4,6 @@ package org.jetbrains.intellij.build.impl
 import com.intellij.openapi.util.io.NioFiles
 import com.intellij.platform.buildData.productInfo.ProductInfoLaunchData
 import io.opentelemetry.api.trace.Span
-import kotlinx.coroutines.sync.Semaphore
-import kotlinx.coroutines.sync.withPermit
 import org.jetbrains.intellij.build.BuildContext
 import org.jetbrains.intellij.build.BuildOptions
 import org.jetbrains.intellij.build.JvmArchitecture
@@ -36,10 +34,12 @@ import org.jetbrains.intellij.build.isLanguageServer
 import org.jetbrains.intellij.build.isWindows
 import org.jetbrains.intellij.build.telemetry.TraceManager.spanBuilder
 import org.jetbrains.intellij.build.telemetry.use
+import org.jetbrains.intellij.build.withPermit
 import java.nio.file.Files
 import java.nio.file.NoSuchFileException
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
+import java.util.concurrent.Semaphore
 import kotlin.io.path.createDirectories
 import kotlin.io.path.exists
 import kotlin.io.path.name
@@ -62,15 +62,11 @@ class LinuxDistributionBuilder(
   override val targetOs: OsFamily
     get() = OsFamily.LINUX
 
-  override suspend fun copyNativeBinFiles(binDir: Path, arch: JvmArchitecture): List<Path> {
-    val sourceBinDir = context.paths.communityHomeDir.resolve("bin/linux")
-    return listOf(
-      copyRestarterToDir(binDir, OsFamily.LINUX, arch, context),
-      copyNativeBinFileToDir(sourceBinDir.resolve("${arch.dirName}/fsnotifier"), binDir),
-    )
+  override fun copyNativeBinFiles(binDir: Path, arch: JvmArchitecture): List<Path> {
+    return nativeBinFiles(context.paths.communityHomeDir, OsFamily.LINUX, arch).map { copyNativeBinFileToDir(it, binDir) }
   }
 
-  override suspend fun copyFilesForOsDistribution(targetPath: Path, arch: JvmArchitecture) {
+  override fun copyFilesForOsDistribution(targetPath: Path, arch: JvmArchitecture) {
     spanBuilder("copy files for os distribution")
       .setAttribute("os", targetOs.osName)
       .setAttribute("arch", arch.name)
@@ -89,6 +85,7 @@ class LinuxDistributionBuilder(
         }
         generateScripts(distBinDir, arch, targetLibcImpl, context)
       }
+      copyDeclaredOsSpecificFiles(targetPath, arch, context.distributionState().platformLayout, context)
       addNativeLauncher(distBinDir, targetPath, arch, context)
       generateBuildTxt(targetPath, context)
       copyDistFiles(targetPath, OsFamily.LINUX, arch, targetLibcImpl, context)
@@ -106,7 +103,7 @@ class LinuxDistributionBuilder(
     }
   }
 
-  override suspend fun buildArtifacts(osAndArchSpecificDistPath: Path, arch: JvmArchitecture) {
+  override fun buildArtifacts(osAndArchSpecificDistPath: Path, arch: JvmArchitecture) {
     copyFilesForOsDistribution(osAndArchSpecificDistPath, arch)
     setLastModifiedTime(osAndArchSpecificDistPath, context)
     val targetLibcImpl = this.targetLibcImpl
@@ -139,7 +136,11 @@ class LinuxDistributionBuilder(
         }
       }
 
-      val runtimeDir = context.bundledRuntime.extract(OsFamily.LINUX, arch, targetLibcImpl)
+      val runtimeDir = stageRuntimeWithoutExcludedPaths(
+        runtimeDir = context.bundledRuntime.extract(OsFamily.LINUX, arch, targetLibcImpl),
+        excludedRuntimePaths = context.productProperties.excludedRuntimePaths,
+        tempDir = context.paths.tempDir,
+      )
       updateExecutablePermissions(runtimeDir, executableFileMatchers)
       val tarGzPath: Path? = context.executeStep(
         spanBuilder("Build Linux .tar.gz with bundled Runtime")
@@ -176,7 +177,7 @@ class LinuxDistributionBuilder(
     }
   }
 
-  override suspend fun writeProductInfoFile(targetDir: Path, arch: JvmArchitecture): Path = writeProductJsonFile(targetDir, arch, withRuntime = true)
+  override fun writeProductInfoFile(targetDir: Path, arch: JvmArchitecture): Path = writeProductJsonFile(targetDir, arch, withRuntime = true)
 
   override fun writeVmOptions(distBinDir: Path): Path = writeLinuxVmOptions(distBinDir, context)
 
@@ -211,7 +212,7 @@ class LinuxDistributionBuilder(
   private val launcherFileName: String
     get() = context.productProperties.baseFileName
 
-  private suspend fun buildTarGz(arch: JvmArchitecture, runtimeDir: Path?, unixDistPath: Path, suffix: String): Path {
+  private fun buildTarGz(arch: JvmArchitecture, runtimeDir: Path?, unixDistPath: Path, suffix: String): Path {
     val tarRoot = rootDirectoryName
     val tarName = context.productProperties.getBaseArtifactName(context) + suffix + ".tar.gz"
     val tarPath = context.paths.artifactDir.resolve(tarName)
@@ -251,7 +252,7 @@ class LinuxDistributionBuilder(
 
   private fun getSnapArtifactName(snapName: String, arch: JvmArchitecture): String = "${snapName}_${snapVersion}_${getSnapArchName(arch)}.snap"
 
-  private suspend fun buildSnapPackage(runtimeDir: Path, unixDistPath: Path, arch: JvmArchitecture, targetLibcImpl: LinuxLibcImpl) {
+  private fun buildSnapPackage(runtimeDir: Path, unixDistPath: Path, arch: JvmArchitecture, targetLibcImpl: LinuxLibcImpl) {
     if (!context.options.buildUnixSnaps) {
       Span.current().addEvent("Linux .snap package build is disabled")
       return
@@ -268,7 +269,7 @@ class LinuxDistributionBuilder(
     }
   }
 
-  private suspend fun buildSnapPackage(
+  private fun buildSnapPackage(
     snapName: String,
     snapDescription: String,
     runtimeDir: Path,
@@ -384,7 +385,7 @@ class LinuxDistributionBuilder(
 
   override fun isRuntimeBundled(file: Path): Boolean = !file.name.contains(NO_RUNTIME_SUFFIX)
 
-  private suspend fun writeProductJsonFile(targetDir: Path, arch: JvmArchitecture, withRuntime: Boolean): Path {
+  private fun writeProductJsonFile(targetDir: Path, arch: JvmArchitecture, withRuntime: Boolean): Path {
     val json = generateProductInfoJson(
       relativePathToBin = "bin",
       builtinModules = context.builtinModules(),
@@ -410,7 +411,7 @@ class LinuxDistributionBuilder(
               generateQodanaLaunchData(context, arch, OsFamily.LINUX),
               generateStdioMcpRunnerLaunchData(context, OsFamily.LINUX)
             )
-            context.productProperties.launcherCommandsCustomizer?.invoke(base, context) ?: base
+            if (context.productProperties.launcherCustomCommands) base else emptyList()
           }
         )
       ),
@@ -445,7 +446,7 @@ class LinuxDistributionBuilder(
     generateLauncherScript(distBinDir, arch, nonCustomizableJvmArgs = emptyList(), targetLibcImpl, context)
   }
 
-  private suspend fun addNativeLauncher(distBinDir: Path, targetPath: Path, arch: JvmArchitecture, context: BuildContext) {
+  private fun addNativeLauncher(distBinDir: Path, targetPath: Path, arch: JvmArchitecture, context: BuildContext) {
     val (execPath, licensePath) = NativeBinaryDownloader.getLauncher(context, OsFamily.LINUX, arch)
     copyFile(execPath, distBinDir.resolve(context.productProperties.baseFileName))
     copyFile(licensePath, targetPath.resolve("license/launcher-third-party-libraries.html"))
@@ -511,12 +512,7 @@ class LinuxDistributionBuilder(
 
   private fun writeLinuxVmOptions(distBinDir: Path, context: BuildContext): Path {
     val vmOptionsFile = distBinDir.resolve("${context.add64IfNeeded(context.productProperties.baseFileName)}.vmoptions")
-    val vmOptions = generateVmOptions(context, extra = listOfNotNull(
-      "-Dsun.tools.attach.tmp.only=true",
-      "-Dawt.lock.fair=true",
-      // disabled for Gateway until JBR supports system tray in the Wayland toolkit (IJPL-231661/JBR-9966)
-      "-Dawt.toolkit.name=auto".takeIf { context.productProperties.platformPrefix != "Gateway" },
-    ))
+    val vmOptions = generateVmOptions(context, extra = osVmOptions(OsFamily.LINUX, context.productProperties.platformPrefix))
     writeVmOptions(vmOptionsFile, vmOptions, separator = "\n")
     return vmOptionsFile
   }

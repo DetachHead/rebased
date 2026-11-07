@@ -40,6 +40,10 @@ public final class ToolsImpl implements Tools {
   static final @NonNls String ENABLED_BY_DEFAULT_ATTRIBUTE = "enabled_by_default";
   static final @NonNls String ENABLED_ATTRIBUTE = "enabled";
   static final @NonNls String LEVEL_ATTRIBUTE = "level";
+  private static final List<String> DEFAULT_TOOL_STATE_ATTRIBUTES = List.of(
+    InspectionProfileImpl.CLASS_TAG, LEVEL_ATTRIBUTE, ENABLED_ATTRIBUTE, ENABLED_BY_DEFAULT_ATTRIBUTE, "editorAttributes");
+  private static final List<String> SCOPED_TOOL_STATE_ATTRIBUTES =
+    List.of(ProfileEx.NAME, LEVEL_ATTRIBUTE, ENABLED_ATTRIBUTE, "editorAttributes");
 
   private final String myShortName;
   private final ScopeToolState myDefaultState;
@@ -151,9 +155,7 @@ public final class ToolsImpl implements Tools {
           scopeElement.setAttribute("editorAttributes", keyExternalName);
         }
         InspectionToolWrapper<?, ?> toolWrapper = state.getTool();
-        if (toolWrapper.isInitialized()) {
-          toolWrapper.getTool().writeSettings(scopeElement);
-        }
+        toolWrapper.writeSettings(scopeElement);
         inspectionElement.addContent(scopeElement);
       }
     }
@@ -165,9 +167,7 @@ public final class ToolsImpl implements Tools {
       inspectionElement.setAttribute("editorAttributes", attributesKey);
     }
     InspectionToolWrapper<?, ?> toolWrapper = myDefaultState.getTool();
-    if (toolWrapper.isInitialized()) {
-      ScopeToolState.tryWriteSettings(toolWrapper.getTool(), inspectionElement);
-    }
+    toolWrapper.writeSettings(inspectionElement);
   }
 
   void readExternal(@NotNull Element toolElement,
@@ -211,7 +211,10 @@ public final class ToolsImpl implements Tools {
         InspectionToolWrapper<?, ?> copyToolWrapper = toolWrapper.createCopy();
         // check if unknown children exists
         if (scopeElement.getAttributes().size() > 3 || !scopeElement.getChildren().isEmpty()) {
-          copyToolWrapper.getTool().readSettings(scopeElement);
+          Element settings = extractSettings(scopeElement, SCOPED_TOOL_STATE_ATTRIBUTES);
+          if (hasSettings(settings)) {
+            readSettings(copyToolWrapper, settings);
+          }
         }
         HighlightSeverity errorSeverity = errorLevel == null ? null : registrar.getSeverity(errorLevel);
         HighlightDisplayLevel scopeLevel = errorSeverity == null ? null : HighlightDisplayLevel.find(errorSeverity);
@@ -246,10 +249,36 @@ public final class ToolsImpl implements Tools {
 
     // check if unknown children exists
     if (toolElement.getAttributes().size() > 4 || toolElement.getChildren().size() > scopeElements.size()) {
-      ScopeToolState.tryReadSettings(toolWrapper.getTool(), toolElement);
+      Element settings = extractSettings(toolElement, DEFAULT_TOOL_STATE_ATTRIBUTES);
+      settings.removeChildren(ProfileEx.SCOPE);
+      if (hasSettings(settings)) {
+        readSettings(toolWrapper, settings);
+      }
     }
 
     myEnabled = isEnabled;
+  }
+
+  private static @NotNull Element extractSettings(@NotNull Element element,
+                                                  @NotNull List<@NotNull String> stateAttributes) {
+    Element settings = element.clone();
+    for (String attribute : stateAttributes) {
+      settings.removeAttribute(attribute);
+    }
+    return settings;
+  }
+
+  private static boolean hasSettings(@NotNull Element settings) {
+    return !settings.getAttributes().isEmpty() || !settings.getContent().isEmpty();
+  }
+
+  private static void readSettings(@NotNull InspectionToolWrapper<?, ?> toolWrapper, @NotNull Element settings) {
+    if (toolWrapper instanceof LocalInspectionToolWrapper local && local.isDynamicGroup()) {
+      ScopeToolState.tryReadSettings(toolWrapper.getTool(), settings);
+    }
+    else {
+      toolWrapper.readSettings(settings);
+    }
   }
 
   /**
@@ -261,7 +290,7 @@ public final class ToolsImpl implements Tools {
   @Override
   public @NotNull InspectionToolWrapper<?, ?> getTool() {
     if (myTools == null) return myDefaultState.getTool();
-    return myTools.iterator().next().getTool();
+    return myTools.getFirst().getTool();
   }
 
   @Override
@@ -516,11 +545,13 @@ public final class ToolsImpl implements Tools {
   public boolean equals(Object o) {
     if (!(o instanceof ToolsImpl tools)) return false;
     if (myEnabled != tools.myEnabled) return false;
-    if (getTools().size() != tools.getTools().size()) return false;
-    for (int i = 0; i < getTools().size(); i++) {
-      ScopeToolState state = getTools().get(i);
-      ScopeToolState toolState = tools.getTools().get(i);
-      if (!state.equalTo(toolState)) {
+    List<ScopeToolState> myTools = getTools();
+    List<ScopeToolState> theirTools = tools.getTools();
+    if (myTools.size() != theirTools.size()) return false;
+    for (int i = 0; i < myTools.size(); i++) {
+      ScopeToolState myState = myTools.get(i);
+      ScopeToolState theirState = theirTools.get(i);
+      if (!myState.equalTo(theirState)) {
         return false;
       }
     }

@@ -19,10 +19,10 @@ import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.platform.lsp.impl.LspCoroutineScopeService
 import com.intellij.platform.lsp.impl.features.inlayHint.collectInlayHintItems
 import com.intellij.platform.lsp.impl.features.inlayHintColor.collectColorInlayItems
+import com.intellij.util.containers.ContainerUtil
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
 
 /**
@@ -57,7 +57,9 @@ internal interface LspInlayItem {
 @Service(Service.Level.PROJECT)
 internal class LspInlayApplier(private val project: Project) {
 
-  private val fileToCurrentGeneration = ConcurrentHashMap<VirtualFile, AtomicLong>()
+  // Weak keys: the daemon schedules refreshes for every editor, including the in-memory files of diff viewers and
+  // dialogs, which never reach [onFileClosed].
+  private val fileToCurrentGeneration = ContainerUtil.createConcurrentWeakMap<VirtualFile, AtomicLong>()
   private val serializedDispatcher = Dispatchers.Default.limitedParallelism(1)
 
   /**
@@ -72,7 +74,7 @@ internal class LspInlayApplier(private val project: Project) {
    * [com.intellij.platform.lsp.impl.features.highlighting.LspHighlightingApplier]).
    */
   fun scheduleRefresh(file: VirtualFile) {
-    if (file is VirtualFileWindow || !file.isInLocalFileSystem) return
+    if (file is VirtualFileWindow) return
 
     val generationCounter = fileToCurrentGeneration.computeIfAbsent(file) { AtomicLong() }
     val gen = generationCounter.incrementAndGet()

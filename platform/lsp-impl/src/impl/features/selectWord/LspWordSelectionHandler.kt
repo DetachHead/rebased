@@ -9,6 +9,7 @@ import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.platform.lsp.api.customization.LspSelectionRangeSupport
 import com.intellij.platform.lsp.impl.LspClientImpl
 import com.intellij.platform.lsp.impl.LspClientManagerImpl
+import com.intellij.platform.lsp.impl.supportsSelectionRange
 import com.intellij.platform.lsp.util.getRangeInDocument
 import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiFile
@@ -26,12 +27,12 @@ internal class LspWordSelectionHandler : ExtendWordSelectionHandler {
     return true
   }
 
-  @RequiresReadLock
-  @RequiresBackgroundThread
+  @RequiresReadLock(generateAssertion = false /* IJPL-115548 */)
+  @RequiresBackgroundThread(generateAssertion = false /* IJPL-115548 */)
   override fun select(e: PsiElement, editorText: CharSequence, cursorOffset: Int, editor: Editor): List<TextRange>? {
     val psiFile: PsiFile = e.containingFile ?: return null
     val file = psiFile.virtualFile ?: return null
-    if (file is VirtualFileWindow || !file.isInLocalFileSystem) return null
+    if (file is VirtualFileWindow) return null
 
     val lspClients = LspClientManagerImpl.getInstanceImpl(psiFile.project)
       .getClientsWithThisFileOpen(file)

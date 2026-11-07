@@ -3,6 +3,8 @@
 
 package com.jetbrains.python.sdk
 
+import com.jetbrains.python.project.PyProject
+import com.jetbrains.python.project.PyProject.Companion.asPyProject
 import com.intellij.execution.target.TargetConfigurationWithLocalFsAccess
 import com.intellij.execution.target.TargetCustomToolWizardStep
 import com.intellij.execution.target.TargetEnvironmentType
@@ -33,6 +35,8 @@ import com.intellij.psi.util.ParameterizedCachedValue
 import com.intellij.python.pyproject.model.api.ModuleSdkState
 import com.intellij.python.pyproject.model.api.SdkForModuleConfigInstruction
 import com.intellij.python.pyproject.model.api.getModuleSdkState
+import com.intellij.python.sdk.backend.PythonInterpreter
+import com.intellij.python.sdk.backend.getSdkAPI
 import com.jetbrains.python.NON_INTERACTIVE_ROOT_TRACE_CONTEXT
 import com.jetbrains.python.PyBundle
 import com.jetbrains.python.errorProcessing.ErrorSink
@@ -58,7 +62,8 @@ import java.util.function.Consumer
 import java.util.function.Supplier
 import javax.swing.Icon
 
-internal abstract class DialogAction(
+@ApiStatus.Internal
+abstract class DialogAction(
   dynamicText: Supplier<@NlsActions.ActionText String>,
   val icon: Icon,
   val target: @Nls String,
@@ -81,7 +86,8 @@ internal abstract class DialogAction(
   }
 }
 
-internal fun collectAddInterpreterActions(moduleOrProject: ModuleOrProject, onSdkCreated: Consumer<Sdk>): List<DialogAction> {
+@ApiStatus.Internal
+fun collectAddInterpreterActions(moduleOrProject: ModuleOrProject, onSdkCreated: Consumer<Sdk>): List<DialogAction> {
   // If module resides on this target, we can't use any target except same target and target types that explicitly allow that
   // example: on ``\\wsl$`` you can only use wsl target and dockers
   val targetModuleSitsOn = when (moduleOrProject) {
@@ -89,7 +95,7 @@ internal fun collectAddInterpreterActions(moduleOrProject: ModuleOrProject, onSd
     is ProjectOnly -> null
   }
   return mutableListOf<DialogAction>().apply {
-    if (targetModuleSitsOn == null) {
+    if (targetModuleSitsOn == null || eelNativeMode) {
       add(createAddLocalInterpreterAction(moduleOrProject, onSdkCreated::accept))
     }
     addAll(collectNewInterpreterOnTargetActions(moduleOrProject, targetModuleSitsOn, onSdkCreated::accept))
@@ -157,12 +163,12 @@ internal class AddInterpreterOnTargetAction(
 
   private fun exitHandler(dialogWrapper: TargetEnvironmentWizard) {
     if (dialogWrapper.exitCode != OK_EXIT_CODE) return
-    val sdk = (dialogWrapper.currentStepObject as? TargetCustomToolWizardStep)?.customTool as? Sdk ?: return
+    val pythonInterpreter = (dialogWrapper.currentStepObject as? TargetCustomToolWizardStep)?.customTool as? PythonInterpreter ?: return
 
     service<LogCollectorService>().coroutineScope.launch(Dispatchers.Default) {
-      PythonNewInterpreterAddedCollector.logPythonNewInterpreterAdded(sdk, isPreviouslyConfigured = true)
+      PythonNewInterpreterAddedCollector.logPythonNewInterpreterAdded(pythonInterpreter, isPreviouslyConfigured = true)
     }
-    onSdkCreated(sdk)
+    onSdkCreated(pythonInterpreter.getSdkAPI())
   }
 }
 
@@ -185,11 +191,14 @@ private class ToolDetectionService(project: Project, val coroutineScope: Corouti
   )
 
   private suspend fun detectBestToolForModule(module: Module): CreateSdkInfoWithTool? =
-    when (val i = module.getModuleSdkState()) {
+    module.asPyProject()?.let { detectBestTool(it) }
+
+  private suspend fun detectBestTool(pyProject: PyProject): CreateSdkInfoWithTool? =
+    when (val i = pyProject.getModuleSdkState()) {
       is ModuleSdkState.HasSdk -> null
       is ModuleSdkState.NoSdk -> when (val r = i.sdkConfigInstruction) {
         is SdkForModuleConfigInstruction.CreateSdkInfoWrapper -> r.createSdkInfoWithTool
-        is SdkForModuleConfigInstruction.SameAs -> detectBestToolForModule(r.parentModule)
+        is SdkForModuleConfigInstruction.SameAs -> detectBestTool(r.parent)
         null -> null
       }
     }

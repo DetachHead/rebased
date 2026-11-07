@@ -4,6 +4,7 @@ package git4idea.workingTrees.dialog
 import com.intellij.icons.AllIcons
 import com.intellij.openapi.application.invokeLater
 import com.intellij.openapi.fileChooser.FileChooserDescriptorFactory
+import com.intellij.openapi.fileEditor.OpenFileDescriptor
 import com.intellij.openapi.observable.properties.GraphProperty
 import com.intellij.openapi.observable.properties.PropertyGraph
 import com.intellij.openapi.observable.util.whenDocumentChanged
@@ -17,6 +18,7 @@ import com.intellij.openapi.ui.validation.WHEN_GRAPH_PROPAGATION_FINISHED
 import com.intellij.openapi.ui.validation.WHEN_PROPERTY_CHANGED
 import com.intellij.openapi.util.NlsContexts
 import com.intellij.openapi.util.io.FileUtil
+import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.platform.ide.progress.runWithModalProgressBlocking
 import com.intellij.ui.ColoredListCellRenderer
 import com.intellij.ui.SimpleTextAttributes
@@ -44,6 +46,7 @@ import com.intellij.vcsUtil.VcsUtil
 import git4idea.GitReference
 import git4idea.GitRemoteBranch
 import git4idea.GitStandardLocalBranch
+import git4idea.GitUtil
 import git4idea.GitWorkingTree
 import git4idea.branch.GitNewBranchDialog
 import git4idea.branch.GitNewBranchDialog.Companion.cleanBranchNameAndAdjustCursorIfNeeded
@@ -60,6 +63,7 @@ import java.awt.event.ItemEvent
 import java.nio.file.InvalidPathException
 import java.nio.file.NoSuchFileException
 import java.nio.file.NotDirectoryException
+import java.nio.file.Path
 import java.nio.file.Paths
 import java.util.Vector
 import javax.swing.DefaultComboBoxModel
@@ -77,13 +81,22 @@ internal class GitWorkingTreeDialog(
 
   /** Repositories the user can pick from; the worktree is created for [selectedRepository]. */
   private val candidateRepositories: List<GitRepository> = data.candidateRepositories
-  private val selectedRepository: GraphProperty<GitRepository> = propertyGraph.property(data.initialRepository)
+  private val selectedRepository: GraphProperty<GitRepository> =
+    propertyGraph.property(data.initialState?.repository ?: data.initialRepository)
 
   private lateinit var parentPathCell: Cell<TextFieldWithBrowseButton>
   private lateinit var projectNameCell: Cell<JBTextField>
   private lateinit var refComboBox: ComboBox<RefWithWorkingTree?>
+  private lateinit var refCellRenderer: RefWithTreeCellRenderer
   private lateinit var submoduleWarningRow: Row
   private lateinit var existingRefCell: Cell<ComboBox<RefWithWorkingTree?>>
+  private val additionalSettingsHandles = mutableListOf<GitWorktreeSettingsPanelHandle>()
+  private val configCategoriesPanel: GitWorktreeConfigCategoriesPanel
+  private val setupScriptPanel: GitWorktreeSetupScriptPanel
+
+  /** The .worktreeinclude file the user just created or opened for editing, if any; set right before [close]. */
+  var worktreeIncludeFile: VirtualFile? = null
+    private set
 
   private val validator = GitRefNameValidator.getInstance()
   private val existingRefWithWorkingTree: GraphProperty<RefWithWorkingTree?>
@@ -93,11 +106,18 @@ internal class GitWorkingTreeDialog(
   private val newBranchName: GraphProperty<String>
 
   init {
-    existingRefWithWorkingTree = propertyGraph.property(data.initialExistingRef?.toRefWithWorkingTree())
-    createNewBranch = propertyGraph.property(false)
-    newBranchName = propertyGraph.property("")
-    projectName = propertyGraph.property(suggestProjectName())
-    parentPath = propertyGraph.property(data.initialParentPath ?: "")
+    val savedState = data.initialState
+    existingRefWithWorkingTree = propertyGraph.property((savedState?.existingRef ?: data.initialExistingRef)?.toRefWithWorkingTree())
+    createNewBranch = propertyGraph.property(savedState?.createNewBranch ?: false)
+    newBranchName = propertyGraph.property(savedState?.newBranchName ?: "")
+    setupScriptPanel = GitWorktreeSetupScriptPanel(propertyGraph, savedState, data.project)
+    configCategoriesPanel = GitWorktreeConfigCategoriesPanel(propertyGraph, savedState, data.project, ::getCurrentRepository, setupScriptPanel) { file ->
+      worktreeIncludeFile = file
+      close(CREATE_WORKTREE_INCLUDE_EXIT_CODE)
+      OpenFileDescriptor(data.project, file).navigate(true)
+    }
+    projectName = propertyGraph.property(savedState?.projectName ?: suggestProjectName())
+    parentPath = propertyGraph.property(savedState?.parentPath ?: data.initialParentPath ?: "")
     listOf(existingRefWithWorkingTree, createNewBranch, newBranchName).forEach {
       propertyGraph.dependsOn(projectName, it, true, ::suggestProjectName)
     }
@@ -135,7 +155,8 @@ internal class GitWorkingTreeDialog(
   }
 
   override fun createCenterPanel(): JComponent {
-    val newBranchNameField = TextFieldWithCompletion(data.project, createBranchNameCompletion(), "", true, true, false, false)
+    val newBranchNameField =
+      TextFieldWithCompletion(data.project, createBranchNameCompletion(), newBranchName.get(), true, true, false, false)
       .apply {
         minimumSize = JBUI.size(240, 0)
         setupCleanBranchNameAndAdjustCursorIfNeeded()
@@ -226,6 +247,12 @@ internal class GitWorkingTreeDialog(
 
         supportPathComment()
       }
+
+      configCategoriesPanel.buildPanel(this)
+
+      GitWorktreeSettingsPanelProvider.forEachExtensionSafe { provider ->
+        additionalSettingsHandles += provider.createPanel(this, data.project)
+      }
     }
   }
 
@@ -235,7 +262,8 @@ internal class GitWorkingTreeDialog(
     val component = ComboBox<RefWithWorkingTree?>(model)
     component.isSwingPopup = false
     component.isUsePreferredSizeAsMinimum = false
-    component.renderer = RefWithTreeCellRenderer(data.project, getCurrentRepository())
+    refCellRenderer = RefWithTreeCellRenderer(data.project, getCurrentRepository())
+    component.renderer = refCellRenderer
     refComboBox = component
 
     // Set prototype to calculate proper size upfront and prevent resizing on first selection
@@ -262,7 +290,8 @@ internal class GitWorkingTreeDialog(
     val currentBranch = getCurrentRepository().currentBranch
     existingRefWithWorkingTree.set(refs.firstOrNull { it.ref == currentBranch } ?: refs.firstOrNull())
     submoduleWarningRow.visible(getCurrentRepository().isSubmodule())
-    (refComboBox.renderer as RefWithTreeCellRenderer).updateRepository(getCurrentRepository())
+    refCellRenderer.updateRepository(getCurrentRepository())
+    configCategoriesPanel.updateWorktreeIncludeButtons()
   }
 
   private fun supportExistingRefComment() {
@@ -384,8 +413,8 @@ internal class GitWorkingTreeDialog(
     }
   }
 
-  //should be the main repo root in case of working in a worktree
-  private fun resolveProjectNameBase() = getCurrentRepository().repositoryFiles.configFile.toPath().parent.parent
+  //should be the main repo root in case of working in a worktree, or the submodule root in case of a submodule
+  private fun resolveProjectNameBase(): Path = resolveProjectNameBase(getCurrentRepository())
 
   private fun createBranchNameCompletion(): GitNewBranchDialog.BranchNamesCompletion {
     val branches = getCurrentRepository().branches
@@ -449,17 +478,70 @@ internal class GitWorkingTreeDialog(
     }
   }
 
+  /** Snapshots the current field values, so a freshly re-created dialog can start from the same state. */
+  internal fun captureState(): GitWorkingTreeDialogState = GitWorkingTreeDialogState(
+    repository = getCurrentRepository(),
+    existingRef = existingRefWithWorkingTree.get()?.ref,
+    createNewBranch = createNewBranch.get(),
+    newBranchName = newBranchName.get(),
+    additionalCopiers = configCategoriesPanel.additionalCopierSelections.mapValues { it.value.get() },
+    copyWorktreeIncludeMatches = configCategoriesPanel.copyWorktreeIncludeMatches.get(),
+    runSetupScript = setupScriptPanel.runSetupScript.get(),
+    setupScriptPath = setupScriptPanel.setupScriptPath.get(),
+    projectName = projectName.get(),
+    parentPath = parentPath.get(),
+    configCategoriesExpanded = configCategoriesPanel.isExpanded(),
+  )
+
   fun getWorkTreeData(): GitWorktreeCreationRequest {
     val path = VcsUtil.getFilePath(Paths.get(parentPath.get()).resolve(projectName.get()), true)
     val ref = existingRefWithWorkingTree.get()!!.ref
     val branch = if (createNewBranch.get()) WorktreeBranchSpec.CreateNewBranch(ref, newBranchName.get())
     else WorktreeBranchSpec.CheckoutExisting(ref)
-    return GitWorktreeCreationRequest(getCurrentRepository(), path, branch)
+    val enabledCopiers = configCategoriesPanel.additionalCopierSelections.filterValues { it.get() }.keys
+    val scriptPath = setupScriptPanel.getValidatedScriptPath()
+    return GitWorktreeCreationRequest(
+      getCurrentRepository(), path, branch, scriptPath,
+      configCategoriesPanel.copyWorktreeIncludeMatches.get(), additionalSettingsHandles.toList(),
+      enabledCopiers,
+    )
   }
 
   companion object {
 
     const val PROJECT_NAME_FIELD_NAME: String = "Git.Worktree.Dialog.ProjectNameField"
+
+    /** Exit code used when the dialog closes itself to open a newly created or existing .worktreeinclude file. */
+    internal const val CREATE_WORKTREE_INCLUDE_EXIT_CODE: Int = NEXT_USER_EXIT_CODE
+
+    @VisibleForTesting
+    internal fun resolveProjectNameBase(repository: GitRepository): Path {
+      val files = repository.repositoryFiles
+      val worktreeGitDir = files.worktreeGitDir.toNioPath()
+      val commonGitDir = files.commonGitDir.toNioPath()
+      if (worktreeGitDir == commonGitDir) {
+        // Not a linked working tree: a plain repository, a bare repository, or a submodule's own working tree.
+        // The repository's own root is the right name in every one of these cases.
+        return repository.root.toNioPath()
+      }
+      // A linked working tree of another repository. For a plain repository or a bare repository, the common
+      // git dir sits right inside the main root, so the parent is the main root. For a submodule, it is
+      // "<parent>/.git/modules/<submodule>" instead, and the submodule's own name is the common git dir's own
+      // name (see GitRepositoryFiles.getCommonGitDir).
+      return if (isSubmoduleModulesDir(commonGitDir)) commonGitDir else commonGitDir.parent
+    }
+
+    // Detects the "<parent>/.git/modules/<submodule>" shape from GitRepositoryFiles.getCommonGitDir.
+    // A plain or a bare repository never puts its common git dir under a "modules" directory of a ".git" directory,
+    // so this check tells a submodule's common git dir apart from a repository whose own git dir has a custom name.
+    private fun isSubmoduleModulesDir(commonGitDir: Path): Boolean {
+      var dir = commonGitDir.parent
+      while (dir != null) {
+        if (dir.name == "modules" && dir.parent?.name == GitUtil.DOT_GIT) return true
+        dir = dir.parent
+      }
+      return false
+    }
 
     @VisibleForTesting
     internal fun validateWorktreeParentPath(parentPath: String): @NlsContexts.DialogMessage String? {
@@ -476,7 +558,7 @@ internal class GitWorkingTreeDialog(
     }
 
     @VisibleForTesting
-    @RequiresBackgroundThread
+    @RequiresBackgroundThread(generateAssertion = false /* IJPL-115548 */)
     internal fun validateWorktreePath(parentPath: String, dirName: String): @NlsContexts.DialogMessage String? {
       validateWorktreeParentPath(parentPath)?.let { return it }
       val parent = Paths.get(parentPath)

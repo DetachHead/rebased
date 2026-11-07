@@ -13,9 +13,9 @@ public class GrClosureCompletionTest extends GrFunctionalExpressionCompletionTes
   }
 
   @Override
-  public final String getBasePath() {
+  public final String getTestDataPath() {
     return basePath;
   }
 
-  private final String basePath = TestUtils.getTestDataPath() + "groovy/completion/";
+  private final String basePath = TestUtils.getAbsoluteTestDataPath() + "groovy/completion/";
 }

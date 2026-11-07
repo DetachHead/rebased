@@ -6,12 +6,12 @@ package org.jetbrains.intellij.build
 import com.intellij.util.xml.dom.readXmlAsModel
 import org.jetbrains.intellij.build.impl.ModuleItem
 import org.jetbrains.intellij.build.impl.PluginLayout
+import org.jetbrains.intellij.build.impl.hasOwnModuleLibraries
 import org.jetbrains.intellij.build.productLayout.util.getProductionModuleDependencies
 import org.jetbrains.intellij.build.productLayout.util.isProductionRuntimeDependency
 import org.jetbrains.jps.model.java.JpsJavaExtensionService
 import org.jetbrains.jps.model.module.JpsLibraryDependency
 import org.jetbrains.jps.model.module.JpsModule
-import org.jetbrains.jps.model.module.JpsModuleReference
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -29,8 +29,7 @@ fun isPluginModulePackedIntoSeparateJar(
   frontendModuleFilter: FrontendModuleFilter,
   productionLibraryDependencies: List<JpsLibraryDependency>,
 ): Boolean {
-  if (!layout.getModulesWithExcludedModuleLibraries().contains(module.name) &&
-      productionLibraryDependencies.any { it.libraryReference.parentReference is JpsModuleReference }) {
+  if (hasOwnModuleLibraries(productionLibraryDependencies, librariesKeptOut = layout.getModulesWithExcludedModuleLibraries().contains(module.name))) {
     return true
   }
   if (!frontendModuleFilter.isModuleCompatibleWithFrontend(layout.mainModule) && frontendModuleFilter.isModuleCompatibleWithFrontend(module.name)) {
@@ -51,17 +50,34 @@ fun getProductionLibraryDependencies(module: JpsModule): List<JpsLibraryDependen
 internal class JarPackagerDependencyHelper(private val outputProvider: ModuleOutputProvider) {
   private val productionLibraryCache = ConcurrentHashMap<JpsModule, List<JpsLibraryDependency>>()
   private val testRuntimeLibraryCache = ConcurrentHashMap<JpsModule, List<JpsLibraryDependency>>()
+  private val separateJarDependencyObserver = ThreadLocal<((JpsModule, PluginLayout, List<JpsLibraryDependency>) -> Unit)?>()
+
+  /** Observes separate-jar dependencies on this thread. Close the lease on the same thread, in reverse registration order. */
+  internal fun observeSeparateJarDependencies(observer: (JpsModule, PluginLayout, List<JpsLibraryDependency>) -> Unit): AutoCloseable {
+    val owner = Thread.currentThread()
+    val previous = separateJarDependencyObserver.get()
+    val current = { module: JpsModule, layout: PluginLayout, dependencies: List<JpsLibraryDependency> -> observer(module, layout, dependencies) }
+    separateJarDependencyObserver.set(current)
+    return AutoCloseable {
+      check(Thread.currentThread() === owner) { "Close the dependency observer on its original thread" }
+      check(separateJarDependencyObserver.get() === current) { "Close dependency observers in LIFO order" }
+      if (previous == null) separateJarDependencyObserver.remove()
+      else separateJarDependencyObserver.set(previous)
+    }
+  }
 
   fun getModuleDependencies(moduleName: String): Sequence<String> {
     return outputProvider.findRequiredModule(moduleName).getProductionModuleDependencies(withTests = false).map { it.moduleReference.moduleName }
   }
 
   fun isPluginModulePackedIntoSeparateJar(module: JpsModule, layout: PluginLayout, frontendModuleFilter: FrontendModuleFilter): Boolean {
+    val dependencies = getLibraryDependencies(module = module, withTests = false)
+    separateJarDependencyObserver.get()?.invoke(module, layout, dependencies)
     return isPluginModulePackedIntoSeparateJar(
       module = module,
       layout = layout,
       frontendModuleFilter = frontendModuleFilter,
-      productionLibraryDependencies = getLibraryDependencies(module = module, withTests = false),
+      productionLibraryDependencies = dependencies,
     )
   }
 

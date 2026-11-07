@@ -3,7 +3,6 @@ package com.intellij.openapi.editor.impl
 
 import com.intellij.openapi.editor.ex.DocumentOp
 import com.intellij.openapi.editor.ex.DocumentText
-import com.intellij.openapi.editor.ex.DocumentTextPatch
 import com.intellij.openapi.editor.ex.LineIterator
 import com.intellij.openapi.util.TextRange
 import com.intellij.util.text.CharArrayUtil
@@ -19,15 +18,23 @@ internal class DocumentTextImpl private constructor(
   constructor(chars: CharSequence) : this(
     chars = CharArrayUtil.createImmutableCharSequence(chars),
     lineSet = null,
-    cachedString = null,
+    cachedString = (chars as? String)?.let { SoftReference(it) },
   )
+
+  init {
+    val lineSet = this.lineSet
+    if (lineSet != null) {
+      assert(lineSet.length == chars.length) {
+        "LineSet length mismatch: ${lineSet.length} != ${chars.length}"
+      }
+    }
+  }
 
   override fun chars(): ImmutableCharSequence {
     return chars
   }
 
   override fun cachedChars(): CharSequence {
-    // TODO: use it in EditorPainter because String.charAt may improve performance during painting
     val string = cachedString?.get()
     if (string != null) {
       return string
@@ -98,30 +105,53 @@ internal class DocumentTextImpl private constructor(
   }
 
   override fun applyOp(op: DocumentOp): DocumentText {
-    val patch = op as? DocumentTextPatch ?: return this
-    val startOffset = patch.startOffset()
-    val endOffset = patch.endOffset()
-    val newFragment = patch.newFragment()
-    if (startOffset == endOffset && newFragment.isEmpty()) {
+    return when (op) {
+      is DocumentOp.Insert -> applyInsert(op)
+      is DocumentOp.Delete -> applyDelete(op)
+      else -> this
+    }
+  }
+
+  private fun applyInsert(op: DocumentOp.Insert): DocumentText {
+    val offset = op.offset()
+    val fragment = op.fragment()
+    if (fragment.isEmpty()) {
       return this
     }
-    val oldText = chars
-    val canReuseFragment = startOffset == 0 && endOffset == oldText.length && newFragment is ImmutableCharSequence
-    val newText = if (canReuseFragment) {
-      newFragment
+    // Reuse the fragment when it becomes the whole text: an insert at offset 0 into the empty text.
+    // The offset check keeps an out-of-range insert into the empty text throwing.
+    val canReuseFragment = offset == 0 && chars.isEmpty() && fragment is ImmutableCharSequence
+    val newChars = if (canReuseFragment) {
+      fragment
+    } else {
+      chars.insert(offset, fragment)
     }
-    else {
-      oldText.replace(startOffset, endOffset, newFragment)
+    return docText(newChars, startOffset = offset, endOffset = offset, newFragment = fragment)
+  }
+
+  private fun applyDelete(op: DocumentOp.Delete): DocumentText {
+    val offset = op.offset()
+    val length = op.length()
+    if (length == 0) {
+      return this
     }
+    val endOffset = offset + length
+    val newChars = chars.delete(offset, endOffset)
+    return docText(newChars, startOffset = offset, endOffset = endOffset, newFragment = "")
+  }
+
+  private fun docText(
+    newChars: ImmutableCharSequence,
+    startOffset: Int,
+    endOffset: Int,
+    newFragment: CharSequence,
+  ): DocumentText {
     val oldLineSet = lineSet
     if (oldLineSet == null) {
-      return DocumentTextImpl(newText, null, null)
+      return DocumentTextImpl(newChars, null, null)
     }
-    val newLineSet = oldLineSet.update(oldText, startOffset, endOffset, newFragment)
-    assert(newLineSet.length == newText.length) {
-      "LineSet length mismatch: $newLineSet != $newText"
-    }
-    return DocumentTextImpl(newText, newLineSet, null)
+    val newLineSet = oldLineSet.update(chars, startOffset, endOffset, newFragment)
+    return DocumentTextImpl(newChars, newLineSet, null)
   }
 
   /**

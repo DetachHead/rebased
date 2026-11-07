@@ -69,7 +69,7 @@ import kotlin.time.TimeSource
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 internal class StateAwareTerminalSession(
-  private val delegate: TerminalSession,
+  val delegate: TerminalSession,
   private val startupOptions: TerminalStartupOptions,
   override val coroutineScope: CoroutineScope,
 ) : TerminalSession {
@@ -161,6 +161,8 @@ internal class StateAwareTerminalSession(
   ): ByteArray? = delegate.processMouseEvent(e, x, y)
 
   override fun processKeyEvent(e: KeyEvent): KeyEventProcessingResultDto = delegate.processKeyEvent(e)
+
+  override fun focusLost() = delegate.focusLost()
 
   companion object {
     private val LOG = logger<StateAwareTerminalSession>()

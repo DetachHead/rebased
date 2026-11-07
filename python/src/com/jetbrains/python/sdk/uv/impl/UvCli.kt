@@ -1,4 +1,4 @@
-// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.jetbrains.python.sdk.uv.impl
 
 import com.intellij.openapi.ui.ValidationInfo
@@ -30,7 +30,7 @@ import kotlin.time.Duration.Companion.minutes
 
 private fun <P : PathHolder> validateUvExecutable(uvPath: P?, platformAndRoot: PlatformAndRoot): ValidationInfo? {
   return validateExecutableFile(ValidationRequest(
-    path = uvPath?.toString(),
+    path = uvPath?.toStringForExecution(),
     fieldIsEmpty = PyBundle.message("python.sdk.uv.executable.not.found"),
     platformAndRoot = platformAndRoot
   ))
@@ -38,7 +38,7 @@ private fun <P : PathHolder> validateUvExecutable(uvPath: P?, platformAndRoot: P
 
 private suspend fun <P : PathHolder> runUv(
   uv: P,
-  workingDir: Path,
+  workingDir: Path?,
   venvPath: P?,
   fileSystem: FileSystem<P>,
   canChangeTomlOrLock: Boolean,
@@ -49,9 +49,9 @@ private suspend fun <P : PathHolder> runUv(
       put("VIRTUAL_ENV", VirtualEnvReader.DEFAULT_VIRTUALENV_DIRNAME)
     }
     else {
-      put("VIRTUAL_ENV", venvPath.toString())
+      put("VIRTUAL_ENV", venvPath.toStringForExecution())
     }
-    venvPath?.let { put("UV_PROJECT_ENVIRONMENT", it.toString()) }
+    venvPath?.let { put("UV_PROJECT_ENVIRONMENT", it.toStringForExecution()) }
   }
   val bin = fileSystem.getBinaryToExec(uv, workingDir)
   val downloadConfig = if (canChangeTomlOrLock) DownloadConfig(relativePaths = listOf(PY_PROJECT_TOML, UV_LOCK.value)) else null
@@ -63,14 +63,14 @@ private suspend fun <P : PathHolder> runUv(
                                    downloadConfig = downloadConfig)
 }
 
-private class UvCliImpl<P : PathHolder>(val dispatcher: CoroutineDispatcher, val uv: P, private val fileSystem: FileSystem<P>) : UvCli<P> {
+private class UvCliImpl<P : PathHolder>(val dispatcher: CoroutineDispatcher, val uv: P, override val fileSystem: FileSystem<P>) : UvCli<P> {
 
-  override suspend fun runUv(workingDir: Path, venvPath: P?, canChangeTomlOrLock: Boolean, args: Args): PyResult<String> =
+  override suspend fun runUv(workingDir: Path?, venvPath: P?, canChangeTomlOrLock: Boolean, args: Args): PyResult<String> =
     withContext(dispatcher) {
       runUv(uv, workingDir, venvPath, fileSystem, canChangeTomlOrLock, args)
     }
 
-  override suspend fun runUv(workingDir: Path, venvPath: P?, canChangeTomlOrLock: Boolean, vararg args: String): PyResult<String> =
+  override suspend fun runUv(workingDir: Path?, venvPath: P?, canChangeTomlOrLock: Boolean, vararg args: String): PyResult<String> =
     runUv(workingDir, venvPath, canChangeTomlOrLock, Args(*args))
 }
 

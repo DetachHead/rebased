@@ -66,6 +66,7 @@ import com.intellij.openapi.project.DumbAwareAction;
 import com.intellij.openapi.project.DumbModeBlockedFunctionality;
 import com.intellij.openapi.project.DumbModeBlockedFunctionalityCollector;
 import com.intellij.openapi.project.DumbService;
+import com.intellij.openapi.project.DumbUtil;
 import com.intellij.openapi.project.IncompleteDependenciesService;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.popup.JBPopup;
@@ -131,7 +132,6 @@ import com.intellij.util.ui.UIUtil;
 import kotlin.Unit;
 import kotlin.jvm.functions.Function1;
 import kotlin.jvm.functions.Function2;
-import one.util.streamex.StreamEx;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
@@ -631,7 +631,8 @@ public final class SearchEverywhereUI extends BigPopupUI implements UiDataProvid
     return ctx.getData(key);
   }
 
-  @NotNull List<SearchEverywhereFoundElementInfo> getSelectedInfos() {
+  @ApiStatus.Internal
+  public @NotNull List<SearchEverywhereFoundElementInfo> getSelectedInfos() {
     return Arrays.stream(myResultsList.getSelectedIndices())
       .mapToObj(myListModel::getRawFoundElementAt)
       .filter(o -> o.getElement() != SearchListModel.MORE_ELEMENT
@@ -907,12 +908,23 @@ public final class SearchEverywhereUI extends BigPopupUI implements UiDataProvid
 
   private static final long REBUILD_LIST_DELAY = 100;
   private final Alarm rebuildListAlarm = new Alarm(Alarm.ThreadToUse.SWING_THREAD, this);
+  /**
+   * True while a rebuild waits in {@link #rebuildListAlarm}.
+   * <p>
+   * The flag drops to false when the rebuild starts, so a change that arrives while the rebuild runs schedules the next
+   * one. {@link Alarm#getActiveRequestCount()} also counts the running request, so it cannot answer this question.
+   */
+  private boolean rebuildListScheduled;
 
   private void scheduleRebuildList(SearchRestartReason reason) {
-    if (!rebuildListAlarm.isDisposed() && rebuildListAlarm.getActiveRequestCount() == 0) {
-      long delay = StringUtil.isEmpty(getSearchPattern()) ? 0 : REBUILD_LIST_DELAY;
-      rebuildListAlarm.addRequest(() -> rebuildList(reason), delay);
-    }
+    if (rebuildListAlarm.isDisposed() || rebuildListScheduled) return;
+
+    rebuildListScheduled = true;
+    long delay = StringUtil.isEmpty(getSearchPattern()) ? 0 : REBUILD_LIST_DELAY;
+    rebuildListAlarm.addRequest(() -> {
+      rebuildListScheduled = false;
+      rebuildList(reason);
+    }, delay);
   }
 
   private void rebuildList(SearchRestartReason reason) {
@@ -950,16 +962,16 @@ public final class SearchEverywhereUI extends BigPopupUI implements UiDataProvid
       contributors = DumbService.getInstance(myProject).filterByDumbAwareness(contributorsMap.keySet());
       if (contributors.isEmpty() && DumbService.isDumb(myProject)) {
         DumbModeBlockedFunctionalityCollector.INSTANCE.logFunctionalityBlocked(myProject, DumbModeBlockedFunctionality.SearchEverywhere);
-        myResultsList.setEmptyText(IdeBundle.dumbModeMessage("searcheverywhere.indexing.mode.not.supported",
-                                                             "searcheverywhere.light.mode.not.supported",
-                                                             myHeader.getSelectedTab().getName()));
+        myResultsList.setEmptyText(DumbUtil.dumbModeMessage(
+          IdeBundle.message("searcheverywhere.indexing.mode.not.supported", myHeader.getSelectedTab().getName()),
+          IdeBundle.message("searcheverywhere.light.mode.not.supported", myHeader.getSelectedTab().getName())));
         myListModel.clear();
         return;
       }
       if (contributors.size() != contributorsMap.size()) {
-        myResultsList.setEmptyText(IdeBundle.dumbModeMessage("searcheverywhere.indexing.incomplete.results",
-                                                             "searcheverywhere.light.mode.incomplete.results",
-                                                             myHeader.getSelectedTab().getName()));
+        myResultsList.setEmptyText(DumbUtil.dumbModeMessage(
+          IdeBundle.message("searcheverywhere.indexing.incomplete.results", myHeader.getSelectedTab().getName()),
+          IdeBundle.message("searcheverywhere.light.mode.incomplete.results", myHeader.getSelectedTab().getName())));
       }
     }
 
@@ -1632,7 +1644,7 @@ public final class SearchEverywhereUI extends BigPopupUI implements UiDataProvid
       Collection<Object> cached = contributors.stream()
         .flatMap(contributor -> myListModel.getFoundItems(contributor).stream())
         .collect(Collectors.toSet());
-      fillUsages(cached, usages, targets);
+      fillUsages(myProject, cached, usages, targets);
 
       Collection<SearchEverywhereContributor<?>> contributorsForAdditionalSearch;
       contributorsForAdditionalSearch = ContainerUtil.filter(contributors, contributor -> myListModel.hasMoreElements(contributor));
@@ -1659,7 +1671,7 @@ public final class SearchEverywhereUI extends BigPopupUI implements UiDataProvid
                 LOG.warn("ShowInFindToolWindowAction: Contributor " + contributor.getSearchProviderId() +" threw and exception during search:", e);
               }
             }
-            fillUsages(foundElements, usages, targets);
+            fillUsages(myProject, foundElements, usages, targets);
           }
 
           <Item> void fetch(SearchEverywhereContributor<Item> contributor,
@@ -1709,7 +1721,8 @@ public final class SearchEverywhereUI extends BigPopupUI implements UiDataProvid
       closePopup();
     }
 
-    private static void fillUsages(Collection<Object> foundElements,
+    private static void fillUsages(Project project,
+                                   Collection<Object> foundElements,
                                    Collection<? super Usage> usages,
                                    Collection<? super PsiElement> targets) {
       for (Object element : foundElements) {
@@ -1723,7 +1736,7 @@ public final class SearchEverywhereUI extends BigPopupUI implements UiDataProvid
       }
 
       ReadAction.runBlocking(() -> foundElements.stream()
-        .map(o -> toPsi(o))
+        .map(o -> toPsi(o, project))
         .filter(Objects::nonNull)
         .forEach(element -> {
           if (element.getTextRange() != null) {
@@ -1917,8 +1930,9 @@ public final class SearchEverywhereUI extends BigPopupUI implements UiDataProvid
       if (pattern.isEmpty()) return;
       boolean showResetScope = myHeader.canResetScope();
 
-      SearchEverywhereEmptyTextProvider provider = StreamEx.of(myHeader.getSelectedTab().getContributors())
-        .select(SearchEverywhereEmptyTextProvider.class)
+      SearchEverywhereEmptyTextProvider provider = myHeader.getSelectedTab().getContributors().stream()
+        .filter(SearchEverywhereEmptyTextProvider.class::isInstance)
+        .map(SearchEverywhereEmptyTextProvider.class::cast)
         .findFirst()
         .orElse(null);
 

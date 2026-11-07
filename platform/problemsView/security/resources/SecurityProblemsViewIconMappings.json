@@ -1,0 +1,19 @@
+{
+  "icons": {
+    "expui": {
+      "severity": {
+        "highAll.svg": "icons/severity/highall.svg",
+        "highAllTree.svg": "icons/severity/highall_tree.svg",
+        "lowAll.svg": "icons/severity/lowall.svg",
+        "lowAllTree.svg": "icons/severity/lowall_tree.svg",
+        "mediumAll.svg": "icons/severity/medall.svg",
+        "mediumAllTree.svg": "icons/severity/medall_tree.svg"
+      },
+      "severity-empty": {
+        "highAllTreeOutline.svg": "icons/severity-empty/highall_tree_outline.svg",
+        "lowAllTreeOutline.svg": "icons/severity-empty/lowall_tree_outline.svg",
+        "mediumAllTreeOutline.svg": "icons/severity-empty/medall_tree_outline.svg"
+      }
+    }
+  }
+}

@@ -11,6 +11,10 @@ jps_test(
 
 ### skip generation section `test intellij.platform.structuralSearch.tests`
 
+### auto-generated section `dev intellij.platform.structuralSearch` start
+content_module_jar(module = ":structuralSearch")
+### auto-generated section `dev intellij.platform.structuralSearch` end
+
 ### auto-generated section `build intellij.platform.structuralSearch` start
 jvm_library(
     name = "structuralSearch",
@@ -60,8 +64,6 @@ jvm_library(
     ],
 )
 
-content_module_jar(module = ":structuralSearch")
-
 jvm_library(
     name = "structuralSearch_test_lib",
     testonly = True,
@@ -110,7 +112,6 @@ exports_files(
     [
         "intellij.platform.structuralSearch.iml",
         "resources/intellij.platform.structuralSearch.xml",
-        "module-content.yaml",
     ],
     visibility = ["//visibility:public"],
 )
@@ -128,9 +129,11 @@ jvm_library(
     runtime_deps = [
         # do not sort,
         "//platform/platform-impl/internal",
+        "//platform/vcs/plugin",
         "//platform/structuralsearch:structuralSearch",
         "//platform/structuralsearch/plugin",
         "//xml/impl",
+        "//xml/plugin",
     ],
 )
 
@@ -151,7 +154,9 @@ jvm_library(
         # do not sort,
         ":structuralSearch-tests",
         "//platform/platform-impl/internal:internal_test_lib",
+        "//platform/vcs/plugin:plugin_test_lib",
         "//platform/ide-core:ide-core_test_lib",
+        "//xml/plugin:plugin_test_lib",
     ],
     deps = [
         # do not sort,

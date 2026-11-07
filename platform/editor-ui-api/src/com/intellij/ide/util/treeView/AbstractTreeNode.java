@@ -34,7 +34,8 @@ import java.util.Map;
 public abstract class AbstractTreeNode<T> extends PresentableNodeDescriptor<AbstractTreeNode<T>>
   implements NavigationItem, Queryable.Contributor, LeafState.Supplier {
 
-  private static final TextAttributesKey FILESTATUS_ERRORS = TextAttributesKey.createTextAttributesKey("FILESTATUS_ERRORS");
+  @ApiStatus.Internal
+  protected static final TextAttributesKey FILESTATUS_ERRORS = TextAttributesKey.createTextAttributesKey("FILESTATUS_ERRORS");
   private static final Logger LOG = Logger.getInstance(AbstractTreeNode.class);
   private AbstractTreeNode<?> parent;
   private Object myValue;
@@ -148,6 +149,19 @@ public abstract class AbstractTreeNode<T> extends PresentableNodeDescriptor<Abst
    */
   public boolean isAutoExpandAllowed() {
     return true;
+  }
+
+  /**
+   * Determines whether the node should be initially expanded if it's at the top level.
+   * <p>
+   *   Works only if it's the only top-level node that returns {@code true}.
+   *   For example, if we have a module, External Libraries and Scratches and Consoles at the top,
+   *   the module will be expanded. If we have several modules at the top, none of them will be expanded.
+   * </p>
+   * @return {@code false} in the default implementation, override for directory-like nodes to {@code true}
+   */
+  public boolean shouldBeInitiallyExpanded() {
+    return false;
   }
 
   @Override

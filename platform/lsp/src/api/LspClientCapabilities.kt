@@ -56,7 +56,6 @@ import org.eclipse.lsp4j.SemanticTokensClientCapabilitiesRequestsFull
 import org.eclipse.lsp4j.SemanticTokensWorkspaceCapabilities
 import org.eclipse.lsp4j.ShowDocumentCapabilities
 import org.eclipse.lsp4j.SignatureHelpCapabilities
-import org.eclipse.lsp4j.SignatureInformationCapabilities
 import org.eclipse.lsp4j.StaleRequestCapabilities
 import org.eclipse.lsp4j.SymbolCapabilities
 import org.eclipse.lsp4j.SymbolKindCapabilities
@@ -64,6 +63,7 @@ import org.eclipse.lsp4j.SymbolTag
 import org.eclipse.lsp4j.SymbolTagSupportCapabilities
 import org.eclipse.lsp4j.SynchronizationCapabilities
 import org.eclipse.lsp4j.TextDocumentClientCapabilities
+import org.eclipse.lsp4j.TextDocumentContentCapabilities
 import org.eclipse.lsp4j.TokenFormat
 import org.eclipse.lsp4j.TypeDefinitionCapabilities
 import org.eclipse.lsp4j.TypeHierarchyCapabilities
@@ -89,6 +89,8 @@ internal fun createClientCapabilities(lspCustomization: LspCustomization): Clien
       relativePatternSupport = true
     }
     executeCommand = ExecuteCommandCapabilities(false)
+    // static only: the client reads `workspace.textDocumentContent.schemes` from the initialize result
+    textDocumentContent = TextDocumentContentCapabilities(false)
     semanticTokens = SemanticTokensWorkspaceCapabilities().apply {
       refreshSupport = true
     }
@@ -144,18 +146,20 @@ internal fun createClientCapabilities(lspCustomization: LspCustomization): Clien
       }
       completionList = CompletionListCapabilities().apply {
         itemDefaults = listOf("commitCharacters", "editRange", "insertTextFormat", "insertTextMode", "data")
+        applyKindSupport = true
       }
     }
     hover = HoverCapabilities().apply {
       contentFormat = listOf(MarkupKind.MARKDOWN, MarkupKind.PLAINTEXT)
     }
     signatureHelp = SignatureHelpCapabilities(true).apply {
-      signatureInformation = SignatureInformationCapabilities().apply {
+      signatureInformation = SignatureInformationCapabilitiesWithNoActiveParameterSupport().apply {
         documentationFormat = listOf(MarkupKind.MARKDOWN, MarkupKind.PLAINTEXT)
         parameterInformation = ParameterInformationCapabilities().apply {
           labelOffsetSupport = true
         }
         activeParameterSupport = true
+        noActiveParameterSupport = true
       }
     }
     documentSymbol = DocumentSymbolCapabilities().apply {
@@ -210,6 +214,8 @@ internal fun createClientCapabilities(lspCustomization: LspCustomization): Clien
                 CodeActionKind.Empty,
                 CodeActionKind.Source,
                 CodeActionKind.Refactor,
+                CodeActionKind.RefactorInline,
+                CodeActionKind.RefactorExtract,
             )
         )
       }

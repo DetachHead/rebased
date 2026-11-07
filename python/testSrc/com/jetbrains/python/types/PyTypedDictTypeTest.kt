@@ -107,6 +107,27 @@ class PyTypedDictTypeTest : PyCodeInsightTestCase() {
       """.trimIndent())
 
     @Test
+    @TestFor(issues = ["PY-91533"])
+    fun `subscripting a non-generic TypedDict declaration`() = test("""
+      from typing import TypedDict
+      class Movie(TypedDict):
+          name: str
+      expr = Movie["name"]
+      # │          ^^^^^^ WARNING Class 'Movie' is not generic
+      # └ TYPE type[Movie]
+      """)
+
+    @Test
+    @TestFor(issues = ["PY-91533"])
+    fun `subscripting a generic TypedDict declaration`() = test("""
+      from typing import TypedDict
+      class Box[T](TypedDict):
+          value: T
+      expr = Box[int]
+      # └ TYPE type[Box[int]]
+      """)
+
+    @Test
     @TestFor(issues = ["PY-36008"])
     fun `get of required key`() = test("""
       from typing import TypedDict
@@ -218,6 +239,593 @@ class PyTypedDictTypeTest : PyCodeInsightTestCase() {
           expr = x
       #   └ TYPE Movie
       """.trimIndent())
+  }
+
+  @Nested
+  inner class RecursiveTypedDicts {
+    @Test
+    @TestFor(issues = ["PY-85440", "PY-91571"])
+    fun `directly recursive item type`() = test("""
+      from typing import TypedDict
+
+      class Node(TypedDict):
+          parent: "Node"
+
+      def f(n: Node):
+          expr = n["parent"]["parent"]["parent"]
+      #   └ TYPE Node
+      """)
+
+    @Test
+    @TestFor(issues = ["PY-85440", "PY-91571"])
+    // The repro PY-85440 is filed with, where the reference to the TypedDict being declared needs no quotes.
+    fun `item type referring to the TypedDict being declared`() = test("""
+      from typing import TypedDict
+
+      class Category(TypedDict):
+          name: str
+          sub: list[Category]
+
+      def f(cat: Category):
+          expr = cat["sub"]
+      #   └ TYPE list[Category]
+      """)
+
+    @Test
+    @TestFor(issues = ["PY-85440", "PY-91571"])
+    fun `item type referring to the TypedDict being declared under future annotations`() = test("""
+      from __future__ import annotations
+      from typing import TypedDict
+
+      class Category(TypedDict):
+          name: str
+          sub: list[Category]
+
+      def f(cat: Category):
+          expr = cat["sub"]
+      #   └ TYPE list[Category]
+      """)
+
+    @Test
+    @TestFor(issues = ["PY-85440", "PY-91571"])
+    fun `recursive item type inside a container`() = test("""
+      from typing import TypedDict
+
+      class Category(TypedDict):
+          name: str
+          sub: list["Category"]
+
+      def f(cat: Category):
+          expr = cat["sub"]
+      #   └ TYPE list[Category]
+      """)
+
+    @Test
+    @TestFor(issues = ["PY-85440", "PY-91571"])
+    fun `mutually recursive item types`() = test("""
+      from typing import TypedDict
+
+      class A(TypedDict):
+          b: "B"
+
+      class B(TypedDict):
+          a: "A"
+
+      def f(a: A):
+          expr = a["b"]["a"]["b"]
+      #   └ TYPE B
+      """)
+
+    @Test
+    @TestFor(issues = ["PY-85440", "PY-91571"])
+    fun `dict literal matched against a recursive TypedDict`() = test("""
+      from typing import TypedDict
+
+      class Node(TypedDict):
+          name: str
+          parent: "Node"
+
+      n: Node = {"name": "a", "parent": {"name": "b", "parent": {"name": "c"}}}
+      #                                                         ^^^^^^^^^^^^^ WARNING TypedDict 'Node' has missing key: 'parent'
+      """)
+
+    @Test
+    @TestFor(issues = ["PY-85440", "PY-91571"])
+    fun `recursive TypedDict constructor call`() = test("""
+      from typing import TypedDict
+
+      class Node(TypedDict):
+          name: str
+          parent: "Node"
+
+      def f(n: Node):
+          expr = Node(name="a", parent=n)
+      #   └ TYPE Node
+          Node(name="a", parent="wrong")
+      #                  ^^^^^^^^^^^^^^ WARNING Expected type 'Node', got 'Literal["wrong"]' instead
+      """)
+
+    @Test
+    @TestFor(issues = ["PY-85440", "PY-91571"])
+    fun `Unpack of a recursive TypedDict`() = test("""
+      from typing import TypedDict, Unpack
+
+      class Node(TypedDict):
+          name: str
+          parent: "Node"
+
+      def g(**kwargs: Unpack[Node]) -> None: ...
+
+      def f(n: Node):
+          g(name="a", parent=n)
+          g(name="a", parent=1)
+      #               ^^^^^^^^ WARNING Expected type 'Node', got 'Literal[1]' instead
+      """)
+
+    @Test
+    @TestFor(issues = ["PY-85440", "PY-91571"])
+    // Structural matching of two recursive TypedDicts relies on the recursion guard in PyTypeChecker.match,
+    // which treats a repeated (expected, actual) pair as a match, so the assertion on recursion prevention has
+    // to be off here.
+    @TestCaseOptions(assertRecursionPrevention = false)
+    fun `assignability between recursive TypedDicts`() = test("""
+      from typing import TypedDict
+
+      class Node(TypedDict):
+          v: int
+          parent: "Node"
+
+      class Same(TypedDict):
+          v: int
+          parent: "Same"
+
+      class Other(TypedDict):
+          v: str
+          parent: "Other"
+
+      def f(same: Same, other: Other):
+          ok: Node = same
+          bad: Node = other
+      #               ^^^^^ WARNING Expected type 'Node', got 'Other' instead
+      """)
+
+    @Test
+    @TestFor(issues = ["PY-85440", "PY-91571", "PY-91630"])
+    fun `recursive generic TypedDict`() = test("""
+      from typing import TypedDict
+
+      class Tree[T](TypedDict):
+          value: T
+          children: list["Tree[T]"]
+
+      def f(t: Tree[int]):
+          expr = t["children"]
+      #   └ TYPE list[Tree[int]]
+      """)
+
+    @Test
+    @TestFor(issues = ["PY-85440", "PY-91571", "PY-91630"])
+    fun `recursive generic TypedDict traversed several levels deep`() = test("""
+      from typing import TypedDict
+
+      class Tree[T](TypedDict):
+          value: T
+          children: list["Tree[T]"]
+
+      def f(t: Tree[str]):
+          expr = t["children"][0]["children"][0]["value"]
+      #   └ TYPE str
+      """)
+
+    @Test
+    @TestFor(issues = ["PY-85440", "PY-91571"])
+    fun `recursive TypedDict in the functional syntax`() = test("""
+      from typing import TypedDict
+
+      Node = TypedDict("Node", {"name": str, "parent": "Node"})
+      #                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ WARNING Expected type 'dict[str, type]', got 'dict[Literal["name", "parent"], type[str] | Literal["Node"]]' instead
+
+      def f(n: Node):
+          expr = n["parent"]["parent"]
+      #   └ TYPE Node
+      """)
+
+    @Test
+    @TestFor(issues = ["PY-85440", "PY-91571"])
+    fun `recursion through a type alias`() = test("""
+      from typing import TypedDict
+
+      type NodeAlias = Node
+
+      class Node(TypedDict):
+          parent: NodeAlias
+
+      def f(n: Node):
+          expr = n["parent"]["parent"]
+      #   └ TYPE Node
+      """)
+
+    @Test
+    @TestFor(issues = ["PY-85440", "PY-91571"])
+    fun `mutually recursive TypedDicts from another file`() = test(
+      """
+      from other import A
+
+      def f(a: A):
+          expr = a["b"]["a"]["b"]
+      #   └ TYPE B
+      """,
+      "other.py" to """
+        from typing import TypedDict
+
+        class A(TypedDict):
+            b: "B"
+
+        class B(TypedDict):
+            a: "A"
+        """)
+
+    @Test
+    @TestFor(issues = ["PY-85440", "PY-91571"])
+    fun `recursive extra_items`() = test("""
+      from typing_extensions import TypedDict
+
+      class Node(TypedDict, extra_items="Node"):
+          name: str
+
+      def f(n: Node):
+          expr = n["whatever"]["whatever"]
+      #   └ TYPE Node
+      """)
+
+    @Test
+    @TestFor(issues = ["PY-85440", "PY-91571"])
+    fun `recursive extra_items in functional syntax`() = test("""
+      from typing_extensions import TypedDict
+
+      Node = TypedDict("Node", {"name": str}, extra_items="Node")
+      #                                       ^^^^^^^^^^^^^^^^^^ WARNING Expected type 'type', got 'Literal["Node"]' instead
+
+      def f(n: Node):
+          expr = n["whatever"]["whatever"]
+      #   └ TYPE Node
+      """)
+
+    @Test
+    @TestFor(issues = ["PY-85440", "PY-91571"])
+    fun `recursive inherited extra_items`() = test("""
+      from typing_extensions import TypedDict
+
+      class Base(TypedDict, extra_items="Child"):
+          pass
+
+      class Child(Base):
+          pass
+
+      def f(c: Child):
+          expr = c["whatever"]["whatever"]
+      #   └ TYPE Child
+      """)
+  }
+
+  @Nested
+  inner class GenericTypedDicts {
+    @Test
+    @TestFor(issues = ["PY-85440", "PY-91630"])
+    fun `item type substituted with the type argument`() = test("""
+      from typing import TypedDict
+
+      class Box[T](TypedDict):
+          value: T
+
+      def f(b: Box[int]):
+          expr = b["value"]
+      #   └ TYPE int
+      """)
+
+    @Test
+    @TestFor(issues = ["PY-85440", "PY-91630"])
+    fun `item type substituted in the pre-695 syntax`() = test("""
+      from typing import TypedDict, TypeVar, Generic
+
+      T = TypeVar("T")
+
+      class Box(TypedDict, Generic[T]):
+          value: T
+
+      def f(b: Box[int]):
+          expr = b["value"]
+      #   └ TYPE int
+      """)
+
+    @Test
+    @TestFor(issues = ["PY-85440", "PY-91630"])
+    fun `dict literal checked against the substituted item type`() = test("""
+      from typing import TypedDict
+
+      class Box[T](TypedDict):
+          value: T
+
+      b: Box[int] = {"value": "wrong"}
+      #                       ^^^^^^^ WARNING Expected type 'int', got 'str' instead
+      """)
+
+    @Test
+    @TestFor(issues = ["PY-85440", "PY-91630"])
+    fun `item qualifiers survive parameterization`() = test("""
+      from typing import TypedDict, NotRequired, ReadOnly
+
+      class Box[T](TypedDict):
+          value: NotRequired[T]
+
+      class Frozen[T](TypedDict):
+          value: ReadOnly[T]
+
+      b: Box[int] = {}
+
+      def f(frozen: Frozen[int]):
+          frozen["value"] = 1
+      #   ^^^^^^^^^^^^^^^ WARNING TypedDict key "value" is ReadOnly
+      """)
+
+    @Test
+    @TestFor(issues = ["PY-85440", "PY-91630"])
+    fun `TypeVarTuple parameters`() = test("""
+      from typing import TypedDict
+
+      class Variadic[*Ts](TypedDict):
+          values: tuple[*Ts]
+
+      def f(v: Variadic[int, str]):
+          expr = v
+      #   └ TYPE Variadic[int, str]
+          items = v["values"]
+      #   └ TYPE tuple[int, str]
+      """)
+
+    @Test
+    @TestFor(issues = ["PY-85440", "PY-91630"])
+    fun `ParamSpec parameter`() = test("""
+      from typing import TypedDict, Callable
+
+      class Handler[**P](TypedDict):
+          fn: Callable[P, None]
+
+      def f(h: Handler[[int, str]]):
+          expr = h["fn"]
+      #   └ TYPE (int, str) -> None
+      """)
+
+    @Test
+    @TestFor(issues = ["PY-85440", "PY-91630"])
+    fun `specialized generic base`() = test("""
+      from typing import TypedDict
+
+      class Base[T](TypedDict):
+          value: T
+
+      class Child(Base[int]):
+          pass
+
+      def f(c: Child, wrong: Child[str]):
+      #                            ^^^ WARNING Class 'Child' is not generic
+          base = Base[int]
+      #   └ TYPE type[Base[int]]
+          expr = c["value"]
+      #   └ TYPE int
+      """)
+
+    @Test
+    @TestFor(issues = ["PY-85440", "PY-91630"])
+    fun `partially specialized generic base`() = test("""
+      from typing import TypedDict
+
+      class Base[T](TypedDict):
+          value: T
+
+      class Child[S](Base[list[S]]):
+          tag: S
+
+      def f(c: Child[int]):
+          inherited = c["value"]
+      #   └ TYPE list[int]
+          own = c["tag"]
+      #   └ TYPE int
+      """)
+
+    @Test
+    @TestFor(issues = ["PY-62524", "PY-91630"])
+    fun `generic base specialized with the descendant's own parameter`() = test("""
+      from typing import Generic, TypeVar, TypedDict
+
+      T = TypeVar("T")
+
+      class Base(TypedDict, Generic[T]):
+          value: T
+
+      class Child(Base[T]):
+          pass
+
+      def f(c: Child[int]):
+          expr = c["value"]
+      #   └ TYPE int
+      """)
+
+    @Test
+    @TestFor(issues = ["PY-85440", "PY-91630"])
+    fun `specialized generic base in pre-695 syntax`() = test("""
+      from typing import Generic, TypeVar, TypedDict
+
+      T = TypeVar("T")
+
+      class Base(TypedDict, Generic[T]):
+          value: T
+
+      class Child(Base[int]):
+          pass
+
+      def f(c: Child):
+          expr = c["value"]
+      #   └ TYPE int
+      """)
+
+    @Test
+    @TestFor(issues = ["PY-85440", "PY-91630"])
+    fun `specialized generic base from another file`() = test(
+      """
+      from other import Child
+
+      def f(c: Child):
+          expr = c["value"]
+      #   └ TYPE int
+          extra = c["missing"]
+      #   └ TYPE int
+      """,
+      "other.py" to """
+        from typing_extensions import TypedDict
+
+        class Base[T](TypedDict, extra_items=T):
+            value: T
+
+        class Child(Base[int]):
+            pass
+        """,
+    )
+
+    @Test
+    @TestFor(issues = ["PY-85440", "PY-91630"])
+    fun `specialized generic base substitutes inherited extra_items`() = test("""
+      from typing_extensions import TypedDict
+
+      class Base[T](TypedDict, extra_items=T):
+          pass
+
+      class Child(Base[int]):
+          pass
+
+      def f(base: Base[int], c: Child):
+          direct = base["other"]
+      #   └ TYPE int
+          expr = c["other"]
+      #   └ TYPE int
+      """)
+
+    @Test
+    @TestFor(issues = ["PY-85440", "PY-91630"])
+    fun `TypedDicts parameterized differently are not assignable`() = test("""
+      from typing import TypedDict
+
+      class Box[T](TypedDict):
+          value: T
+
+      def f(b: Box[int]):
+          same: Box[int] = b
+          other: Box[str] = b
+      #                     └ WARNING Expected type 'Box[str]', got 'Box[int]' instead
+      """)
+
+    @Test
+    @TestFor(issues = ["PY-85440", "PY-91630"])
+    fun `structurally equal generic TypedDicts are assignable`() = test("""
+      from typing import TypedDict
+
+      class A[T](TypedDict):
+          value: T
+
+      class B[T](TypedDict):
+          value: T
+
+      def f(b: B[int]):
+          a: A[int] = b
+      """)
+
+    @Test
+    @TestFor(issues = ["PY-85440", "PY-91630"])
+    fun `generic TypedDicts with incompatible item types are not assignable`() = test("""
+      from typing import TypedDict
+
+      class A[T](TypedDict):
+          value: T
+
+      class B[T](TypedDict):
+          value: T
+
+      def f(b: B[str]):
+          a: A[int] = b
+      #               └ WARNING Expected type 'A[int]', got 'B[str]' instead
+      """)
+
+    @Test
+    @TestFor(issues = ["PY-85440"])
+    fun `bound method of a generic TypedDict`() = test("""
+      from typing import TypedDict
+
+      class D[T](TypedDict):
+          f1: str
+          f2: T
+
+      td: D[int]
+      td.get("f2")
+      #  ^^^ TYPE (key: str, default: Any) -> int
+      """)
+
+    @Test
+    @TestFor(issues = ["PY-85440"])
+    fun `get of a generic TypedDict`() = test("""
+      from typing import TypedDict
+
+      class D[T](TypedDict):
+          f1: str
+          f2: T
+
+      def f(td: D[int]):
+          expr = td.get("f2")
+      #   └ TYPE int
+      """)
+
+    @Test
+    @TestFor(issues = ["PY-85440"])
+    fun `values of a generic TypedDict`() = test("""
+      from typing import TypedDict
+
+      class D[T](TypedDict):
+          f1: str
+          f2: T
+
+      def f(td: D[int]):
+          expr = td.values()
+      #   └ TYPE list[str | int | Unknown]
+      """)
+
+    @Test
+    @TestFor(issues = ["PY-85440"])
+    fun `items of a generic TypedDict`() = test("""
+      from typing import TypedDict
+
+      class D[T](TypedDict):
+          f1: str
+          f2: T
+
+      def f(td: D[int]):
+          expr = td.items()
+      #   └ TYPE list[tuple[str, str | int | Unknown]]
+      """)
+
+    @Test
+    @TestFor(issues = ["PY-85440"])
+    fun `popitem of a generic TypedDict`() = test("""
+      from typing import TypedDict
+
+      class D[T](TypedDict):
+          f1: str
+          f2: T
+
+      def f(td: D[int]):
+          expr = td.popitem()
+      #   │         ^^^^^^^ WARNING This operation might break TypedDict consistency
+      #   └ TYPE tuple[str, str | int | Unknown]
+      """)
+
   }
 
   @Nested
@@ -596,7 +1204,7 @@ class PyTypedDictTypeTest : PyCodeInsightTestCase() {
 
       a: Address | None = {"street": "Pine"}
       b: Address | None = {"color": "red"}
-      #                   ^^^^^^^^^^^^^^^^ WARNING Expected type 'Address | None', got 'dict[Literal["color"], Literal["red"]]' instead
+      #                   ^^^^^^^^^^^^^^^^ WARNING Expected type 'Address | None', got 'dict[str, str]' instead
       """.trimIndent())
 
     @Test
@@ -616,7 +1224,7 @@ class PyTypedDictTypeTest : PyCodeInsightTestCase() {
       first: A | B | C = {"a": "x"}
       last:  A | B | C = {"c": 1}
       none:  A | B | C = {"z": 1}
-      #                  ^^^^^^^^ WARNING Expected type 'A | B | C', got 'dict[Literal["z"], Literal[1]]' instead
+      #                  ^^^^^^^^ WARNING Expected type 'A | B | C', got 'dict[str, int]' instead
       """.trimIndent())
 
     @Test
@@ -647,13 +1255,13 @@ class PyTypedDictTypeTest : PyCodeInsightTestCase() {
       foo: Foo = {"foo": "bar"}
       foo_list1: list[Foo] = [{"foo": bar} for bar in ["bar"]]
       foo_list2: list[Foo] = [{"foo": bar, "buz": "qux"} for bar in ["bar"]]
-      #                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ WARNING Expected type 'list[Foo]', got 'list[dict[Literal["foo", "buz"], str | Literal["qux"]]]' instead
+      #                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ WARNING Expected type 'list[Foo]', got 'list[dict[str, str]]' instead
       foo_set1: set[Foo] = {{"foo": bar} for bar in ["bar"]}
       foo_set2: set[Foo] = {{"foo": bar, "buz": "qux"} for bar in ["bar"]}
-      #                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ WARNING Expected type 'set[Foo]', got 'set[dict[Literal["foo", "buz"], str | Literal["qux"]]]' instead
+      #                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ WARNING Expected type 'set[Foo]', got 'set[dict[str, str]]' instead
       foo_dict1: dict[str, Foo] = {bar: {"foo": bar} for bar in ["bar"]}
       foo_dict2: dict[str, Foo] = {bar: {"foo": bar, "buz": "qux"} for bar in ["bar"]}
-      #                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ WARNING Expected type 'dict[str, Foo]', got 'dict[str, dict[Literal["foo", "buz"], str | Literal["qux"]]]' instead
+      #                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ WARNING Expected type 'dict[str, Foo]', got 'dict[str, dict[str, str]]' instead
       """.trimIndent())
 
     @Test
@@ -931,12 +1539,12 @@ class PyTypedDictTypeTest : PyCodeInsightTestCase() {
           year: int
 
       movies1: list[Movie] = [
-      #                      └ WARNING Expected type 'list[Movie]', got 'list[Movie | dict[Literal["title"], Literal["The Matrix"]]]' instead
+      #                      └ WARNING Expected type 'list[Movie]', got 'list[dict[str, str | int] | dict[str, str]]' instead
           {"title": "Blade Runner", "year": 1982}, # OK
           {"title": "The Matrix"},
       ]
       movies2: list[Movie] = [
-      #                      └ WARNING Expected type 'list[Movie]', got 'list[dict[Literal["title"], Literal["The Matrix"]]]' instead
+      #                      └ WARNING Expected type 'list[Movie]', got 'list[dict[str, str]]' instead
           {"title": "The Matrix"},
       ]
 
@@ -1419,6 +2027,23 @@ class PyTypedDictTypeTest : PyCodeInsightTestCase() {
   }
 
   @Test
+  @TestFor(issues = ["PY-85440"])
+  fun `subscription does not depend on unrelated items`() = test("""
+    from typing_extensions import TypedDict
+
+    class Mixed(TypedDict, extra_items=str):
+        good: int
+        broken: undefined_name
+    #           ^^^^^^^^^^^^^^ ERROR Unresolved reference 'undefined_name'
+
+    def f(m: Mixed):
+        known = m["good"]
+    #   └ TYPE int
+        extra = m["other"]
+    #   └ TYPE str
+    """)
+
+  @Test
   @TestFor(issues = ["PY-90291"])
   fun `TypedDict as Mapping or dict`() = test("""
     from typing import Mapping, TypedDict, NotRequired
@@ -1508,12 +2133,11 @@ class PyTypedDictTypeTest : PyCodeInsightTestCase() {
     class Group(TypedDict, Generic[T]):
         key: T
         group: list[T]
-    class GroupWithOtherKey(Group, Generic[T1]):
+    class GroupWithOtherKey(Group[T], Generic[T, T1]):
         some_other_key: T1
     group: GroupWithOtherKey[str, int] = {"key": 1, "group": [], "some_other_key": ''}
-    #                        │                   │                                 ^^ WARNING Expected type 'int', got 'str' instead
-    #                        │                   └ WARNING Expected type 'str', got 'int' instead
-    #                        ^^^^^^^^ WARNING Passed type arguments do not match type parameters [T1] of class 'GroupWithOtherKey'
+    #                                            │                                 ^^ WARNING Expected type 'int', got 'str' instead
+    #                                            └ WARNING Expected type 'str', got 'int' instead
     """.trimIndent())
 
   @Test

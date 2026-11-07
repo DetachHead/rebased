@@ -8,13 +8,13 @@ import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.util.io.OSAgnosticPathUtil
 import com.intellij.platform.eel.EelDescriptor
 import com.intellij.platform.eel.EelPathBoundDescriptor
-import com.intellij.platform.eel.annotations.MultiRoutingFileSystemPath
-import com.intellij.platform.eel.annotations.NativePath
 import com.intellij.platform.eel.path.EelPath
 import com.intellij.platform.eel.path.EelPathException
 import com.intellij.platform.eel.pathSeparator
 import com.intellij.platform.eel.provider.LocalEelDescriptor
 import com.intellij.platform.eel.provider.asEelPath
+import com.intellij.platform.util.annotations.paths.NioPath
+import com.intellij.platform.util.annotations.paths.OsPath
 import com.intellij.util.PathUtil
 import com.intellij.util.asSafely
 import org.jetbrains.annotations.ApiStatus
@@ -81,7 +81,7 @@ class TerminalLocalPathTranslator(private val descriptor: EelDescriptor) {
    * @return The translated native path within [descriptor], or `null` if
    *         [absolutePathString] is not absolute, or it cannot be translated.
    */
-  fun translateAbsoluteLocalPathStringToRemote(absolutePathString: @MultiRoutingFileSystemPath String): @NativePath String? {
+  fun translateAbsoluteLocalPathStringToRemote(absolutePathString: @NioPath String): @OsPath String? {
     if (absolutePathString.isBlank()) return null
     val path: Path = try {
       Path.of(absolutePathString)
@@ -100,7 +100,7 @@ class TerminalLocalPathTranslator(private val descriptor: EelDescriptor) {
    * @return The translated [EelPath] representing the native path within [descriptor], or `null` if
    *         [absolutePath] is not absolute, or it cannot be translated.
    */
-  fun translateAbsoluteLocalPathToRemote(absolutePath: @MultiRoutingFileSystemPath Path): EelPath? {
+  fun translateAbsoluteLocalPathToRemote(absolutePath: Path): EelPath? {
     if (!absolutePath.isAbsolute) {
       LOG.debug { "Failed to translate not absolute $absolutePath, skipping" }
       return null

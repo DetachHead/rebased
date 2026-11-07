@@ -7,14 +7,17 @@ filegroup(
     visibility = ["//visibility:public"],
 )
 
-# Checkout directories that plugin layouts copy into a distribution verbatim (`withResource*`). They are
-# resolved against the module content root and exist in no jar, so a dev assembly that materializes its own
-# project tree has to declare them. Consumed through `ULTIMATE_EXTRA_PROJECT_FILES`.
+### auto-generated section `dev intellij.textmate` start
+content_module_jar(module = ":textmate")
+
 filegroup(
     name = "dev_dist_resources",
-    srcs = glob(["lib/bundles/**"]),
+    srcs = glob(
+        ["lib/bundles/**"],
+    ),
     visibility = ["//visibility:public"],
 )
+### auto-generated section `dev intellij.textmate` end
 
 ### auto-generated section `build intellij.textmate` start
 jvm_library(
@@ -54,10 +57,10 @@ jvm_library(
         "//plugins/textmate/joni",
         "//platform/core-ui",
         "//platform/editor-ui-ex:editor-ex",
-        "//libraries/jackson/jackson",
+        "//libraries/jackson3/jackson:libraries-jackson3",
         "//platform/util:util-ui",
-        "//libraries/jackson/databind",
-        "//libraries/jackson/dataformat-yaml:libraries-jackson-dataformat-yaml",
+        "//libraries/jackson3/databind",
+        "//libraries/jackson3/dataformat-yaml:libraries-jackson3-dataformat-yaml",
         "//libraries/snakeyaml",
         "//platform/platform-impl:ide-impl",
         "//libraries/kotlinx/serialization/core",
@@ -70,8 +73,6 @@ jvm_library(
         "//libraries/kotlinx/collections-immutable:libraries-kotlinx-collections-immutable",
     ],
 )
-
-content_module_jar(module = ":textmate")
 
 jvm_library(
     name = "textmate_test_lib",
@@ -106,10 +107,10 @@ jvm_library(
         "//plugins/textmate/joni:joni_test_lib",
         "//platform/core-ui:core-ui_test_lib",
         "//platform/editor-ui-ex:editor-ex_test_lib",
-        "//libraries/jackson/jackson:jackson_test_lib",
+        "//libraries/jackson3/jackson:libraries-jackson3_test_lib",
         "//platform/util:util-ui_test_lib",
-        "//libraries/jackson/databind:databind_test_lib",
-        "//libraries/jackson/dataformat-yaml:libraries-jackson-dataformat-yaml_test_lib",
+        "//libraries/jackson3/databind:databind_test_lib",
+        "//libraries/jackson3/dataformat-yaml:libraries-jackson3-dataformat-yaml_test_lib",
         "//libraries/snakeyaml:snakeyaml_test_lib",
         "//platform/platform-impl:ide-impl_test_lib",
         "//libraries/kotlinx/serialization/core:core_test_lib",

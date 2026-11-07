@@ -1,6 +1,6 @@
-// HIGHLIGHT: INFORMATION
+// HIGHLIGHT: WARNING
 // FIX: Replace 'if' expression with safe cast expression
-// FIR_COMPARISON
+
 interface Foo
 interface Bar : Foo
 

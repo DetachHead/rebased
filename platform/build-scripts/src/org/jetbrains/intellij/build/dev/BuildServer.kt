@@ -1,178 +1,97 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
-@file:Suppress("ReplacePutWithAssignment", "ReplaceGetOrSet")
+@file:Suppress("ReplaceGetOrSet")
 
 package org.jetbrains.intellij.build.dev
 
-import com.intellij.platform.buildData.productInfo.CustomCommandLaunchData
-import com.intellij.platform.buildData.productInfo.ProductInfoData
-import kotlinx.coroutines.NonCancellable
-import kotlinx.coroutines.withContext
-import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.decodeFromStream
 import org.jetbrains.annotations.ApiStatus
+import org.jetbrains.intellij.build.BuildLifetime
 import org.jetbrains.intellij.build.BuildOptions
+import org.jetbrains.intellij.build.JvmArchitecture
 import org.jetbrains.intellij.build.OsFamily
-import org.jetbrains.intellij.build.VmProperties
-import org.jetbrains.intellij.build.closeKtorClient
-import org.jetbrains.intellij.build.impl.productInfo.PRODUCT_INFO_FILE_NAME
+import org.jetbrains.intellij.build.impl.productInfo.ProductLaunchModel
+import org.jetbrains.intellij.build.impl.productInfo.computeDevProductLaunchModel
 import org.jetbrains.intellij.build.productLayout.discovery.PRODUCT_REGISTRY_PATH
 import org.jetbrains.intellij.build.productLayout.discovery.ProductConfiguration
 import org.jetbrains.intellij.build.productLayout.discovery.ProductConfigurationRegistry
 import org.jetbrains.intellij.build.telemetry.TraceManager
 import org.jetbrains.intellij.build.telemetry.use
-import tools.jackson.core.JsonToken
-import tools.jackson.core.ObjectReadContext
-import tools.jackson.core.json.JsonFactory
 import java.nio.file.Files
 import java.nio.file.Path
-import java.util.Properties
-import kotlin.io.path.inputStream
-import kotlin.io.path.readLines
+import kotlin.io.path.invariantSeparatorsPathString
 
 /**
  * Custom path for product properties
  */
 private const val CUSTOM_PRODUCT_PROPERTIES_PATH = "idea.product.properties.path"
 
-/**
- * Returns system properties which should be set for the IDE process.
- * This function should be used only if the IDE is started in the same process.
- * It's better to start the IDE in a separate process and use [readVmOptions] to pass all necessary VM options to it. 
- */
-fun getIdeSystemProperties(runDir: Path): VmProperties {
-  val result = LinkedHashMap<String, String>()
-
-  val properties = Properties()
-  // we need this only because PathManager take idea.properties to the sources if 'idea.use.dev.build.server' is set to 'true'
-  properties.load(Files.newInputStream(runDir.resolve("bin/idea.properties")))
-  for (property in properties) {
-    result.put(property.key.toString(), property.value.toString())
-  }
-
-  val vmOptions = readVmOptions(runDir)
-  vmOptions.asSequence()
-    .filter { it.startsWith("-D") }
-    .map { it.removePrefix("-D") }
-    .associateByTo(result, { it.substringBefore('=') }, { it.substringAfter('=', "") })
-
-  return VmProperties(result)
-}
-
-/**
- * Extracts additionalJvmArguments from the first launch configuration in product-info.json using Jackson streaming parser.
- * This avoids loading the entire JSON structure into memory when we only need a small subset of data.
- */
-private fun extractAdditionalJvmArguments(productInfoFile: Path): List<String> {
-  val result = mutableListOf<String>()
-  val jsonFactory = JsonFactory()
-
-  productInfoFile.inputStream().use { input ->
-    jsonFactory.createParser(ObjectReadContext.empty(), input).use { parser ->
-      // Find the "launch" array
-      while (parser.nextToken() != null) {
-        if (parser.currentToken() == JsonToken.PROPERTY_NAME && parser.currentName() == "launch") {
-          // Move to START_ARRAY
-          parser.nextToken()
-          // Move to first object in array (START_OBJECT)
-          parser.nextToken()
-
-          // Find "additionalJvmArguments" in the first launch config
-          while (parser.nextToken() != JsonToken.END_OBJECT) {
-            if (parser.currentToken() == JsonToken.PROPERTY_NAME && parser.currentName() == "additionalJvmArguments") {
-              // Move to START_ARRAY
-              parser.nextToken()
-
-              // Read all string values from the array
-              while (parser.nextToken() != JsonToken.END_ARRAY) {
-                if (parser.currentToken() == JsonToken.VALUE_STRING) {
-                  result.add(parser.string)
-                }
-              }
-
-              // We found what we need, stop parsing
-              return result
-            }
-          }
-        }
-      }
-    }
-  }
-
-  return result
-}
-
-fun readVmOptions(runDir: Path): List<String> {
-  val result = ArrayList<String>()
-
-  val binDir = runDir.resolve("bin")
-  val vmOptionsFile = Files.newDirectoryStream(binDir, "*.vmoptions").use { it.singleOrNull() }
-  requireNotNull(vmOptionsFile) {
-    "No single *.vmoptions file in $binDir (${Files.newDirectoryStream(binDir).use { it.asSequence().map(Path::getFileName).joinToString() }})"
-  }
-  result.addAll(vmOptionsFile.readLines())
-  result.add("-Djb.vmOptionsFile=${vmOptionsFile}")
-
-  val productInfoFile = runDir.resolve("bin").resolve(PRODUCT_INFO_FILE_NAME)
-  extractAdditionalJvmArguments(productInfoFile).mapTo(result) { resolveIdeHomeMacro(it, runDir) }
-
-  return result
-}
-
-/**
- * Substitutes the OS-specific `IDE_HOME` macro used in product-info.json JVM arguments with [runDir].
- */
-private fun resolveIdeHomeMacro(jvmArgument: String, runDir: Path): String {
-  val macroName = when (OsFamily.currentOs) {
-    OsFamily.WINDOWS -> "%IDE_HOME%"
-    OsFamily.MACOS -> $$"$APP_PACKAGE/Contents"
-    OsFamily.LINUX -> $$"$IDE_HOME"
-  }
-  return jvmArgument.replace(macroName, runDir.toString())
-}
-
-/**
- * Returns the product-info.json `customCommands` entry which handles [command],
- * or `null` if the build doesn't declare such a command.
- */
-@OptIn(ExperimentalSerializationApi::class)
-@ApiStatus.Internal
-fun readCustomCommand(runDir: Path, command: String): CustomCommandLaunchData? {
-  val productInfoFile = runDir.resolve("bin").resolve(PRODUCT_INFO_FILE_NAME)
-  val productInfo = productInfoFile.inputStream().buffered().use {
-    Json { ignoreUnknownKeys = true }.decodeFromStream(ProductInfoData.serializer(), it)
-  }
-  // multi-architecture builds are not generated for dev builds
-  return productInfo.launch.single().customCommands.find { command in it.commands }
-}
-
-/**
- * [CustomCommandLaunchData.additionalJvmArguments] with the `IDE_HOME` macro resolved against [runDir].
- */
-@ApiStatus.Internal
-fun CustomCommandLaunchData.resolveAdditionalJvmArguments(runDir: Path): List<String> =
-  additionalJvmArguments.map { resolveIdeHomeMacro(it, runDir) }
-
-// returns IDE installation directory
-suspend fun buildProductInProcess(request: BuildRequest): Path {
+fun buildProductInProcess(request: BuildRequest): DevBuildResult {
   request.tracer?.let {
     TraceManager.setTracer(it)
   }
   return TraceManager.spanBuilder("build ide").setAttribute("request", request.toString()).use {
-    try {
-      val buildOptionsTemplate = BuildOptions()
-      val configuration = createConfiguration(homePath = request.projectDir)
-      val productConfiguration = getProductConfiguration(configuration, request.platformPrefix, request.baseIdePlatformPrefixForFrontend)
-      buildProductFromProject(request = request, productConfiguration = productConfiguration, buildOptionsTemplate = buildOptionsTemplate)
+    val buildOptionsTemplate = BuildOptions()
+    val configuration = createConfiguration(homePath = request.projectDir)
+    val productConfiguration = getProductConfiguration(configuration, request.platformPrefix, request.baseIdePlatformPrefixForFrontend)
+    buildProductFromProject(request = request, productConfiguration = productConfiguration, buildOptionsTemplate = buildOptionsTemplate)
+  }
+}
+
+/**
+ * What the production writers write for the `platform_resources` component of one product: [files] for each platform,
+ * keyed by the path in the distribution, and the [model] the plan generator computes for the product.
+ */
+@ApiStatus.Internal
+class SplitPlatformResources(
+  @JvmField val model: ProductLaunchModel,
+  @JvmField val files: Map<Pair<OsFamily, JvmArchitecture>, Map<String, String>>,
+)
+
+/**
+ * Renders the files of the `platform_resources` component of [platformPrefix] for each of [platforms] with the
+ * production writers.
+ *
+ * The files come from `writePlatformResourceFiles` over a build context with no additional modules, no runtime module
+ * repository, and the pinned [buildDateInSeconds]. The launch model tests compare them with the renderers of [model].
+ * [scratchDir] must be empty.
+ */
+@ApiStatus.Internal
+fun renderSplitPlatformResources(
+  projectDir: Path,
+  platformPrefix: String,
+  buildDateInSeconds: Long,
+  platforms: List<Pair<OsFamily, JvmArchitecture>>,
+  scratchDir: Path,
+): SplitPlatformResources {
+  val productConfiguration = getProductConfiguration(createConfiguration(projectDir), platformPrefix, baseIdePlatformPrefixForFrontend = null)
+  val request = BuildRequest(
+    platformPrefix = platformPrefix,
+    additionalModules = emptyList(),
+    projectDir = projectDir,
+    jarCacheDir = null,
+    isBootClassPathCorrect = false,
+    runDirOverride = scratchDir.resolve("run"),
+    scratchDir = scratchDir.resolve("scratch"),
+    buildDateInSeconds = buildDateInSeconds,
+    fragment = DevBuildFragment(name = "platform_resources", platform = null, runtimeModuleRepository = false),
+  )
+  BuildLifetime().use { lifetime ->
+    val context = createBuildContextFromProject(
+      productConfiguration = productConfiguration,
+      request = request,
+      buildDir = Files.createDirectories(scratchDir.resolve("run")),
+      buildOptionsTemplate = BuildOptions(),
+      lifetime = lifetime,
+    )
+    val files = platforms.associateWith { (os, arch) ->
+      configureTargetPlatform(context.options, request.copy(os = os, arch = arch))
+      val runDir = Files.createDirectories(scratchDir.resolve("${os.osId}-${arch.name}"))
+      writePlatformResourceFiles(context, os, arch, runDir).associate { runDir.relativize(it).invariantSeparatorsPathString to Files.readString(it) }
     }
-    finally {
-      // otherwise, a thread leak in tests
-      if (!request.keepHttpClient) {
-        withContext(NonCancellable) {
-          closeKtorClient()
-        }
-      }
-    }
+    return SplitPlatformResources(
+      model = computeDevProductLaunchModel(context.productProperties, context.outputProvider, buildDateInSeconds),
+      files = files,
+    )
   }
 }
 

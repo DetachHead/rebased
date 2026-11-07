@@ -1,11 +1,30 @@
-load("@aspect_rules_lint//format:defs.bzl", "format_multirun")
+load("@buildifier_prebuilt//:rules.bzl", "buildifier")
+load("@community//build:bazel_targets_json.bzl", "current_bazel_targets_json")
 load("@community//build:tests-options.bzl", "jps_test")
 load("@rules_jvm//:jvm.bzl", "jvm_library", "kt_javac_options")
 load("//build:compiler-options.bzl", "create_kotlinc_options")
 
-format_multirun(
+BAZEL_TARGETS_JSON = current_bazel_targets_json()
+
+buildifier(
     name = "format",
-    starlark = "@buildifier_prebuilt//:buildifier",
+    exclude_patterns = [
+        "./out/**",
+        "./.bazelbsp/**",
+        "./**/~BUILD.bazel",
+    ],
+    mode = "fix",
+    visibility = ["//visibility:public"],
+)
+
+buildifier(
+    name = "format.check",
+    exclude_patterns = [
+        "./out/**",
+        "./.bazelbsp/**",
+        "./**/~BUILD.bazel",
+    ],
+    mode = "check",
     visibility = ["//visibility:public"],
 )
 
@@ -66,6 +85,10 @@ exports_files(
 jps_test(
     name = "main-tests_test",
     timeout = "moderate",
+    data = [BAZEL_TARGETS_JSON],
+    jvm_flags = [
+        "-Dintellij.build.bazel.targets.json.file=$(rlocationpath %s)" % BAZEL_TARGETS_JSON,
+    ],
     tags = ["community-aggregator"],
     runtime_deps = [":main-tests_test_lib"],
 )
@@ -194,6 +217,7 @@ jvm_library(
     ),
     module_name = "intellij.idea.community.main.tests",
     visibility = ["//visibility:public"],
+    runtime_deps = ["//platform/platform-impl/presentation-assistant"],
 )
 
 jvm_library(
@@ -217,15 +241,17 @@ jvm_library(
     runtime_deps = [
         # do not sort,
         ":main-tests",
+        "//platform/platform-util-io-native:ide-util-io-native-tests_test_lib",
         "//platform/platform-impl/concurrency:ide-concurrency-tests_test_lib",
+        "//platform/platform-impl/presentation-assistant:presentation-assistant_test_lib",
     ],
     deps = [
         # do not sort,
         "//platform/bootstrap/coroutine",
         "//platform/bootstrap/coroutine:coroutine_test_lib",
         "@lib//:kotlin-stdlib",
-        "//libraries/junit5",
-        "//libraries/junit5:junit5_test_lib",
+        "//libraries/junit6",
+        "//libraries/junit6:junit6_test_lib",
         "//:main",
         "//:main_test_lib",
         "//plugins/tasks/tests/base:tasks-tests",
@@ -262,8 +288,9 @@ jvm_library(
         "//plugins/textmate/plugin:plugin_test_lib",
         "//plugins/textmate/backend",
         "//plugins/textmate/backend:backend_test_lib",
-        "//plugins/junit5_rt_tests:junit-v5-rt-tests",
-        "//plugins/junit5_rt_tests:junit-v5-rt-tests_test_lib",
+        "//plugins/junit_rt_tests:junit-rt-tests",
+        "//plugins/junit_rt_tests:junit-rt-tests_test_lib",
+        "//platform/platform-util-io-native:ide-util-io-native-tests",
         "//plugins/commander",
         "//plugins/commander:commander_test_lib",
         "//plugins/configuration-script",
@@ -278,6 +305,10 @@ jvm_library(
         "//platform/runtime/product/tests:tests_test_lib",
         "//platform/util/progress:progress-tests",
         "//platform/util/progress:progress-tests_test_lib",
+        "//platform/util/nanoxml:nanoxml-tests",
+        "//platform/util/nanoxml:nanoxml-tests_test_lib",
+        "//platform/versionDownloadManager:versionDownloadManager-tests",
+        "//platform/versionDownloadManager:versionDownloadManager-tests_test_lib",
         "//platform/testFramework/junit5.jimfs",
         "//platform/testFramework/junit5.jimfs:junit5.jimfs_test_lib",
         "//platform/indexing-tests",
@@ -306,6 +337,8 @@ jvm_library(
         "//platform/vcs-impl/shared:vcs-impl-shared-tests_test_lib",
         "//platform/vcs-impl:vcs-impl-tests",
         "//platform/vcs-impl:vcs-impl-tests_test_lib",
+        "//platform/buildView:buildView-tests",
+        "//platform/buildView:buildView-tests_test_lib",
         "//plugins/git4idea/intellij.vcs.git.coverage:vcs-git-coverage",
         "//plugins/git4idea/intellij.vcs.git.coverage:vcs-git-coverage_test_lib",
         "//build/launch",
@@ -324,10 +357,14 @@ jvm_library(
         "//plugins/turboComplete:turboComplete-tests_test_lib",
         "//java/ide-customization:ide-customization-tests",
         "//java/ide-customization:ide-customization-tests_test_lib",
+        "//java/ide-customization/backend:java-ide-customization-backend-tests",
+        "//java/ide-customization/backend:java-ide-customization-backend-tests_test_lib",
         "//platform/util/concurrency:concurrency-tests",
         "//platform/util/concurrency:concurrency-tests_test_lib",
         "//platform/backend/observation:observation-tests",
         "//platform/backend/observation:observation-tests_test_lib",
+        "//platform/build-scripts/runtime-module-repository:buildScripts-runtimeModuleRepository-tests",
+        "//platform/build-scripts/runtime-module-repository:buildScripts-runtimeModuleRepository-tests_test_lib",
         "//platform/collaboration-tools:collaborationTools-tests",
         "//platform/collaboration-tools:collaborationTools-tests_test_lib",
         "//platform/credential-store-impl:credentialStore-impl-tests",
@@ -445,6 +482,8 @@ jvm_library(
         "//platform/discoverability:discoverability-tests_test_lib",
         "//plugins/dev/intellij.dev.leakDetection:leakDetection-tests",
         "//plugins/dev/intellij.dev.leakDetection:leakDetection-tests_test_lib",
+        "//plugins/dev/intellij.dev.pluginLoading:pluginLoading-tests",
+        "//plugins/dev/intellij.dev.pluginLoading:pluginLoading-tests_test_lib",
         "//plugins/mcp-server/tests",
         "//plugins/mcp-server/tests:tests_test_lib",
         "//plugins/mcp-server/mcpserver.terminal/tests",
@@ -457,6 +496,12 @@ jvm_library(
         "//platform/editor-ui-api:editor-ui_test_lib",
         "//platform/testFramework",
         "//platform/testFramework:testFramework_test_lib",
+        "//platform/kernel/rpc.tests",
+        "//platform/kernel/rpc.tests:rpc.tests_test_lib",
+        "//platform/core-impl:core-impl-tests",
+        "//platform/core-impl:core-impl-tests_test_lib",
+        "//java/debugger/impl:java-debugger-impl-tests",
+        "//java/debugger/impl:java-debugger-impl-tests_test_lib",
     ],
 )
 ### auto-generated section `build intellij.idea.community.main.tests` end

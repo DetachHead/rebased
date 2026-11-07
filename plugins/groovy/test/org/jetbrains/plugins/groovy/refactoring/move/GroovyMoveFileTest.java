@@ -15,8 +15,8 @@ import org.jetbrains.plugins.groovy.util.TestUtils;
  */
 public class GroovyMoveFileTest extends GroovyMoveTestBase {
   @Override
-  protected String getBasePath() {
-    return TestUtils.getTestDataPath() + "refactoring/move/moveFile/";
+  protected String getTestDataPath() {
+    return TestUtils.getAbsoluteTestDataPath() + "refactoring/move/moveFile/";
   }
 
   public void testMoveJavaGroovyText() {

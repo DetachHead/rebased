@@ -20,10 +20,12 @@
     <module name="intellij.libraries.http.client"/>
     <module name="intellij.libraries.ini4j"/>
     <module name="intellij.libraries.javax.activation"/>
+    <module name="intellij.libraries.jaxb"/>
     <module name="intellij.libraries.oro.matcher"/>
     <module name="intellij.libraries.stream"/>
     <module name="intellij.platform.analysis"/>
     <module name="intellij.platform.analysis.impl"/>
+    <module name="intellij.platform.concurrency"/>
     <module name="intellij.platform.core"/>
     <module name="intellij.platform.core.impl"/>
     <module name="intellij.platform.core.ui"/>

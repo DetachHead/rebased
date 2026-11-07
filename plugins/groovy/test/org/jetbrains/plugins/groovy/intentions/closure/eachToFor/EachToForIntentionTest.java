@@ -29,8 +29,8 @@ public class EachToForIntentionTest extends GrIntentionTestCase {
   }
 
   @Override
-  protected String getBasePath() {
-    return TestUtils.getTestDataPath() + "intentions/EachToFor/";
+  protected String getTestDataPath() {
+    return TestUtils.getAbsoluteTestDataPath() + "intentions/EachToFor/";
   }
 
   public void testEachToFor() { doTest(true); }

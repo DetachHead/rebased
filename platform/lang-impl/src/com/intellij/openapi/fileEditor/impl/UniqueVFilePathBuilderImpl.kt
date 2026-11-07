@@ -63,6 +63,14 @@ internal class UniqueVFilePathBuilderImpl : UniqueVFilePathBuilder() {
     )
   }
 
+  override fun getUniqueVirtualFilePathWithinFiles(
+    project: Project,
+    vFile: VirtualFile,
+    files: Collection<VirtualFile>,
+  ): @NlsSafe String {
+    return getUniqueNameAmongFiles(project, vFile, files)
+  }
+
   override fun withProject(project: Project): UniqueVFileProjectPathBuilder = UniqueVFileProjectPathBuilderImpl(project)
 }
 
@@ -230,18 +238,34 @@ private fun createAndCacheBuilders(
       continue
     }
 
-    var path = project.basePath
-    path = if (path == null) "" else FileUtilRt.toSystemIndependentName(path)
-    val builder = UniqueNameBuilder<VirtualFile>(path, File.separator)
-    for (virtualFile in files) {
-      val presentablePath = if (virtualFile is VirtualFilePathWrapper) virtualFile.presentablePath else virtualFile.path
-      builder.addPath(virtualFile, presentablePath)
-    }
+    val builder = createUniqueNameBuilder(project, files)
     valueMap.put(fileName, builder)
   }
 }
 
-@RequiresReadLock
+private fun getUniqueNameAmongFiles(project: Project, file: VirtualFile, files: Collection<VirtualFile>): String {
+  val name = getName(file)
+  val sameNamedFiles = (files + file).filterTo(LinkedHashSet()) { it.isValid && getName(it) == name }
+  if (sameNamedFiles.size < 2) {
+    return name
+  }
+
+  val builder = createUniqueNameBuilder(project, sameNamedFiles)
+  return builder.getShortPath(file)
+}
+
+private fun createUniqueNameBuilder(project: Project, files: Collection<VirtualFile>): UniqueNameBuilder<VirtualFile> {
+  var path = project.basePath
+  path = if (path == null) "" else FileUtilRt.toSystemIndependentName(path)
+  val builder = UniqueNameBuilder<VirtualFile>(path, File.separator)
+  for (virtualFile in files) {
+    val presentablePath = if (virtualFile is VirtualFilePathWrapper) virtualFile.presentablePath else virtualFile.path
+    builder.addPath(virtualFile, presentablePath)
+  }
+  return builder
+}
+
+@RequiresReadLock(generateAssertion = false /* IJPL-115548 */)
 private fun <T, E : Throwable?> disableIndexUpToDateCheckInEdt(computable: ThrowableComputable<T, E>): T {
   if (ApplicationManager.getApplication().isDispatchThread) {
     return IndexUpToDateCheckIn.disableUpToDateCheckIn(computable)

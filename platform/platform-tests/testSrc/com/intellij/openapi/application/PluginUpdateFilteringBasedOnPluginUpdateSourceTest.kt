@@ -2,9 +2,14 @@
 package com.intellij.openapi.application
 
 import com.intellij.openapi.extensions.PluginId
-import com.intellij.openapi.updateSettings.impl.PluginUpdateSourceId
+import com.intellij.openapi.updateSettings.impl.PluginUpdateSource
 import com.intellij.openapi.updateSettings.impl.PluginUpdateSourceService
 import com.intellij.openapi.updateSettings.impl.UpdateCheckerFacade
+import com.intellij.openapi.updateSettings.impl.createNightlyAndMarketplacePluginUpdateSourceId
+import com.intellij.openapi.updateSettings.impl.createNightlyPluginUpdateSourceId
+import com.intellij.openapi.updateSettings.impl.FORCE_INTERNAL_USER_FOR_TESTS_IN_PLUGIN_UPDATE_SOURCES
+import com.intellij.testFramework.PlatformTestUtil.withSystemProperty
+import com.intellij.testFramework.TestModeFlags
 import com.intellij.testFramework.junit5.RegistryKey
 import com.intellij.testFramework.junit5.TestApplication
 import com.intellij.testFramework.junit5.http.url
@@ -31,8 +36,7 @@ internal class PluginUpdateFilteringBasedOnPluginUpdateSourceTest : UpdateChecke
 
   @Test
   fun `plugin updates are checked only against recorded plugin update source`() {
-    val customServer = createTestServer(testDisposable.get())
-    val customRepositoryUrl = customServer.url + "/custom-repository"
+    val customServer = createTestServer()
 
     val installedPluginIds = listOf(
       MARKETPLACE_SOURCE_BOTH,
@@ -44,7 +48,7 @@ internal class PluginUpdateFilteringBasedOnPluginUpdateSourceTest : UpdateChecke
       WITHOUT_SOURCE_BOTH,
     )
     setInstalledPluginMocks(*installedPluginIds.map { installedPlugin(it) }.toTypedArray())
-    installedPluginsFacade.setHosts(listOf(customRepositoryUrl))
+    installedPluginsFacade.setHosts(listOf(customServer.url))
 
     val marketplaceUpdates = listOf(
       RepositoryPluginMock(MARKETPLACE_SOURCE_BOTH, "501", "101", "2.0"),
@@ -67,7 +71,7 @@ internal class PluginUpdateFilteringBasedOnPluginUpdateSourceTest : UpdateChecke
                            MARKETPLACE_SOURCE_BOTH,
                            MARKETPLACE_SOURCE_CUSTOM_ONLY,
                            MARKETPLACE_SOURCE_MARKETPLACE_ONLY)
-    setPluginUpdateSources(PluginUpdateSourceService.getInstance().createCustomRepositoryPluginUpdateSourceId(customRepositoryUrl),
+    setPluginUpdateSources(PluginUpdateSourceService.getInstance().createCustomRepositoryPluginUpdateSourceId(customServer.url),
                            CUSTOM_SOURCE_BOTH,
                            CUSTOM_SOURCE_MARKETPLACE_ONLY,
                            CUSTOM_SOURCE_CUSTOM_ONLY)
@@ -100,8 +104,7 @@ internal class PluginUpdateFilteringBasedOnPluginUpdateSourceTest : UpdateChecke
 
   @Test
   fun `updateable JetBrains bundled plugins are updated from Marketplace only`() {
-    val customServer = createTestServer(testDisposable.get())
-    val customRepositoryUrl = customServer.url + "/custom-repository"
+    val customServer = createTestServer()
 
     val installedPluginIds = listOf(
       UPDATEABLE_BUNDLED_JETBRAINS,
@@ -115,7 +118,7 @@ internal class PluginUpdateFilteringBasedOnPluginUpdateSourceTest : UpdateChecke
       installedPlugin(NON_UPDATEABLE_BUNDLED_JETBRAINS, isBundled = true, isJetBrainsPlugin = true),
       installedPlugin(NON_UPDATEABLE_BUNDLED_NOT_JETBRAINS, isBundled = true),
     )
-    installedPluginsFacade.setHosts(listOf(customRepositoryUrl))
+    installedPluginsFacade.setHosts(listOf(customServer.url))
 
     setMarketplacePlugins(listOf(
       RepositoryPluginMock(UPDATEABLE_BUNDLED_JETBRAINS, "601", "201", "2.0"),
@@ -142,6 +145,75 @@ internal class PluginUpdateFilteringBasedOnPluginUpdateSourceTest : UpdateChecke
 
     val marketplaceRequestedIds = getPluginIdsFromQuery(receivedUpdatesRequestUri).toSet()
     assertEquals(setOf(UPDATEABLE_BUNDLED_JETBRAINS, UPDATEABLE_BUNDLED_NOT_JETBRAINS), marketplaceRequestedIds)
+  }
+
+  @RegistryKey(key = "platform.disable.plugin.update.sources.ui.and.filtering.for.internal.users", value = "false")
+  @Test
+  fun `plugins from nightly servers are updated from current nightly servers, and from Marketplace if added to source`() {
+    val oldNightlyServer = createTestServer("old-nightly-server")
+    val firstNightlyServer = createTestServer("first-nightly-server")
+    val secondNightlyServer = createTestServer("second-nightly-server")
+
+    setInstalledPluginMocks(installedPlugin(NIGHTLY_AND_MARKETPLACE_SOURCE_PLUGIN),
+                            installedPlugin(NIGHTLY_SOURCE_PLUGIN))
+
+    setCustomRepositoryPlugins(oldNightlyServer, listOf(CustomRepositoryPlugin(NIGHTLY_AND_MARKETPLACE_SOURCE_PLUGIN, "4.0"),
+                                                        CustomRepositoryPlugin(NIGHTLY_SOURCE_PLUGIN, "5.0")))
+    setCustomRepositoryPlugins(firstNightlyServer, listOf(CustomRepositoryPlugin(NIGHTLY_AND_MARKETPLACE_SOURCE_PLUGIN, "2.0"),
+                                                          CustomRepositoryPlugin(NIGHTLY_SOURCE_PLUGIN, "7.0")))
+    setCustomRepositoryPlugins(secondNightlyServer, listOf(CustomRepositoryPlugin(NIGHTLY_AND_MARKETPLACE_SOURCE_PLUGIN, "3.0"),
+                                                           CustomRepositoryPlugin(NIGHTLY_SOURCE_PLUGIN, "3.5")))
+    setMarketplacePlugins(listOf(RepositoryPluginMock(NIGHTLY_AND_MARKETPLACE_SOURCE_PLUGIN, "701", "301", "9.0"),
+                                 RepositoryPluginMock(NIGHTLY_SOURCE_PLUGIN, "702", "302", "9.0")),
+                          listOf(NIGHTLY_AND_MARKETPLACE_SOURCE_PLUGIN, NIGHTLY_SOURCE_PLUGIN))
+
+
+    PluginUpdateSourceService.getInstance()
+      .setPluginUpdateSourceId(PluginId.getId(NIGHTLY_AND_MARKETPLACE_SOURCE_PLUGIN), createNightlyAndMarketplacePluginUpdateSourceId())
+    PluginUpdateSourceService.getInstance()
+      .setPluginUpdateSourceId(PluginId.getId(NIGHTLY_SOURCE_PLUGIN), createNightlyPluginUpdateSourceId())
+
+    installedPluginsFacade.setHosts(listOf(oldNightlyServer.url, firstNightlyServer.url, secondNightlyServer.url))
+    TestModeFlags.runWithFlag(FORCE_INTERNAL_USER_FOR_TESTS_IN_PLUGIN_UPDATE_SOURCES, true) {
+      withSystemProperty<RuntimeException>(CUSTOM_BUILT_IN_PLUGIN_REPOSITORY_PROPERTY,
+                                           listOf(firstNightlyServer.url, secondNightlyServer.url).joinToString(",")) {
+        val internalResult = UpdateCheckerFacade.getInstance().checkInstalledPluginUpdates()
+        assertEquals(emptyMap<String?, Exception>(), internalResult.errors)
+        val result = internalResult.pluginUpdates
+
+        val updatesById = result.allEnabled.associateBy { it.id.idString }
+        assertEquals(setOf(NIGHTLY_AND_MARKETPLACE_SOURCE_PLUGIN, NIGHTLY_SOURCE_PLUGIN), updatesById.keys)
+        assertEquals("9.0", updatesById.getValue(NIGHTLY_AND_MARKETPLACE_SOURCE_PLUGIN).pluginVersion)
+        assertEquals("7.0", updatesById.getValue(NIGHTLY_SOURCE_PLUGIN).pluginVersion)
+        assertTrue(result.allDisabled.isEmpty())
+      }
+    }
+  }
+
+  @Test
+  fun `plugins with Marketplace source are updated from Marketplace custom repositories`() {
+    val marketplaceCustomServer = Server(server, "plugins/beta/9185")
+    replaceMarketplaceChannelUrlService(server.url + "/plugins")
+
+    setInstalledPluginMocks(installedPlugin(MARKETPLACE_SOURCE_MARKETPLACE_CHANNEL_CUSTOM_REPOSITORY))
+    installedPluginsFacade.setHosts(listOf(marketplaceCustomServer.url))
+
+    setMarketplacePlugins(emptyList(), listOf(MARKETPLACE_SOURCE_MARKETPLACE_CHANNEL_CUSTOM_REPOSITORY))
+    setCustomRepositoryPlugins(marketplaceCustomServer, listOf(
+      CustomRepositoryPlugin(MARKETPLACE_SOURCE_MARKETPLACE_CHANNEL_CUSTOM_REPOSITORY, "9.0"),
+    ))
+
+    setPluginUpdateSources(PluginUpdateSourceService.getInstance().createMarketplacePluginUpdateSourceId(),
+                           MARKETPLACE_SOURCE_MARKETPLACE_CHANNEL_CUSTOM_REPOSITORY)
+
+    val internalResult = UpdateCheckerFacade.getInstance().getPluginUpdates(
+      listOf(PluginId.getId(MARKETPLACE_SOURCE_MARKETPLACE_CHANNEL_CUSTOM_REPOSITORY))
+    )
+    assertEquals(emptyMap<String?, Exception>(), internalResult.errors)
+    val updatesById = internalResult.pluginUpdates.allEnabled.associateBy { it.id.idString }
+    assertEquals(setOf(MARKETPLACE_SOURCE_MARKETPLACE_CHANNEL_CUSTOM_REPOSITORY), updatesById.keys)
+    assertEquals("9.0", updatesById.getValue(MARKETPLACE_SOURCE_MARKETPLACE_CHANNEL_CUSTOM_REPOSITORY).pluginVersion)
+    assertTrue(internalResult.pluginUpdates.allDisabled.isEmpty())
   }
 
   private fun setMarketplacePlugins(plugins: List<RepositoryPluginMock>, knownPluginIds: Collection<String>) {
@@ -179,15 +251,15 @@ internal class PluginUpdateFilteringBasedOnPluginUpdateSourceTest : UpdateChecke
     isJetBrainsPlugin: Boolean = false,
   ): InstalledPluginMock {
     val company = if (isJetBrainsPlugin) "JetBrains" else "Acme"
-    val vendor =  if (isJetBrainsPlugin) "JetBrains" else "Some Company"
+    val vendor = if (isJetBrainsPlugin) "JetBrains" else "Some Company"
     return InstalledPluginMock(pluginId, pluginId, company, "1.0", "1.0", "999.99999", true, vendor, isBundled,
                                allowBundledUpdate)
   }
 
-  private fun setPluginUpdateSources(pluginUpdateSourceId: PluginUpdateSourceId, vararg pluginIds: String) {
+  private fun setPluginUpdateSources(pluginUpdateSource: PluginUpdateSource, vararg pluginIds: String) {
     pluginIds.forEach { pluginId ->
       val id = PluginId.getId(pluginId)
-      PluginUpdateSourceService.getInstance().setPluginUpdateSourceId(id, pluginUpdateSourceId)
+      PluginUpdateSourceService.getInstance().setPluginUpdateSourceId(id, pluginUpdateSource)
       updateSourcePluginIds.add(id)
     }
   }
@@ -205,5 +277,9 @@ internal class PluginUpdateFilteringBasedOnPluginUpdateSourceTest : UpdateChecke
     const val UPDATEABLE_BUNDLED_NOT_JETBRAINS = "test.updateable.bundled.not.jetbrains"
     const val NON_UPDATEABLE_BUNDLED_JETBRAINS = "test.non.updateable.bundled.jetbrains"
     const val NON_UPDATEABLE_BUNDLED_NOT_JETBRAINS = "test.non.updateable.bundled.not.jetbrains"
+
+    const val NIGHTLY_AND_MARKETPLACE_SOURCE_PLUGIN = "test.nightly.and.marketplace.source"
+    const val NIGHTLY_SOURCE_PLUGIN = "test.nightly.source"
+    const val MARKETPLACE_SOURCE_MARKETPLACE_CHANNEL_CUSTOM_REPOSITORY = "test.marketplace.source.marketplace.channel.custom.repository"
   }
 }

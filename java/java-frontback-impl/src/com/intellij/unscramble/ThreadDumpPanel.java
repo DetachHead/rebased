@@ -122,7 +122,7 @@ public final class ThreadDumpPanel extends JPanel implements NoStackTraceFolding
 
     configureToolbar(project, consoleView, toolbarActions);
 
-    updateThreadsTree();
+    sortAndUpdateThreadDumpItemList();
 
     Editor editor = CommonDataKeys.EDITOR.getData(DataManager.getInstance().getDataContext(consoleView.getPreferredFocusableComponent()));
     if (editor != null) {
@@ -189,8 +189,8 @@ public final class ThreadDumpPanel extends JPanel implements NoStackTraceFolding
     });
     TreeSpeedSearch
       .installOn(threadTree, true, path -> {
-      var node = (DefaultMutableTreeNode)path.getLastPathComponent();
-      return node.getUserObject() instanceof DumpItem item ? item.getName() : "";
+        var node = (DefaultMutableTreeNode)path.getLastPathComponent();
+        return node.getUserObject() instanceof DumpItem item ? item.getName() : "";
       })
       .setComparator(new SpeedSearchComparator(false, true));
     return threadTree;

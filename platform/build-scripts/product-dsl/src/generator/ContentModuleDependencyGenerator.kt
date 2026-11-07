@@ -4,6 +4,8 @@
 
 package org.jetbrains.intellij.build.productLayout.generator
 
+import com.intellij.platform.buildScripts.concurrency.Subtask
+import com.intellij.platform.buildScripts.concurrency.taskScope
 import com.intellij.platform.pluginGraph.ContentModuleName
 import com.intellij.platform.pluginGraph.DependencyClassification
 import com.intellij.platform.pluginGraph.EDGE_CONTENT_MODULE_DEPENDS_ON
@@ -13,10 +15,6 @@ import com.intellij.platform.pluginGraph.PluginGraph
 import com.intellij.platform.pluginGraph.PluginId
 import com.intellij.platform.pluginGraph.TargetDependencyScope
 import com.intellij.platform.pluginGraph.isSlashNotation
-import kotlinx.coroutines.Deferred
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.coroutineScope
 import org.jetbrains.intellij.build.ModuleOutputProvider
 import org.jetbrains.intellij.build.productLayout.config.SuppressionConfig
 import org.jetbrains.intellij.build.productLayout.debug
@@ -34,21 +32,14 @@ import org.jetbrains.intellij.build.productLayout.stats.SuppressionType
 import org.jetbrains.intellij.build.productLayout.stats.SuppressionUsage
 import org.jetbrains.intellij.build.productLayout.util.isProductionRuntimeDependency
 import org.jetbrains.jps.model.java.JpsJavaExtensionService
-import org.jetbrains.jps.model.module.JpsLibraryDependency
 import org.jetbrains.jps.model.module.JpsModuleDependency
-import org.jetbrains.jps.model.module.JpsModuleReference
 import java.nio.file.Path
 
 /**
  * Planner for content module dependency XML files.
  *
- * Processes two types of descriptor files in a single pass:
- * 1. **Main descriptors** (`moduleName.xml`) - for all content modules
- * 2. **Test descriptor files** (`moduleName._test.xml`) - for non-test-descriptor modules only
- *
- * Note: "Test descriptor modules" (content modules named `foo._test`) are a different concept.
- * They are actual content modules whose main descriptor is `foo._test.xml`. They do NOT have
- * separate test descriptor files (`foo._test._test.xml` doesn't exist).
+ * Every content module has exactly one descriptor (`moduleName.xml`). A test-only module keeps its descriptor in a
+ * test resource root; [shouldIncludeTestScopeForWrittenDeps] reads that location to decide which JPS scopes are written.
  *
  * ## JPS Scopes vs Plugin Model
  *
@@ -69,7 +60,7 @@ import java.nio.file.Path
  * **Input:** All content modules with production or test content sources
  * **Output:** Dependency plans for descriptor files with `<dependencies>` sections
  *
- * **Publishes:** [Slots.CONTENT_MODULE_PLAN] for downstream writing and validation (includes both regular and test descriptor modules)
+ * **Publishes:** [Slots.CONTENT_MODULE_PLAN] for downstream writing and validation
  *
  * **No dependencies** - can run immediately (level 0).
  */
@@ -77,8 +68,8 @@ internal object ContentModuleDependencyPlanner : PipelineNode {
   override val id get() = NodeIds.CONTENT_MODULE_DEPS
   override val produces: Set<DataSlot<*>> get() = setOf(Slots.CONTENT_MODULE_PLAN)
 
-  override suspend fun execute(ctx: ComputeContext) {
-    coroutineScope {
+  override fun execute(ctx: ComputeContext) {
+    taskScope {
       val model = ctx.model
 
       // Process all content modules in parallel
@@ -90,10 +81,7 @@ internal object ContentModuleDependencyPlanner : PipelineNode {
 
       // Single pass over all modules - no deduplication needed
       // hasContentSource filters to modules declared in plugins/products/module-sets or test plugins
-      // Each content module has ONE descriptor: regular modules have moduleName.xml,
-      // test descriptor modules (foo._test) have foo._test.xml - these are separate content modules
-      val mainDescriptorJobs = ArrayList<Deferred<GenerationOutput>>()
-      val testDescriptorJobs = ArrayList<Deferred<GenerationOutput>>()
+      val jobs = ArrayList<Subtask<GenerationOutput>>()
 
       model.pluginGraph.query {
         contentModules { contentModule ->
@@ -103,50 +91,31 @@ internal object ContentModuleDependencyPlanner : PipelineNode {
           }
 
           val moduleName = contentModule.contentName()
-          val isTestDescriptorModule = contentModule.isTestDescriptor
-
-          // Each content module has ONE descriptor - process uniformly
-          val job = async {
+          jobs.add(fork("plan content module ${moduleName.value}") {
             val (plan, suppressibleError) = planContentModuleDependenciesWithBothSets(
               contentModuleName = moduleName,
               descriptorCache = model.descriptorCache,
               outputProvider = model.outputProvider,
-              projectLibraryToModuleMap = model.config.projectLibraryToModuleMap,
               pluginGraph = model.pluginGraph,
-              isTestDescriptor = isTestDescriptorModule,
               suppressionConfig = model.suppressionConfig,
               updateSuppressions = model.updateSuppressions,
             )
             GenerationOutput(plan, suppressibleError)
-          }
-
-          // Categorize based on module type for downstream slots
-          if (isTestDescriptorModule) {
-            testDescriptorJobs.add(job)
-          }
-          else {
-            mainDescriptorJobs.add(job)
-          }
+          })
         }
       }
 
-      val mainOutputs = mainDescriptorJobs.awaitAll()
-      val mainPlans = mainOutputs.mapNotNull { it.plan }
-      val mainErrors = mainOutputs.mapNotNull { it.suppressibleError }
-
-      val testOutputs = testDescriptorJobs.awaitAll()
-      val testDescriptorPlans = testOutputs.mapNotNull { it.plan }
-      val testErrors = testOutputs.mapNotNull { it.suppressibleError }
-
-      val errors = mainErrors + testErrors
+      join()
+      val outputs = jobs.map { it.get() }
+      val plans = outputs.mapNotNull { it.plan }
+      val errors = outputs.mapNotNull { it.suppressibleError }
 
       // Graph is single source of truth - populate module deps for validation
       // Returns new graph instance (immutable pattern for coroutine safety)
-      updateGraphWithModuleDependencyPlans(model.pluginGraph, mainPlans + testDescriptorPlans)
+      updateGraphWithModuleDependencyPlans(model.pluginGraph, plans)
 
       ctx.emitErrors(errors)
-      // Publish combined results - both regular and test descriptor modules in single output
-      ctx.publish(Slots.CONTENT_MODULE_PLAN, ContentModuleDependencyPlanOutput(plans = mainPlans + testDescriptorPlans))
+      ctx.publish(Slots.CONTENT_MODULE_PLAN, ContentModuleDependencyPlanOutput(plans = plans))
     }
   }
 }
@@ -189,9 +158,7 @@ internal fun planContentModuleDependenciesWithBothSets(
   contentModuleName: ContentModuleName,
   descriptorCache: ModuleDescriptorCache,
   outputProvider: ModuleOutputProvider? = null,
-  projectLibraryToModuleMap: Map<String, String> = emptyMap(),
   pluginGraph: PluginGraph,
-  isTestDescriptor: Boolean,
   suppressionConfig: SuppressionConfig,
   updateSuppressions: Boolean,
 ): ContentModuleGenerationOutput {
@@ -214,18 +181,16 @@ internal fun planContentModuleDependenciesWithBothSets(
     contentModuleName = contentModuleName,
     prodInfo = prodInfo,
     outputProvider = outputProvider,
-    projectLibraryToModuleMap = projectLibraryToModuleMap,
     graph = pluginGraph,
     suppressionConfig = suppressionConfig,
     updateSuppressions = updateSuppressions,
-    isTestDescriptor = isTestDescriptor,
   )
   return ContentModuleGenerationOutput(plan = plan, suppressibleError = prodInfo.suppressibleError)
 }
 
 /**
  * Core implementation that computes BOTH production and test dependencies.
- * 
+ *
  * - Production deps: Written to XML, used for [EDGE_CONTENT_MODULE_DEPENDS_ON]
  * - Test deps: Stored in result.testDependencies, used for [EDGE_CONTENT_MODULE_DEPENDS_ON_TEST]
  *
@@ -234,19 +199,16 @@ internal fun planContentModuleDependenciesWithBothSets(
  *
  * ## Test Module Handling
  *
- * Content modules ending with `._test` are test modules (test descriptors declared in module sets).
- * These modules need their TEST scope JPS dependencies included in the XML because they run in
- * a test context. For these modules, we use `withTests=true` when computing "production" deps.
+ * A test-only module keeps its descriptor in a test resource root. Such a module runs in a test context, so its
+ * TEST scope JPS dependencies are included in the written XML; see [shouldIncludeTestScopeForWrittenDeps].
  */
 private fun buildContentModuleDependencyPlanFromInfoWithBothSets(
   contentModuleName: ContentModuleName,
   prodInfo: ModuleDescriptorCache.DescriptorInfo,
   outputProvider: ModuleOutputProvider?,
-  projectLibraryToModuleMap: Map<String, String>,
   graph: PluginGraph,
   suppressionConfig: SuppressionConfig,
   updateSuppressions: Boolean,
-  isTestDescriptor: Boolean,
 ): ContentModuleDependencyPlan {
   // Skip XML modification for modules with non-standard XML root
   if (prodInfo.suppressibleError?.category == ErrorCategory.NON_STANDARD_DESCRIPTOR_ROOT) {
@@ -292,14 +254,12 @@ private fun buildContentModuleDependencyPlanFromInfoWithBothSets(
     outputProvider = outputProvider,
     contentModuleName = contentModuleName,
     descriptorPath = prodInfo.descriptorPath,
-    isTestDescriptor = isTestDescriptor,
   )
   val prodGraphDeps = computeJpsDeps(
     graph = graph,
     moduleName = contentModuleName,
     includeTestScope = includeTestScopeForWrittenDeps,
     outputProvider = outputProvider,
-    projectLibraryToModuleMap = projectLibraryToModuleMap,
   )
   val prodGraphModuleDeps = prodGraphDeps.moduleDeps
   val prodGraphPluginDeps = prodGraphDeps.pluginDeps
@@ -308,7 +268,6 @@ private fun buildContentModuleDependencyPlanFromInfoWithBothSets(
     moduleName = contentModuleName,
     includeTestScope = true,
     outputProvider = outputProvider,
-    projectLibraryToModuleMap = projectLibraryToModuleMap,
   ).moduleDeps
   val nonProductionGraphModuleDeps = testGraphModuleDeps - prodGraphModuleDeps
   val xmlOnlySuppressionCandidateModuleDeps = existingXmlModulesAsContentModuleName.filterTo(LinkedHashSet()) {
@@ -418,23 +377,18 @@ private fun buildContentModuleDependencyPlanFromInfoWithBothSets(
 /**
  * Decides whether TEST-scope JPS deps belong in the descriptor's generated `<dependencies>`.
  *
- * True in exactly three cases:
- * 1. the descriptor is a test descriptor (`foo._test.xml`);
- * 2. the module is test support (`*.testFramework`, IDE starter, …) and has no production content source;
- * 3. the descriptor file itself lies under a JPS test source root (e.g. `testResources/foo.tests.xml`).
+ * True in exactly two cases:
+ * 1. the module is test support (`*.testFramework`, IDE starter, …) and has no production content source;
+ * 2. the descriptor file itself lies under a JPS test source root (e.g. `testResources/foo.tests.xml`).
  *
- * Case 3 is what makes test-only modules work; it is deliberately based on descriptor location, not on the module name.
+ * Case 2 is what makes test-only modules work; it is deliberately based on descriptor location, not on the module name.
  */
 private fun shouldIncludeTestScopeForWrittenDeps(
   graph: PluginGraph,
   outputProvider: ModuleOutputProvider?,
   contentModuleName: ContentModuleName,
   descriptorPath: Path,
-  isTestDescriptor: Boolean,
 ): Boolean {
-  if (isTestDescriptor) {
-    return true
-  }
   if (isTestSupportContentModule(contentModuleName, descriptorPath) && !hasProductionContentSource(graph, contentModuleName)) {
     return true
   }
@@ -456,7 +410,6 @@ private fun isTestSupportContentModule(moduleName: ContentModuleName, descriptor
          name.endsWith("TestFramework") ||
          name.endsWith(".testGuiFramework") ||
          name.contains(".test.framework") ||
-         name.startsWith("intellij.rider.test.framework") ||
          name == "intellij.tools.testsBootstrap" ||
          name == "intellij.idea.tools.launch" ||
          name.startsWith("intellij.ide.starter.") ||
@@ -589,13 +542,11 @@ internal fun computeJpsDeps(
   moduleName: ContentModuleName,
   includeTestScope: Boolean,
   outputProvider: ModuleOutputProvider? = null,
-  projectLibraryToModuleMap: Map<String, String> = emptyMap(),
 ): JpsDeps {
   val allowedModuleDeps = computeDirectJpsRuntimeModuleDeps(
     outputProvider = outputProvider,
     moduleName = moduleName,
     includeTestScope = includeTestScope,
-    projectLibraryToModuleMap = projectLibraryToModuleMap,
   )
   val moduleDeps = HashSet<ContentModuleName>()
   val pluginDeps = HashSet<PluginId>()
@@ -634,27 +585,15 @@ private fun computeDirectJpsRuntimeModuleDeps(
   outputProvider: ModuleOutputProvider?,
   moduleName: ContentModuleName,
   includeTestScope: Boolean,
-  projectLibraryToModuleMap: Map<String, String>,
 ): Set<ContentModuleName>? {
   val module = outputProvider?.findModule(moduleName.value) ?: return null
   val javaExtensionService = JpsJavaExtensionService.getInstance()
-  val libraryToModuleMap = projectLibraryToModuleMap.ifEmpty { outputProvider.getProjectLibraryToModuleMap() }
   val result = HashSet<ContentModuleName>()
 
+  // a library dependency adds nothing: a library reaches a module only through its wrapper module, which is a module dependency
   for (element in module.dependenciesList.dependencies) {
-    if (!isProductionRuntimeDependency(element, javaExtensionService, withTests = includeTestScope)) {
-      continue
-    }
-    when (element) {
-      is JpsModuleDependency -> result.add(ContentModuleName(element.moduleReference.moduleName))
-      is JpsLibraryDependency -> {
-        val libraryReference = element.libraryReference
-        if (libraryReference.parentReference is JpsModuleReference) {
-          continue
-        }
-        val libraryModuleName = libraryToModuleMap.get(libraryReference.libraryName) ?: continue
-        result.add(ContentModuleName(libraryModuleName))
-      }
+    if (element is JpsModuleDependency && isProductionRuntimeDependency(element, javaExtensionService, withTests = includeTestScope)) {
+      result.add(ContentModuleName(element.moduleReference.moduleName))
     }
   }
 

@@ -6,6 +6,7 @@ import com.intellij.codeInsight.lookup.Lookup;
 import com.intellij.codeInsight.lookup.LookupEx;
 import com.intellij.codeInsight.lookup.LookupManager;
 import com.intellij.codeInsight.lookup.impl.LookupImpl;
+import com.intellij.codeInsight.multiverse.EditorContextManager;
 import com.intellij.ide.IdeEventQueue;
 import com.intellij.internal.statistic.eventLog.events.EventFields;
 import com.intellij.internal.statistic.eventLog.events.EventPair;
@@ -105,6 +106,7 @@ public abstract class BaseRefactoringAction extends AnAction {
     DataContext dataContext = e.getDataContext();
     Project project = e.getProject();
     if (project == null) return;
+    if (!RefactoringSafeMode.isRefactoringAllowed(dataContext)) return;
     int eventCount = IdeEventQueue.getInstance().getEventCount();
     if (!PsiDocumentManager.getInstance(project).commitAllDocumentsUnderProgress()) {
       return;
@@ -158,7 +160,7 @@ public abstract class BaseRefactoringAction extends AnAction {
       }
     }
 
-    final PsiFile file = editor != null ? PsiDocumentManager.getInstance(project).getPsiFile(editor.getDocument()) : null;
+    final PsiFile file = editor != null ? EditorContextManager.getPsiFileForEditor(editor, project) : null;
     final Language language = file != null
                               ? file.getLanguage()
                               : (elements.length > 0 ? elements[0].getLanguage() : null);
@@ -195,6 +197,10 @@ public abstract class BaseRefactoringAction extends AnAction {
       hideAction(e);
       return;
     }
+    if (!RefactoringSafeMode.isRefactoringAllowed(dataContext)) {
+      hideAction(e);
+      return;
+    }
 
     Editor editor = e.getData(CommonDataKeys.EDITOR);
     PsiFile file = e.getData(CommonDataKeys.PSI_FILE);
@@ -225,7 +231,8 @@ public abstract class BaseRefactoringAction extends AnAction {
       }
     }
     else {
-      PsiElement element = findRefactoringTargetInEditor(dataContext, this::isAvailableForLanguage);
+      boolean availableForAnyLanguage = file != null && isAvailableForAnyLanguage(file);
+      PsiElement element = findRefactoringTargetInEditor(dataContext, language -> availableForAnyLanguage || isAvailableForLanguage(language));
       if (element != null) {
         boolean isEnabled = file != null && isAvailableOnElementInEditorAndFile(element, editor, file, dataContext, e.getPlace());
         if (!isEnabled) {
@@ -299,6 +306,14 @@ public abstract class BaseRefactoringAction extends AnAction {
 
   protected boolean isAvailableForLanguage(Language language) {
     return true;
+  }
+
+  /**
+   * Whether a language-agnostic refactoring support, registered for {@link Language#ANY} (e.g. an LSP server), is available in the file.
+   * Such support cannot be decided by language, so it is checked per file and shows the action in the editor only.
+   */
+  protected boolean isAvailableForAnyLanguage(@NotNull PsiFile file) {
+    return false;
   }
 
   protected boolean isAvailableForFile(PsiFile file) {

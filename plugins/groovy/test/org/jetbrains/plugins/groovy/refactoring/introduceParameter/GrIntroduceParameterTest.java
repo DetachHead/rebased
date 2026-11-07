@@ -35,8 +35,8 @@ import java.io.File;
  */
 public class GrIntroduceParameterTest extends LightGroovyTestCase {
   @Override
-  protected String getBasePath() {
-    return TestUtils.getTestDataPath() + "refactoring/introduceParameterGroovy/" + getTestName(true) + "/";
+  protected String getTestDataPath() {
+    return TestUtils.getAbsoluteTestDataPath() + "refactoring/introduceParameterGroovy/" + getTestName(true) + "/";
   }
 
   private void doDelegateTest() {

@@ -21,7 +21,8 @@ class PyHideTypeAnnotationsIntention : PyBaseIntentionAction() {
 
   override fun isAvailable(project: Project, editor: Editor?, psiFile: PsiFile?): Boolean {
     if (psiFile !is PyFile) return false
-    val offset = TargetElementUtilBase.adjustOffset(psiFile, editor?.document ?: return false, editor.caretModel.offset)
+    val document = editor?.document ?: return false
+    val offset = TargetElementUtilBase.adjustOffset(psiFile, document, editor.caretModel.offset)
     val element = PyUtil.findNonWhitespaceAtOffset(psiFile, offset)
     val annotation = PsiTreeUtil.getParentOfType(element, PyAnnotation::class.java)
     text = PyPsiBundle.message("INTN.hide.type.annotations")

@@ -8,6 +8,8 @@ import com.intellij.openapi.components.service
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.ModificationTracker
 import com.intellij.openapi.util.SimpleModificationTracker
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.coroutineScope
 import org.jetbrains.annotations.ApiStatus
 import java.nio.file.Path
 
@@ -48,7 +50,13 @@ abstract class SaveAndSyncHandler {
 
   abstract fun refreshOpenFiles()
 
-  open fun disableAutoSave(): AccessToken = AccessToken.EMPTY_ACCESS_TOKEN
+  open fun <T> withDisabledAutoSaveBlocking(action: () -> T): T {
+    return action()
+  }
+
+  open suspend fun <T> withDisabledAutoSave(action: suspend CoroutineScope.() -> T): T {
+    return coroutineScope { action() }
+  }
 
   abstract fun blockSaveOnFrameDeactivation()
 
@@ -74,8 +82,23 @@ abstract class SaveAndSyncHandler {
   @ApiStatus.Internal
   abstract fun maybeRefresh(modalityState: ModalityState)
 
+  /**
+   * Saves only the settings of [componentManager] under modal progress on the EDT.
+   */
   @ApiStatus.Internal
   abstract fun saveSettingsUnderModalProgress(componentManager: ComponentManager): Boolean
+
+  /**
+   * Saves the specified stores on the EDT. Returns `true` if every save succeeds.
+   */
+  @ApiStatus.Internal
+  open fun saveSettingsUnderModalProgress(componentManagers: List<ComponentManager>): Boolean {
+    var saved = true
+    for (componentManager in componentManagers) {
+      saved = saveSettingsUnderModalProgress(componentManager) && saved
+    }
+    return saved
+  }
 
   /**
    * @return a modification tracker incrementing when external commands are likely run.

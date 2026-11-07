@@ -17,8 +17,8 @@ import org.jetbrains.plugins.groovy.util.TestUtils;
  */
 public class GroovyGotoTest extends LightJavaCodeInsightFixtureTestCase {
   @Override
-  protected String getBasePath() {
-    return TestUtils.getTestDataPath() + "goto/";
+  protected String getTestDataPath() {
+    return TestUtils.getAbsoluteTestDataPath() + "goto/";
   }
 
   private void doTest(Condition<PsiElement> verifier) {

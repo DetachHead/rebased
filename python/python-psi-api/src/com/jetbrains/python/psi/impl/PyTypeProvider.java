@@ -5,7 +5,6 @@ import com.intellij.openapi.extensions.ExtensionPointName;
 import com.intellij.openapi.util.Ref;
 import com.intellij.psi.PsiElement;
 import com.jetbrains.python.psi.AccessDirection;
-import com.jetbrains.python.psi.PyCallExpression;
 import com.jetbrains.python.psi.PyCallSiteExpression;
 import com.jetbrains.python.psi.PyCallSiteOwner;
 import com.jetbrains.python.psi.PyCallable;
@@ -42,6 +41,7 @@ public interface PyTypeProvider {
   @Nullable
   Ref<PyType> getReturnType(@NotNull PyCallable callable, @NotNull TypeEvalContext context);
 
+  @ApiStatus.Internal
   @Nullable
   Ref<PyType> getCallType(@NotNull PyFunction function, @NotNull PyCallSiteOwner callSite, @NotNull TypeEvalContext context);
 
@@ -71,20 +71,12 @@ public interface PyTypeProvider {
   Map<PyType, PyType> getGenericSubstitutions(@NotNull PyClass cls, @NotNull TypeEvalContext context);
 
   /**
-   * @deprecated Use {@link #prepareCalleeTypeForCall(PyType, PyExpression, TypeEvalContext)} instead.
-   */
-  @Deprecated
-  default @Nullable Ref<@Nullable PyCallableType> prepareCalleeTypeForCall(@Nullable PyType type,
-                                                                           @NotNull PyCallExpression call,
-                                                                           @NotNull TypeEvalContext context) {
-    PyExpression callee = call.getCallee();
-    return callee == null ? null : prepareCalleeTypeForCall(type, callee, context);
-  }
-
-  /**
    * <p>
    * If callee type is a class type, it is replaced with class constructor or {@code __call__}
    * depending on whether it is a definition or an instance.
+   * </p>
+   * <p>
+   * The type wrapped into the {@link Ref} must be a {@link PyCallableType} or a {@code PyOverloadType}.
    * </p>
    * <p>
    * If the {@code type} is provided, and it is desirable to stay with the provided {@code type}, please wrap it into {@link Ref}.
@@ -96,9 +88,9 @@ public interface PyTypeProvider {
    * Return {@code null} otherwise.
    * </p>
    */
-  @Nullable Ref<@Nullable PyCallableType> prepareCalleeTypeForCall(@Nullable PyType calleeType,
-                                                                   @NotNull PyExpression callee,
-                                                                   @NotNull TypeEvalContext context);
+  @Nullable Ref<@Nullable PyType> prepareCalleeTypeForCall(@Nullable PyType calleeType,
+                                                           @NotNull PyExpression callee,
+                                                           @NotNull TypeEvalContext context);
 
   @ApiStatus.Experimental
   @Nullable List<@NotNull PyTypeMember> getMemberTypes(@NotNull PyType type,

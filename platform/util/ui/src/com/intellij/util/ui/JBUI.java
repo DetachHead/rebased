@@ -426,6 +426,12 @@ public final class JBUI {
       public static final Color INFO_BACKGROUND = JBColor.namedColor("Banner.infoBackground", 0xF5F8FE, 0x25324D);
       public static final Color INFO_BORDER_COLOR = JBColor.namedColor("Banner.infoBorderColor", 0xC2D6FC, 0x35538F);
 
+      public static final Color INFO_MUTED_BACKGROUND = JBColor.namedColor("Banner.infoMutedBackground", INFO_BACKGROUND);
+      public static final Color INFO_MUTED_BORDER_COLOR = JBColor.namedColor("Banner.infoMutedBorderColor", INFO_BORDER_COLOR);
+
+      public static final Color NEUTRAL_MUTED_BACKGROUND = JBColor.namedColor("Banner.neutralMutedBackground", 0xF7F8F9, 0x26282C);
+      public static final Color NEUTRAL_MUTED_BORDER_COLOR = JBColor.namedColor("Banner.neutralMutedBorderColor", 0xE9EAEE, 0x33353B);
+
       public static final Color SUCCESS_BACKGROUND = JBColor.namedColor("Banner.successBackground", 0xF2FCF3, 0x253627);
       public static final Color SUCCESS_BORDER_COLOR = JBColor.namedColor("Banner.successBorderColor", 0xC5E5CC, 0x375239);
 
@@ -1143,6 +1149,9 @@ public final class JBUI {
                                                       new JBColor(0x407BF2, 0x548AF7));
         Color AREA_BACKGROUND = JBColor.namedColor("ToolWindow.DragAndDrop.areaBackground",
                                                    new JBColor(0xA0BDF8, 0x366ACF));
+        @Experimental
+        Color HINT_BACKGROUND = JBColor.namedColor("ToolWindow.DragAndDrop.hintBackground",
+                                                   new JBColor(0xD0DDFC, 0x7095DE));
       }
 
       public static @NotNull Color stripeSeparatorColor(boolean dnd) {

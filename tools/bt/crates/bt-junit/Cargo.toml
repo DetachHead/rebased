@@ -1,0 +1,23 @@
+# Inline rather than `.workspace = true`: the Air UI-lane workspace links this crate through a path dependency, and
+# rules_rs reads the `[package]` and `[dependencies]` of such a crate without its workspace. Keep the values equal to
+# `[workspace.package]` and `[workspace.dependencies]`.
+[package]
+name = "bt-junit"
+description = "The JUnit XML reader: a scanner that keeps the cases of a truncated test.xml, and the simple-name class pattern."
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.93"
+publish = false
+license = "Apache-2.0"
+
+[lints]
+workspace = true
+
+[dependencies]
+jiff = "0.2.37"
+quick-xml = "0.42.0"
+
+[dev-dependencies]
+pretty_assertions.workspace = true
+proptest.workspace = true
+regex.workspace = true

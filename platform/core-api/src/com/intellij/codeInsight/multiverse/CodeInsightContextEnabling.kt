@@ -6,7 +6,7 @@ package com.intellij.codeInsight.multiverse
 
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.diagnostic.fileLogger
-import com.intellij.openapi.diagnostic.rethrowControlFlowException
+import com.intellij.diagnostic.rethrowControlFlowException
 import com.intellij.openapi.extensions.ExtensionPointName
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Key
@@ -29,7 +29,7 @@ internal fun isSharedSourceSupportEnabledImpl(project: Project): Boolean {
     val result = computeSharedSourceEnabled(project)
     project.putUserData(multiverse_enabler_key, result)
     if (logMultiverseState) {
-      log.info("multiverse is ${if (result) "enabled" else "disabled"}")
+      log.info("Multiverse is ${if (result) "enabled" else "disabled"}")
     }
     return result
   }

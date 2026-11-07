@@ -4,8 +4,8 @@ package com.intellij.python.pyrefly
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.State
 import com.intellij.openapi.components.Storage
-import com.intellij.python.pytools.lsp.LSP_TOOLS_STORAGE_FILE
-import com.intellij.python.pytools.lsp.PyLspToolConfiguration
+import com.intellij.python.lsp.core.LSP_TOOLS_STORAGE_FILE
+import com.intellij.python.lsp.core.PyLspToolConfiguration
 import com.intellij.util.xmlb.XmlSerializerUtil
 
 
@@ -16,7 +16,7 @@ import com.intellij.util.xmlb.XmlSerializerUtil
 )
 data class PyreflyConfiguration(
   override var inlayHints: Boolean? = false,
-  override var completions: Boolean? = false,
+  override var completions: Boolean? = true,
   override var documentation: Boolean? = false,
 ) : PyLspToolConfiguration<PyreflyConfiguration>() {
   override fun loadState(state: PyreflyConfiguration) {

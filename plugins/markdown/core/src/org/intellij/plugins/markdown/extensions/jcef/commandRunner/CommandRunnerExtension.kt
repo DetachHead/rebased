@@ -24,13 +24,13 @@ import com.intellij.openapi.application.ReadAction
 import com.intellij.openapi.application.invokeLater
 import com.intellij.openapi.application.runReadAction
 import com.intellij.openapi.diagnostic.logger
-import com.intellij.openapi.diagnostic.rethrowControlFlowException
+import com.intellij.diagnostic.rethrowControlFlowException
 import com.intellij.openapi.project.BaseProjectDirectories
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.MessageDialogBuilder
 import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.util.Disposer
-import com.intellij.openapi.vfs.LocalFileSystem
+import com.intellij.openapi.vfs.StandardFileSystems
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.ui.AppUIUtil
 import org.intellij.plugins.markdown.MarkdownBundle
@@ -146,12 +146,12 @@ class CommandRunnerExtension(
 
   fun processCodeBlock(codeFenceRawContent: String, language: String): String {
     try {
-      val lang = CodeFenceLanguageGuesser.guessLanguageForInjection(language)
+      val lang = CodeFenceLanguageGuesser.guessLanguageForExecution(language)
       val runner = MarkdownRunner.EP_NAME.extensionList.firstOrNull { it.isApplicable(lang) }
       if (runner == null) return ""
 
-      val hash = MarkdownUtil.md5(codeFenceRawContent, sessionKey)
-      hash2Cmd[hash] = codeFenceRawContent
+      val hash = MarkdownUtil.md5(codeFenceRawContent, "$sessionKey:${lang?.id}")
+      hash2Cmd[hash] = if (lang?.id == "PowerShell") codeFenceRawContent else trimPrompt(codeFenceRawContent)
       val lines = codeFenceRawContent.trimEnd().lines()
       val firstLineHash = if (lines.size > 1) processLine(lines[0], false) else null
       val firstLineData = if (firstLineHash.isNullOrBlank()) "" else "data-firstLine='$firstLineHash'"
@@ -243,19 +243,18 @@ class CommandRunnerExtension(
         LOG.error("Command hash not found. Please attach .md file to error report.")
         return true
       }
-      val trimmedCmd = trimPrompt(command)
       val x = args[3].toDoubleOrNull()?.toInt() ?: 0
       val y = args[4].toDoubleOrNull()?.toInt() ?: 0
       val needsConfirmation = PreviewClickConfirmation.needsConfirmation(args.getOrNull(5))
       if (needsConfirmation) {
-        confirmThenRun(trimmedCmd) {
-          executeBlock(trimmedCmd, executorId, x, y)
+        confirmThenRun(command) {
+          executeBlock(command, executorId, x, y)
         }
         return false
       }
       if (firstLineCommand == null) {
         ApplicationManager.getApplication().invokeLater {
-          executeBlock(trimmedCmd, executorId, x, y)
+          executeBlock(command, executorId, x, y)
         }
         return false
       }
@@ -266,7 +265,7 @@ class CommandRunnerExtension(
                                              AllIcons.RunConfigurations.TestState.Run_run) {
         override fun actionPerformed(e: AnActionEvent) {
           ApplicationManager.getApplication().invokeLater {
-            executeBlock(trimmedCmd, executorId, x, y)
+            executeBlock(command, executorId, x, y)
           }
         }
       }
@@ -410,7 +409,7 @@ class CommandRunnerExtension(
 
     private fun createDataContext(project: Project, localSession: Boolean, workingDirectory: String?, executor: Executor? = null): DataContext {
       val virtualFile = if (localSession && workingDirectory != null)
-        LocalFileSystem.getInstance().findFileByPath(workingDirectory) else null
+        StandardFileSystems.local().findFileByPath(workingDirectory) else null
 
       return SimpleDataContext.builder()
         .add(CommonDataKeys.PROJECT, project)
@@ -472,7 +471,7 @@ enum class RunnerType {
 fun getMarkdownCommandWorkingDirectory(project: Project, virtualFile: VirtualFile?): String? {
   val fileDirectory = virtualFile?.parent?.canonicalPath ?: return null
   val projectDirectory = BaseProjectDirectories.getInstance(project).getBaseDirectoryFor(virtualFile)?.canonicalPath ?: fileDirectory
-  return when (MarkdownSettings.getInstance(project).useFileDirectoryForCommands) {
+  return when (MarkdownSettings.getInstance().useFileDirectoryForCommands) {
     true -> fileDirectory
     false -> projectDirectory
     null -> null
@@ -486,7 +485,7 @@ fun getMarkdownCommandWorkingDirectories(project: Project, virtualFile: VirtualF
   if (virtualFile == null) return emptyList()
   val fileDirectory = markdownCommandFileDirectory(virtualFile) ?: return emptyList()
   val projectDirectory = BaseProjectDirectories.getInstance(project).getBaseDirectoryFor(virtualFile)?.canonicalPath ?: fileDirectory
-  return when (MarkdownSettings.getInstance(project).useFileDirectoryForCommands) {
+  return when (MarkdownSettings.getInstance().useFileDirectoryForCommands) {
     true -> listOf(fileDirectory)
     false -> listOf(projectDirectory)
     null -> listOf(projectDirectory, fileDirectory).distinct()

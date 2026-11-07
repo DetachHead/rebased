@@ -10,6 +10,10 @@ jps_test(
 )
 ### skip generation section `test intellij.regexp.tests`
 
+### auto-generated section `dev intellij.regexp` start
+content_module_jar(module = ":regexp")
+### auto-generated section `dev intellij.regexp` end
+
 ### auto-generated section `build intellij.regexp` start
 jvm_library(
     name = "regexp",
@@ -42,7 +46,6 @@ jvm_library(
         "//platform/projectModel-impl",
         "//platform/lang-impl",
         "//platform/refactoring",
-        "//xml/xml-psi-api:psi",
         "//platform/core-impl",
         "//libraries/fastutil",
         "//platform/ide-core-impl",
@@ -53,8 +56,6 @@ jvm_library(
         "//platform/util/concurrency",
     ],
 )
-
-content_module_jar(module = ":regexp")
 
 jvm_library(
     name = "regexp_test_lib",
@@ -79,7 +80,6 @@ jvm_library(
         "//platform/projectModel-impl:projectModel-impl_test_lib",
         "//platform/lang-impl:lang-impl_test_lib",
         "//platform/refactoring:refactoring_test_lib",
-        "//xml/xml-psi-api:psi_test_lib",
         "//platform/core-impl:core-impl_test_lib",
         "//libraries/fastutil:fastutil_test_lib",
         "//platform/ide-core-impl:ide-core-impl_test_lib",
@@ -97,7 +97,6 @@ exports_files(
     [
         "intellij.regexp.iml",
         "resources/intellij.regexp.xml",
-        "module-content.yaml",
     ],
     visibility = ["//visibility:public"],
 )
@@ -112,6 +111,7 @@ jvm_library(
     ),
     module_name = "intellij.regexp.tests",
     visibility = ["//visibility:public"],
+    runtime_deps = ["//xml/plugin"],
 )
 
 jvm_library(
@@ -135,6 +135,7 @@ jvm_library(
         ":regexp-tests",
         "//platform/platform-impl:ide-impl_test_lib",
         "//platform/ide-core-impl:ide-core-impl_test_lib",
+        "//xml/plugin:plugin_test_lib",
     ],
     deps = [
         # do not sort,
@@ -165,8 +166,6 @@ jvm_library(
         "//platform/refactoring:refactoring_test_lib",
         "//platform/testFramework",
         "//platform/testFramework:testFramework_test_lib",
-        "//xml/xml-psi-api:psi",
-        "//xml/xml-psi-api:psi_test_lib",
         "//platform/core-impl",
         "//platform/core-impl:core-impl_test_lib",
         "//libraries/fastutil",

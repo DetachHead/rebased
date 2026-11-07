@@ -33,6 +33,7 @@ import com.intellij.ui.TreeSpeedSearch;
 import com.intellij.util.SingleAlarm;
 import com.intellij.util.concurrency.EdtExecutorService;
 import com.intellij.util.containers.ContainerUtil;
+import com.intellij.util.containers.JBTreeTraverser;
 import com.intellij.util.ui.TextTransferable;
 import com.intellij.util.ui.UIUtil;
 import com.intellij.xdebugger.SplitDebuggerMode;
@@ -54,7 +55,6 @@ import com.intellij.xdebugger.impl.ui.tree.nodes.XDebuggerTreeNode;
 import com.intellij.xdebugger.impl.ui.tree.nodes.XValueContainerNode;
 import com.intellij.xdebugger.impl.ui.tree.nodes.XValueGroupNodeImpl;
 import com.intellij.xdebugger.impl.ui.tree.nodes.XValueNodeImpl;
-import one.util.streamex.StreamEx;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -101,8 +101,8 @@ public class XDebuggerTree extends DnDAwareTree implements UiCompatibleDataProvi
     String text = null;
     if (o != null) {
       final Object node = o.getLastPathComponent();
-      if (node instanceof XDebuggerTreeNode) {
-        text = ((XDebuggerTreeNode)node).getText().toString();
+      if (node instanceof XDebuggerTreeNode treeNode) {
+        text = treeNode.getText().toString();
       }
     }
     return StringUtil.notNullize(text);
@@ -127,8 +127,8 @@ public class XDebuggerTree extends DnDAwareTree implements UiCompatibleDataProvi
         htmlBuf.append("  <li>");
         Object node = path.getLastPathComponent();
         if (node != null) {
-          if (node instanceof XDebuggerTreeNode) {
-            ((XDebuggerTreeNode)node).appendToComponent(coloredTextContainer);
+          if (node instanceof XDebuggerTreeNode treeNode) {
+            treeNode.appendToComponent(coloredTextContainer);
             coloredTextContainer.appendTo(plainBuf, htmlBuf);
           }
           else {
@@ -184,8 +184,8 @@ public class XDebuggerTree extends DnDAwareTree implements UiCompatibleDataProvi
 
       @Override
       protected void handleTagClick(@Nullable Object tag, @NotNull MouseEvent event) {
-        if (tag instanceof XDebuggerTreeNodeHyperlink) {
-          ((XDebuggerTreeNodeHyperlink)tag).onClick(event);
+        if (tag instanceof XDebuggerTreeNodeHyperlink hyperlink) {
+          hyperlink.onClick(event);
         }
       }
 
@@ -202,7 +202,7 @@ public class XDebuggerTree extends DnDAwareTree implements UiCompatibleDataProvi
         }
         Object lastPathComponent = pathForLocation.getLastPathComponent();
         myPinToTopManager
-          .onNodeHovered(lastPathComponent instanceof XDebuggerTreeNode ? (XDebuggerTreeNode) lastPathComponent : null, XDebuggerTree.this);
+          .onNodeHovered(lastPathComponent instanceof XDebuggerTreeNode node ? node : null, XDebuggerTree.this);
       }
     }.installOn(this);
     setRootVisible(false);
@@ -236,8 +236,8 @@ public class XDebuggerTree extends DnDAwareTree implements UiCompatibleDataProvi
         if (paths != null) {
           for (TreePath path : paths) {
             Object component = path.getLastPathComponent();
-            if (component instanceof XDebuggerTreeNode) {
-              XDebuggerTreeNodeHyperlink link = ((XDebuggerTreeNode)component).getLink();
+            if (component instanceof XDebuggerTreeNode node) {
+              XDebuggerTreeNodeHyperlink link = node.getLink();
               if (link != null) {
                 // dummy event
                 link.onClick(dummyMouseClickEvent());
@@ -267,8 +267,8 @@ public class XDebuggerTree extends DnDAwareTree implements UiCompatibleDataProvi
       private static void handleExpansion(TreeExpansionEvent event, boolean expanded) {
         final TreePath path = event.getPath();
         final Object component = path != null ? path.getLastPathComponent() : null;
-        if (component instanceof XValueGroupNodeImpl) {
-          ((XValueGroupNodeImpl)component).onExpansion(expanded);
+        if (component instanceof XValueGroupNodeImpl node) {
+          node.onExpansion(expanded);
         }
       }
     };
@@ -277,10 +277,10 @@ public class XDebuggerTree extends DnDAwareTree implements UiCompatibleDataProvi
     addTreeListener(new XDebuggerTreeListener() {
       @Override
       public void nodeLoaded(@NotNull RestorableStateNode node, @NotNull String name) {
-        if (!(node instanceof XValueNodeImpl) || ((XValueNodeImpl)node).isObsolete()) {
+        if (!(node instanceof XValueNodeImpl valueNode) || valueNode.isObsolete()) {
           return;
         }
-        XDebuggerNodeLinkActionProvider.computeHyperlink(myProject, (XValueNodeImpl)node);
+        XDebuggerNodeLinkActionProvider.computeHyperlink(myProject, valueNode);
       }
     });
   }
@@ -422,10 +422,10 @@ public class XDebuggerTree extends DnDAwareTree implements UiCompatibleDataProvi
   @ApiStatus.Internal
   public void rebuildAndRestore(final XDebuggerTreeState treeState) {
     Object rootNode = myTreeModel.getRoot();
-    if (rootNode instanceof XDebuggerTreeNode) {
-      ((XDebuggerTreeNode)rootNode).clearChildren();
-      if (isRootVisible() && rootNode instanceof XValueNodeImpl) {
-        ((XValueNodeImpl)rootNode).getValueContainer().computePresentation((XValueNode)rootNode, XValuePlace.TREE);
+    if (rootNode instanceof XDebuggerTreeNode treeNode) {
+      treeNode.clearChildren();
+      if (isRootVisible() && rootNode instanceof XValueNodeImpl node) {
+        node.getValueContainer().computePresentation((XValueNode)rootNode, XValuePlace.TREE);
       }
       treeState.restoreState(this);
       repaint();
@@ -448,9 +448,11 @@ public class XDebuggerTree extends DnDAwareTree implements UiCompatibleDataProvi
 
   public void markNodesObsolete() {
     Object root = myTreeModel.getRoot();
-    if (root instanceof XValueContainerNode<?>) {
+    if (root instanceof XValueContainerNode<?> node) {
       // avoid SOE
-      StreamEx.<XValueContainerNode<?>>ofTree((XValueContainerNode<?>)root, n -> StreamEx.of(n.getLoadedChildren()))
+      JBTreeTraverser.<XValueContainerNode<?>>from(n -> n.getLoadedChildren())
+        .withRoot(node)
+        .preOrderDfsTraversal()
         .forEach(XValueContainerNode::setObsolete);
     }
   }

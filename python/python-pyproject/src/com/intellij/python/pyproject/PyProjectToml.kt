@@ -4,17 +4,16 @@ package com.intellij.python.pyproject
 import com.intellij.openapi.application.readAction
 import com.intellij.openapi.diagnostic.debug
 import com.intellij.openapi.diagnostic.fileLogger
-import com.intellij.openapi.module.Module
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Key
-import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.openapi.vfs.VirtualFile
+import com.intellij.openapi.vfs.VirtualFileManager
 import com.intellij.psi.PsiManager
 import com.intellij.psi.util.CachedValue
 import com.intellij.psi.util.CachedValueProvider
 import com.intellij.psi.util.CachedValuesManager
 import com.intellij.python.pyproject.model.spi.PyProjectManager
-import com.jetbrains.python.project.PyProject.Companion.asPyProject
+import com.jetbrains.python.project.PyProject
 import com.jetbrains.python.project.resolveFile
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -219,11 +218,11 @@ data class PyProjectToml internal constructor(
     }
 
     /**
-     * Attempts to find the `pyproject.toml` file in the provided module.
+     * Attempts to find the `pyproject.toml` file in the provided project.
      * Returns null if not found.
      */
-    suspend fun findPyProjectTomlFile(module: Module): PyProjectTomlFile? {
-      return module.asPyProject()?.resolveFile(PY_PROJECT_TOML)?.let { LocalFileSystem.getInstance().findFileByNioFile(it) }
+    suspend fun findPyProjectTomlFile(pyProject: PyProject): PyProjectTomlFile? {
+      return pyProject.resolveFile(PY_PROJECT_TOML)?.let { VirtualFileManager.getInstance().findFileByNioPath(it) }
         ?.let { PyProjectTomlFile(it) }
     }
   }

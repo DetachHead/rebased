@@ -19,7 +19,7 @@ interface PyTypeHintProvider {
     private val EP_NAME: ExtensionPointName<PyTypeHintProvider> = ExtensionPointName.create("Pythonid.typeHintProvider");
 
     fun parseTypeHint(typeHint: PyExpression, alias: PyQualifiedNameOwner?, resolved: PsiElement, context: TypeEvalContext): Ref<PyType?>? {
-      return EP_NAME.extensionList.firstNotNullOfOrNull { it.parseTypeHint(typeHint, alias, resolved, context) }
+      return EP_NAME.computeSafeIfAny { it.parseTypeHint(typeHint, alias, resolved, context) }
     }
   }
 }

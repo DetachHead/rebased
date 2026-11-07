@@ -5,7 +5,7 @@ import com.intellij.collaboration.auth.ui.LazyLoadingAccountsDetailsProvider
 import com.intellij.collaboration.auth.ui.cancelOnRemoval
 import com.intellij.collaboration.messages.CollaborationToolsBundle
 import com.intellij.openapi.components.service
-import com.intellij.openapi.diagnostic.rethrowControlFlowException
+import com.intellij.diagnostic.rethrowControlFlowException
 import icons.CollaborationToolsIcons
 import kotlinx.coroutines.CoroutineScope
 import org.jetbrains.annotations.ApiStatus

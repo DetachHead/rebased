@@ -148,7 +148,7 @@ open class TabbedShowHistoryAction : DumbAwareAction() {
 
   private fun getEditorFile(context: DataContext): VirtualFile? {
     val project = context.getData(CommonDataKeys.PROJECT) ?: return null
-    return FileEditorManager.getInstance(project).getSelectedFiles().firstOrNull().takeIf { it?.isInLocalFileSystem == true }
+    return FileEditorManager.getInstance(project).selectedFiles.firstOrNull().takeIf { it?.isInLocalFileSystem == true }
   }
 
   internal companion object {

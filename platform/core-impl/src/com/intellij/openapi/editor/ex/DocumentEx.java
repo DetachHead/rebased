@@ -6,6 +6,7 @@ import com.intellij.openapi.editor.RangeMarker;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.util.Processor;
 import org.jetbrains.annotations.ApiStatus;
+import org.jetbrains.annotations.Contract;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.UnmodifiableView;
 
@@ -129,5 +130,12 @@ public interface DocumentEx extends Document {
    */
   default int getModificationSequence() {
     return 0;
+  }
+
+  @ApiStatus.Experimental
+  @ApiStatus.Internal
+  @Contract(pure = true)
+  default @NotNull DocumentText getDocText() {
+    return DocumentText.createText(getImmutableCharSequence());
   }
 }

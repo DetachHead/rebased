@@ -7,6 +7,7 @@ import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.actionSystem.CommonDataKeys
 import com.intellij.openapi.actionSystem.ex.ActionUtil
 import com.intellij.openapi.actionSystem.impl.SimpleDataContext
+import com.intellij.openapi.editor.impl.EditorImpl
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Disposer
 import com.intellij.platform.util.coroutines.childScope
@@ -31,6 +32,8 @@ import kotlinx.coroutines.withTimeoutOrNull
 import org.assertj.core.api.Assertions.assertThat
 import org.jetbrains.plugins.terminal.JBTerminalSystemSettingsProvider
 import org.jetbrains.plugins.terminal.TerminalEmulatorType
+import org.jetbrains.plugins.terminal.session.impl.TerminalSession
+import org.jetbrains.plugins.terminal.util.getNow
 import org.jetbrains.plugins.terminal.util.terminalProjectScope
 import org.jetbrains.plugins.terminal.view.TerminalContentChangeEvent
 import org.jetbrains.plugins.terminal.view.TerminalCursorOffsetChangeEvent
@@ -38,6 +41,8 @@ import org.jetbrains.plugins.terminal.view.TerminalOutputModel
 import org.jetbrains.plugins.terminal.view.TerminalOutputModelListener
 import org.jetbrains.plugins.terminal.view.impl.MutableTerminalOutputModel
 import org.jetbrains.plugins.terminal.view.shellIntegration.TerminalBlocksModel
+import java.util.concurrent.LinkedBlockingQueue
+import java.util.concurrent.TimeUnit
 import kotlin.coroutines.resume
 import kotlin.math.ceil
 import kotlin.time.Duration
@@ -54,11 +59,17 @@ import kotlin.time.Duration.Companion.seconds
 internal class TerminalViewFixture(private val project: Project, emulatorType: TerminalEmulatorType) : AutoCloseable {
   private val scope = terminalProjectScope(project).childScope("TerminalViewFixture")
 
+  val session: TerminalSession
   val connector: LoopbackTtyConnector
   val view: TerminalViewImpl
 
+  /** The editor that shows the active buffer of [view]. */
+  val activeEditor: EditorImpl
+    get() = if (view.isAlternateScreenBuffer) checkNotNull(view.alternateBufferEditorDeferred.getNow()) else view.outputEditor
+
   init {
     val (session, connector) = TerminalSessionTestUtil.createLoopbackTerminalSession(project, scope, emulatorType)
+    this.session = session
     this.connector = connector
 
     view = TerminalViewImpl(project, JBTerminalSystemSettingsProvider(), null, scope)
@@ -71,9 +82,9 @@ internal class TerminalViewFixture(private val project: Project, emulatorType: T
    *
    * Does not wait for the session to apply it. Use [resizeAndAwait] to assert a model state afterward.
    */
-  @RequiresEdt
+  @RequiresEdt(generateAssertion = false /* IJPL-115548 */)
   fun resize(columns: Int, rows: Int) {
-    val editor = if (view.isAlternateScreenBuffer) view.alternateBufferEditor else view.outputEditor
+    val editor = activeEditor
     val characterGrid = checkNotNull(editor.characterGrid) { "Character grid is not initialized" }
     EditorTestUtil.setEditorVisibleSizeInPixels(
       editor,
@@ -89,10 +100,10 @@ internal class TerminalViewFixture(private val project: Project, emulatorType: T
     dispatchAllEventsInIdeEventQueue()
   }
 
-  @RequiresEdt
+  @RequiresEdt(generateAssertion = false /* IJPL-115548 */)
   fun invokeAction(actionId: String) {
     val action = ActionManager.getInstance().getAction(actionId) ?: error("Unknown action: $actionId")
-    val editor = if (view.isAlternateScreenBuffer) view.alternateBufferEditor else view.outputEditor
+    val editor = activeEditor
     val context = SimpleDataContext.builder()
       .add(CommonDataKeys.PROJECT, project)
       .add(TerminalActionUtil.EDITOR_KEY, editor)
@@ -155,6 +166,38 @@ internal class TerminalViewFixture(private val project: Project, emulatorType: T
     assertThat(found)
       .describedAs("the session never asked the pty for $expected; it asked for $seen")
       .isTrue()
+  }
+
+  /**
+   * Runs [action], then suspends until the session handles every input event that the view sent before, and the events of [action].
+   * The session handles the input events in order, so it writes [INPUT_BARRIER] to the pty only after them.
+   * Returns the writes to the pty before [INPUT_BARRIER], in order.
+   * The recording starts before [action], because the session can write for an event of [action] before this function sends
+   * [INPUT_BARRIER].
+   * [LoopbackTtyConnector.responseHandler] is replaced while this function waits.
+   */
+  suspend fun awaitInputEventsHandled(timeout: Duration = 5.seconds, action: () -> Unit = {}): List<String> {
+    val previousHandler = connector.responseHandler
+    val written = LinkedBlockingQueue<String>()
+    connector.responseHandler = { bytes -> written.add(String(bytes, Charsets.UTF_8)) }
+    try {
+      action()
+      view.sendText(INPUT_BARRIER)
+      val writtenBefore = ArrayList<String>()
+      // The polls block, so they must not run on the EDT.
+      withContext(Dispatchers.IO) {
+        while (true) {
+          val next = written.poll(timeout.inWholeMilliseconds, TimeUnit.MILLISECONDS)
+          assertThat(next).describedAs("the session never wrote the input barrier to the pty; it wrote $writtenBefore").isNotNull()
+          if (next == INPUT_BARRIER) break
+          writtenBefore.add(next!!)
+        }
+      }
+      return writtenBefore
+    }
+    finally {
+      connector.responseHandler = previousHandler
+    }
   }
 
   /**
@@ -235,6 +278,9 @@ internal class TerminalViewFixture(private val project: Project, emulatorType: T
 
     /** How long [awaitReportedSize] waits on the connector queue before it checks the overall timeout. */
     private val REPORTED_SIZE_POLL_INTERVAL: Duration = 10.milliseconds
+
+    /** The text that [awaitInputEventsHandled] sends through the view. */
+    private const val INPUT_BARRIER: String = "input barrier"
   }
 }
 

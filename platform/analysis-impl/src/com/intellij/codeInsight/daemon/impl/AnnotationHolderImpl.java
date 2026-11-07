@@ -33,7 +33,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
 
-import static com.intellij.openapi.diagnostic.LoggerKt.rethrowControlFlowException;
+import static com.intellij.diagnostic.ControlFlowExceptionsKt.rethrowControlFlowException;
 
 /**
  * Use {@link AnnotationHolder} instead. The members of this class can suddenly change or disappear.

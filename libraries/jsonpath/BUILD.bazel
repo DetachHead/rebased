@@ -1,6 +1,13 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
 load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
+### auto-generated section `dev intellij.libraries.jsonpath` start
+content_module_jar(
+    libraries = ["@lib//:libraries-jsonpath-jsonpath"],
+    module = ":jsonpath",
+)
+### auto-generated section `dev intellij.libraries.jsonpath` end
+
 ### auto-generated section `build intellij.libraries.jsonpath` start
 jvm_library(
     name = "jsonpath",
@@ -15,12 +22,12 @@ jvm_library(
     ),
     visibility = ["//visibility:public"],
     exports = ["@lib//:libraries-jsonpath-jsonpath"],
-    runtime_deps = ["@lib//:libraries-jsonpath-jsonpath"],
-)
-
-content_module_jar(
-    libraries = ["@lib//:libraries-jsonpath-jsonpath"],
-    module = ":jsonpath",
+    runtime_deps = [
+        # do not sort,
+        "@lib//:libraries-jsonpath-jsonpath",
+        "//libraries/jackson3/jackson:libraries-jackson3",
+        "//libraries/jackson3/databind",
+    ],
 )
 
 jvm_library(
@@ -34,7 +41,12 @@ jvm_library(
     module_name = "intellij.libraries.jsonpath",
     visibility = ["//visibility:public"],
     exports = ["@lib//:libraries-jsonpath-jsonpath"],
-    runtime_deps = [":jsonpath"],
+    runtime_deps = [
+        # do not sort,
+        ":jsonpath",
+        "//libraries/jackson3/jackson:libraries-jackson3_test_lib",
+        "//libraries/jackson3/databind:databind_test_lib",
+    ],
 )
 ### auto-generated section `build intellij.libraries.jsonpath` end
 
@@ -43,7 +55,6 @@ exports_files(
     [
         "intellij.libraries.jsonpath.iml",
         "resources/intellij.libraries.jsonpath.xml",
-        "module-content.yaml",
     ],
     visibility = ["//visibility:public"],
 )

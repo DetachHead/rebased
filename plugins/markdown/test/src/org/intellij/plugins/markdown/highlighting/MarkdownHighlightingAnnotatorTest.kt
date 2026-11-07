@@ -42,7 +42,37 @@ class MarkdownHighlightingAnnotatorTest : BasePlatformTestCase() {
     assertElementHighlightedWithKey(highlights, "===", MarkdownHighlighterColors.HEADER_MARKER)
     assertElementHighlightedWithKey(highlights, "===", MarkdownHighlighterColors.HEADER_LEVEL_1, HighlightingState.NOT_HIGHLIGHTED)
     assertElementHighlightedWithKey(highlights, ">", MarkdownHighlighterColors.BLOCK_QUOTE_MARKER)
-    assertElementHighlightedWithKey(highlights, ">", MarkdownHighlighterColors.BLOCK_QUOTE, HighlightingState.NOT_HIGHLIGHTED)
+  }
+
+  fun testBlockQuoteLinesAreHighlightedUpToTheirLineBreaks() {
+    val text = "- > a [link](x) `code`\n  > > b\n\ntail"
+    myFixture.configureByText("test.md", text)
+    val highlights = myFixture.doHighlighting()
+
+    val lines = highlights
+      .filter { it.forcedTextAttributesKey == MarkdownHighlighterColors.BLOCK_QUOTE }
+      .sortedBy { it.startOffset }
+      .map { text.substring(it.startOffset, it.endOffset) }
+    assertEquals(listOf("> a [link](x) `code`\n", "> > b", "\n"), lines)
+    assertElementHighlightedWithKey(highlights, "link", MarkdownHighlighterColors.LINK_TEXT)
+    assertElementHighlightedWithKey(highlights, "code", MarkdownHighlighterColors.CODE_SPAN)
+  }
+
+  fun testAlertLinesAreHighlightedLikeBlockQuoteLines() {
+    val text = "> [!NOTE]\n> text\n\ntail"
+    myFixture.configureByText("test.md", text)
+    val highlights = myFixture.doHighlighting()
+
+    val lines = highlights
+      .filter { it.forcedTextAttributesKey == MarkdownHighlighterColors.BLOCK_QUOTE }
+      .sortedBy { it.startOffset }
+      .map { text.substring(it.startOffset, it.endOffset) }
+    assertEquals(listOf("> [!NOTE]\n", "> text", "\n"), lines)
+    assertElementHighlightedWithKey(highlights, ">", MarkdownHighlighterColors.BLOCK_QUOTE_MARKER)
+    assertEmpty(
+      "The TEXT background must not hide the quote background",
+      highlights.filter { it.forcedTextAttributesKey == MarkdownHighlighterColors.TEXT },
+    )
   }
 
   fun testInlineFormattingAndLinksKeepInheritedHighlighting() {
@@ -54,6 +84,124 @@ class MarkdownHighlightingAnnotatorTest : BasePlatformTestCase() {
     assertElementHighlightedWithKey(highlights, "italic", MarkdownHighlighterColors.ITALIC)
     assertElementHighlightedWithKey(highlights, "link", MarkdownHighlighterColors.LINK_TEXT)
     assertElementHighlightedWithKey(highlights, "target.md", MarkdownHighlighterColors.LINK_DESTINATION)
+  }
+
+  fun testInlineFootnotesUseDedicatedHighlighting() {
+    val text = "Before ^[Inline footnote text] after"
+    myFixture.configureByText("test.md", text)
+    val highlights = myFixture.doHighlighting()
+
+    assertElementHighlightedWithKey(highlights, "^", MarkdownHighlighterColors.INLINE_FOOTNOTE)
+    assertElementHighlightedWithKey(highlights, "Inline footnote text", MarkdownHighlighterColors.INLINE_FOOTNOTE)
+    assertElementHighlightedWithKey(
+      highlights,
+      "Inline footnote text",
+      MarkdownHighlighterColors.LINK_LABEL,
+      HighlightingState.NOT_HIGHLIGHTED,
+    )
+  }
+
+  fun testInlineFootnotesWorkInHeadersAndTables() {
+    val text = """
+      # Header ^[Header note]
+
+      | Cell ^[Table note] |
+      | --- |
+    """.trimIndent()
+    myFixture.configureByText("test.md", text)
+    val highlights = myFixture.doHighlighting()
+
+    assertElementHighlightedWithKey(highlights, "^", MarkdownHighlighterColors.INLINE_FOOTNOTE)
+    assertElementHighlightedWithKey(highlights, "Header note", MarkdownHighlighterColors.INLINE_FOOTNOTE)
+    assertElementHighlightedWithKey(highlights, "Header note", MarkdownHighlighterColors.HEADER_LEVEL_1)
+    val tableMarkerOffset = text.lastIndexOf('^')
+    assertElementHighlightedWithKey(highlights, "^", MarkdownHighlighterColors.INLINE_FOOTNOTE, startOffset = tableMarkerOffset)
+    assertElementHighlightedWithKey(highlights, "Table note", MarkdownHighlighterColors.INLINE_FOOTNOTE)
+  }
+
+  fun testCitationsUseDedicatedHighlighting() {
+    val citations = listOf(
+      "[@doe99]" to listOf("@doe99"),
+      "[see @doe99, pp. 33-35; also @smith04, chap. 1]" to listOf("@doe99", "@smith04"),
+      "[@smith04; @doe99]" to listOf("@smith04", "@doe99"),
+    )
+    val text = citations.joinToString("\n") { it.first }
+    myFixture.configureByText("test.md", text)
+    val highlights = myFixture.doHighlighting()
+
+    var searchStart = 0
+    for ((citation, citationKeys) in citations) {
+      val citationStart = text.indexOf(citation, searchStart)
+      assertTrue("Citation '$citation' was not found", citationStart >= 0)
+      for (citationKey in citationKeys) {
+        val keyOffset = citationStart + citation.indexOf(citationKey)
+        assertElementHighlightedWithKey(
+          highlights,
+          citationKey,
+          MarkdownHighlighterColors.CITATION,
+          startOffset = keyOffset,
+        )
+        assertElementHighlightedWithKey(
+          highlights,
+          citationKey,
+          MarkdownHighlighterColors.LINK_LABEL,
+          HighlightingState.NOT_HIGHLIGHTED,
+          startOffset = keyOffset,
+        )
+      }
+      searchStart = citationStart + citation.length
+    }
+  }
+
+  fun testCitationsKeepContainerHighlighting() {
+    val text = "**bold [@doe99]**\n# Header [@smith04]"
+    myFixture.configureByText("test.md", text)
+    val highlights = myFixture.doHighlighting()
+
+    assertElementHighlightedWithKey(highlights, "@doe99", MarkdownHighlighterColors.CITATION)
+    assertElementHighlightedWithKey(highlights, "@doe99", MarkdownHighlighterColors.BOLD)
+    assertElementHighlightedWithKey(highlights, "@smith04", MarkdownHighlighterColors.CITATION)
+    assertElementHighlightedWithKey(highlights, "@smith04", MarkdownHighlighterColors.HEADER_LEVEL_1)
+  }
+
+  fun testEscapedCaretDoesNotStartInlineFootnote() {
+    val text = "\\^[not inline]"
+    myFixture.configureByText("test.md", text)
+    val highlights = myFixture.doHighlighting()
+
+    assertElementHighlightedWithKey(
+      highlights,
+      "^",
+      MarkdownHighlighterColors.INLINE_FOOTNOTE,
+      HighlightingState.NOT_HIGHLIGHTED,
+    )
+    assertElementHighlightedWithKey(highlights, "not inline", MarkdownHighlighterColors.LINK_LABEL)
+    assertElementHighlightedWithKey(
+      highlights,
+      "not inline",
+      MarkdownHighlighterColors.INLINE_FOOTNOTE,
+      HighlightingState.NOT_HIGHLIGHTED,
+    )
+  }
+
+  fun testOrdinaryShortReferenceLinksAreNotCitations() {
+    val text = "[id]\n[mail user@example.com]"
+    myFixture.configureByText("test.md", text)
+    val highlights = myFixture.doHighlighting()
+
+    assertElementHighlightedWithKey(highlights, "id", MarkdownHighlighterColors.LINK_LABEL)
+    assertElementHighlightedWithKey(
+      highlights,
+      "id",
+      MarkdownHighlighterColors.CITATION,
+      HighlightingState.NOT_HIGHLIGHTED,
+    )
+    assertElementHighlightedWithKey(
+      highlights,
+      "example.com",
+      MarkdownHighlighterColors.CITATION,
+      HighlightingState.NOT_HIGHLIGHTED,
+    )
   }
 
   fun testIndentedFenceUsesFenceHighlighting() {
@@ -118,7 +266,6 @@ class MarkdownHighlightingAnnotatorTest : BasePlatformTestCase() {
       "#### Header `Code`" to MarkdownHighlighterColors.HEADER_LEVEL_4,
       "##### Header `Code`" to MarkdownHighlighterColors.HEADER_LEVEL_5,
       "###### Header `Code`" to MarkdownHighlighterColors.HEADER_LEVEL_6,
-      "> Quote `Code`" to MarkdownHighlighterColors.BLOCK_QUOTE,
       "- Item `Code`" to MarkdownHighlighterColors.LIST_ITEM,
       "**Bold `Code`**" to MarkdownHighlighterColors.BOLD,
       "*Italic `Code`*" to MarkdownHighlighterColors.ITALIC,

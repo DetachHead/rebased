@@ -68,7 +68,8 @@ final class UpdateSettingsEntryPointActionProvider implements ActionProvider {
   }
 
   private static void preparePrevPlatformUpdate() {
-    if (!UpdateSettings.getInstance().isCheckNeeded()) {
+    // An external update manager owns the updates, so the IDE announces none, see UpdateChecker.getPlatformUpdates
+    if (!UpdateSettings.getInstance().isCheckNeeded() || ExternalUpdateManager.ACTUAL != null) {
       return;
     }
 
@@ -91,7 +92,7 @@ final class UpdateSettingsEntryPointActionProvider implements ActionProvider {
 
         if (myNextRunPlatformUpdateVersion != null) {
           myNewPlatformUpdate = true;
-          setWidgetStatus(properties.getBoolean(NEXT_RUN_KEY_RELEASE_CHANNEL, false));
+          IdeUpdateWidgetState.getInstance().onUpdateFound(properties.getBoolean(NEXT_RUN_KEY_RELEASE_CHANNEL, false));
           updateState();
         }
         else {
@@ -130,9 +131,29 @@ final class UpdateSettingsEntryPointActionProvider implements ActionProvider {
 
   static void clearUpdatesInfo() {
     setPlatformUpdateInfo(null);
-    setWidgetStatus(false);
+    IdeUpdateWidgetState.getInstance().onUpdateFound(false);
     newPlatformUpdate(null, null, (String)null, null);
     updateState();
+  }
+
+  /**
+   * Forgets an announced platform update, because a completed check has not found it again.
+   * The plugin updates stay: the same check reports them on its own.
+   */
+  static void clearPlatformUpdateInfo() {
+    setPlatformUpdateInfo(null);
+    IdeUpdateWidgetState.getInstance().onUpdateFound(false);
+    myNextRunPlatformUpdateVersion = null;
+    updateState();
+  }
+
+  /**
+   * The user has declined the build: it is never announced again, and the toolbar button stops announcing it right away.
+   */
+  static void skipUpdate(@NotNull PlatformUpdates.Loaded platformUpdateInfo) {
+    UpdateSettings.getInstance().getIgnoredBuildNumbers()
+      .add(platformUpdateInfo.getNewBuild().getNumber().asStringWithoutProductCode());
+    clearPlatformUpdateInfo();
   }
 
   public static void newPlatformUpdate(@NotNull PlatformUpdates.Loaded platformUpdateInfo,
@@ -142,11 +163,11 @@ final class UpdateSettingsEntryPointActionProvider implements ActionProvider {
     UpdateSettings settings = UpdateSettings.getInstance();
     if (settings.isCheckNeeded()) {
       setPlatformUpdateInfo(platformUpdateInfo);
-      setWidgetStatus(isReleaseChannel(platformUpdateInfo));
+      IdeUpdateWidgetState.getInstance().onUpdateFound(isReleaseChannel(platformUpdateInfo));
     }
     else {
       setPlatformUpdateInfo(null);
-      setWidgetStatus(false);
+      IdeUpdateWidgetState.getInstance().onUpdateFound(false);
     }
     if (settings.isPluginsCheckNeeded()) {
       newPlatformUpdate(updatesForPlugins, incompatiblePluginNames, null, localUpdatesForPlugins);
@@ -172,11 +193,6 @@ final class UpdateSettingsEntryPointActionProvider implements ActionProvider {
       properties.setValue(NEXT_RUN_KEY_SELF_BUILD, ApplicationInfo.getInstance().getBuild().asString());
       properties.setValue(NEXT_RUN_KEY_RELEASE_CHANNEL, isReleaseChannel(platformUpdateInfo));
     }
-  }
-
-  private static void setWidgetStatus(boolean updateAvailable) {
-    IdeUpdateWidgetState.getInstance()
-      .updateStatus(updateAvailable ? IdeUpdateWidgetState.Status.AVAILABLE : IdeUpdateWidgetState.Status.NONE);
   }
 
   /**
@@ -261,7 +277,7 @@ final class UpdateSettingsEntryPointActionProvider implements ActionProvider {
     PlatformUpdateDialog dialog = new PlatformUpdateDialog(project, platformUpdateInfo, true,
                                                           myLocalUpdatesForPlugins, myIncompatiblePluginNames);
     // The toolbar button keeps announcing the update after it has been started, so the info has to be kept as well
-    if (dialog.showAndGet() && !IdeUpdateWidgetState.isWidgetShown()) {
+    if (dialog.showAndGet() && !IdeUpdateWidgetState.isUpdateAvailable()) {
       clearUpdatesInfo();
     }
   }
@@ -292,7 +308,7 @@ final class UpdateSettingsEntryPointActionProvider implements ActionProvider {
     PluginUpdatesModel pluginUpdatesModel = result.getSecond();
     if (platformUpdateInfo instanceof PlatformUpdates.Loaded loadedUpdate && pluginUpdatesModel != null) {
       setPlatformUpdateInfo(loadedUpdate);
-      setWidgetStatus(isReleaseChannel(loadedUpdate));
+      IdeUpdateWidgetState.getInstance().onUpdateFound(isReleaseChannel(loadedUpdate));
       newPlatformUpdate(new ArrayList<>(pluginUpdatesModel.getPluginUpdates()),
                         pluginUpdatesModel.getIncompatiblePluginNames(),
                         null,
@@ -320,7 +336,7 @@ final class UpdateSettingsEntryPointActionProvider implements ActionProvider {
     Collection<UpdateAction> actions = new ArrayList<>();
 
     // when the update is announced by IdeUpdateToolbarWidget, only plugin updates are left for the Settings menu
-    boolean ideUpdateInToolbar = IdeUpdateWidgetState.isWidgetShown();
+    boolean ideUpdateInToolbar = IdeUpdateWidgetState.isUpdateAvailable();
 
     if (!ideUpdateInToolbar && myNextRunPlatformUpdateVersion != null) {
       actions.add(new IdeUpdateAction(myNextRunPlatformUpdateVersion) {

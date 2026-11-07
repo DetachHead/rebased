@@ -2,7 +2,7 @@ package com.intellij.mcpserver.toolsets.util
 
 import com.intellij.mcpserver.toolsets.Constants
 import com.intellij.openapi.diagnostic.logger
-import com.intellij.openapi.diagnostic.rethrowControlFlowException
+import com.intellij.diagnostic.rethrowControlFlowException
 import com.intellij.openapi.diagnostic.trace
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers

@@ -12,7 +12,7 @@ import org.jetbrains.plugins.groovy.util.TestUtils
 
 
 class GrAssignabilityGenericTest : GrHighlightingTestBase() {
-  override fun getBasePath(): String = "${TestUtils.getTestDataPath()}/highlighting/assignabilityGeneric";
+  override fun getTestDataPath(): String = "${TestUtils.getAbsoluteTestDataPath()}/highlighting/assignabilityGeneric";
 
   override fun getCustomInspections(): Array<InspectionProfileEntry> = arrayOf(GroovyAssignabilityCheckInspection())
 

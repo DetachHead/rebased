@@ -19,7 +19,7 @@ object WindowsPathUtils {
    * is per-drive (`/<mount>/@/C`), so customRoots must list each drive.
    *
    * [mountRoot] is normalized internally to forward slashes with no trailing `/` (matching the
-   * `@MultiRoutingFileSystemPath` convention enforced by `MultiRoutingFileSystem.sanitizeRoot`),
+   * `@NioPath` convention enforced by `MultiRoutingFileSystem.sanitizeRoot`),
    * so it is safe to pass a raw `Path.toString()` result from any host OS.
    *
    * If the normalized mount already ends with `/@`, drive letters are appended directly; otherwise
@@ -83,6 +83,11 @@ object WindowsPathUtils {
    * `\\server.share\dir\` -> `\\some.ij\mount\server.share\dir\`
    */
   fun resolveEelPathOntoRoot(root: Path, eelPath: EelPath): Path {
+    return root.fileSystem.getPath(getNioPathString(root.toString(), eelPath, root.fileSystem.separator))
+  }
+
+  /** Returns the encoded Windows path under [root] without creating a NIO path. */
+  fun getNioPathString(root: String, eelPath: EelPath, separator: String): String {
     val rootParts = if (WINDOWS_DRIVE_PREFIX_REGEX.containsMatchIn(eelPath.root.toString())) {
       listOf(DRIVE_PATH_PREPEND, eelPath.root.toString().take(1))
     }
@@ -91,7 +96,7 @@ object WindowsPathUtils {
     } else {
       error("Unsupported root: ${eelPath.root}")
     }
-    return (rootParts + eelPath.parts).fold(root, Path::resolve)
+    return (rootParts + eelPath.parts).joinToString(separator, prefix = root.removeSuffix(separator) + separator)
   }
 
   /**

@@ -28,6 +28,8 @@ threading.Condition.locked
 # Pre-existing errors from Python 3.13
 # ====================================
 
+# No way to express keyword-only ParamSpec
+copy.replace
 
 # =======
 # >= 3.12
@@ -127,6 +129,11 @@ multiprocessing.managers._BaseDictProxy.__reversed__
 # Allowlist entries that cannot or should not be fixed; >= 3.13
 # =============================================================
 
+# `cleanup_socket` was added in 3.13 to the concrete `_UnixSelectorEventLoop.create_unix_server`,
+# not to the abstract `AbstractEventLoop.create_unix_server`. The stub adds it on the abstract
+# method so code typing the loop as `AbstractEventLoop` can still pass `cleanup_socket=...`. See #15742.
+asyncio.events.AbstractEventLoop.create_unix_server
+
 _pyrepl\..+  # The internal implementation of the REPL on py313+; not for public consumption
 codecs.backslashreplace_errors  # Runtime incorrectly has `self`
 codecs.ignore_errors  # Runtime incorrectly has `self`
@@ -149,7 +156,6 @@ multiprocessing.managers._BaseDictProxy.values
 # To match `dict`, we lie about the runtime, but use overloads to match the correct behavior
 types.MappingProxyType.get
 
-typing_extensions.Protocol  # Super-special typing primitive
 
 
 # =============================================================

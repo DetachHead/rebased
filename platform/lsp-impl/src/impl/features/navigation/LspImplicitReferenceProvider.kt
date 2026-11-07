@@ -1,30 +1,27 @@
 package com.intellij.platform.lsp.impl.features.navigation
 
+import com.intellij.codeInsight.navigation.CtrlMouseActionElement
 import com.intellij.codeInsight.navigation.actions.GotoDeclarationAction
 import com.intellij.codeInsight.navigation.actions.GotoTypeDeclarationAction
 import com.intellij.injected.editor.VirtualFileWindow
 import com.intellij.model.Symbol
 import com.intellij.model.psi.ImplicitReferenceProvider
 import com.intellij.model.psi.PsiSymbolReference
-import com.intellij.openapi.actionSystem.ActionManager
-import com.intellij.openapi.actionSystem.AnAction
-import com.intellij.openapi.actionSystem.AnActionEvent
-import com.intellij.openapi.actionSystem.AnActionResult
-import com.intellij.openapi.actionSystem.OverridingAction
-import com.intellij.openapi.actionSystem.ex.AnActionListener
-import com.intellij.openapi.actionSystem.impl.ActionManagerImpl
-import com.intellij.openapi.components.Service
-import com.intellij.openapi.components.service
+import com.intellij.openapi.actionSystem.IdeActions
+import com.intellij.openapi.actionSystem.ex.ActionUtil
 import com.intellij.openapi.editor.Document
 import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.util.TextRange
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.platform.lsp.api.customization.LspGoToDefinitionSupport
 import com.intellij.platform.lsp.api.customization.LspGoToTypeDefinitionDisabled
+import com.intellij.platform.lsp.api.customization.LspHoverSupport
 import com.intellij.platform.lsp.impl.LspClientImpl
 import com.intellij.platform.lsp.impl.LspClientManagerImpl
 import com.intellij.platform.lsp.impl.features.usages.LspSearchTarget
 import com.intellij.platform.lsp.impl.features.usages.isFindReferencesEnabledFor
+import com.intellij.platform.lsp.impl.supportsGotoDefinition
+import com.intellij.platform.lsp.impl.supportsGotoTypeDefinition
 import com.intellij.platform.lsp.util.getLsp4jPosition
 import com.intellij.platform.lsp.util.getOffsetInDocument
 import com.intellij.platform.lsp.util.getRangeInDocument
@@ -53,22 +50,43 @@ internal class LspImplicitReferenceProvider : ImplicitReferenceProvider {
     // There are several places in the IntelliJ codebase that call `getImplicitReference()` function.
     // For example, `IdentifierHighlighterPass.highlightReferencesAndDeclarations`, it calls this function on caret movement.
     // No need to send requests to the LSP server for features that won't work anyway.
-    // We care only about the "Go To Declaration" and "Go To Type Declaration" actions.
-
-    // TODO Unfortunately, Ctrl+hover in LSP-backed files doesn't work because of returning null from this function.
-    // TODO It would be great to enable the Ctrl+hover feature somehow.
-    // TODO Note that with Ctrl button pressed, mouse movement generates hundreds of getImplicitReference() calls,
-    // TODO so caching of the getElementDefinitions() results will be needed.
-
-    val actionClass = service<CurrentActionHolder>().currentActionClass ?: return null
-    return when {
-      actionClass.isAssignableFrom(GotoDeclarationAction::class.java) ->
-        createResolvedReference(psiFile, offsetInElement, ::requestElementDefinitions, fallbackToShowUsagesOnSelfDefinition = true)
-      actionClass.isAssignableFrom(GotoTypeDeclarationAction::class.java) ->
-        createResolvedReference(psiFile, offsetInElement, ::requestTypeDefinitions, fallbackToShowUsagesOnSelfDefinition = false)
+    // We care only about the "Go To Declaration" and "Go To Type Declaration" actions, and about Ctrl+hover, which asks
+    // for the same information without performing either of them.
+    val request = currentRequest() ?: return null
+    return when (request.actionId) {
+      IdeActions.ACTION_GOTO_DECLARATION ->
+        createResolvedReference(psiFile, offsetInElement, request.isCtrlHover, ::requestElementDefinitions,
+                                fallbackToShowUsagesOnSelfDefinition = true)
+      IdeActions.ACTION_GOTO_TYPE_DECLARATION ->
+        createResolvedReference(psiFile, offsetInElement, request.isCtrlHover, ::requestTypeDefinitions,
+                                fallbackToShowUsagesOnSelfDefinition = false)
       else -> null
     }
   }
+
+  /**
+   * The action this reference is needed for: the one being performed, or the one Ctrl+hover is computing the underline for.
+   * Both are named by the thread context, on the thread that starts the work and in the coroutines it launches.
+   *
+   * With the Ctrl button pressed, mouse movement generates one [getImplicitReference] call per offset the pointer rests at,
+   * so the definitions requested here are cached by [LspDefinitionCache].
+   */
+  private fun currentRequest(): ReferenceRequest? {
+    ActionUtil.getActionThreadContext()?.actionId?.let { return ReferenceRequest(it, isCtrlHover = false) }
+    CtrlMouseActionElement.current()?.actionId?.let { return ReferenceRequest(it, isCtrlHover = true) }
+    return null
+  }
+
+  /**
+   * An integration that turns LSP hover off has language support of its own, and that support also answers Ctrl+hover,
+   * with a hint such as the TypeScript quick info for ts-go.
+   * An LSP reference would replace that answer: the platform skips its own target lookup once any reference is found,
+   * and prefers a reference to the declaration under the pointer.
+   * So Ctrl+hover only asks the clients that show LSP hover, which is also where the hint of [LspDefinitionSymbol]
+   * is going to come from (IJPL-252179). A performed action still asks every client.
+   */
+  private fun answersCtrlHover(lspClient: LspClientImpl): Boolean =
+    lspClient.descriptor.lspCustomization.hoverCustomizer is LspHoverSupport
 
   private fun requestElementDefinitions(lspClient: LspClientImpl, file: VirtualFile, offset: Int): List<LocationLink> {
     if (!lspClient.supportsGotoDefinition()) return emptyList()
@@ -96,6 +114,7 @@ internal class LspImplicitReferenceProvider : ImplicitReferenceProvider {
   private fun createResolvedReference(
     psiFile: PsiFile,
     offset: Int,
+    isCtrlHover: Boolean,
     sendRequest: (lspClient: LspClientImpl, file: VirtualFile, offset: Int) -> List<LocationLink>,
     fallbackToShowUsagesOnSelfDefinition: Boolean,
   ): LspResolvedSymbolReference? {
@@ -103,6 +122,7 @@ internal class LspImplicitReferenceProvider : ImplicitReferenceProvider {
     val document = FileDocumentManager.getInstance().getCachedDocument(file) ?: return null
 
     val lspClients = LspClientManagerImpl.getInstanceImpl(psiFile.project).getClientsForFileRequests(file)
+      .filter { !isCtrlHover || answersCtrlHover(it) }
     val responses = lspClients.mapNotNull { lspClient ->
       val locationLinks = sendRequest(lspClient, file, offset)
       if (locationLinks.isNotEmpty()) LspClientAndLocationLinks(lspClient, locationLinks) else null
@@ -132,7 +152,7 @@ internal class LspImplicitReferenceProvider : ImplicitReferenceProvider {
     offset: Int,
   ): Boolean {
     val locationLink = locationLinks.singleOrNull() ?: return false
-    if (locationLink.targetUri != lspClient.getFileUriForRequests(file)) return false
+    if (locationLink.targetUri != lspClient.descriptor.getFileUri(file)) return false
     val targetSelectionRange = locationLink.targetSelectionRange ?: return false
     val originSelectionRange = locationLink.originSelectionRange
     if (originSelectionRange != null) return targetSelectionRange == originSelectionRange
@@ -145,7 +165,7 @@ internal class LspImplicitReferenceProvider : ImplicitReferenceProvider {
    * The reference-supporting clients come from the same [lspClients] list that answered the definition requests.
    * This list can be wider than the one the 'Find Usages' action uses
    * (see [LspSearchTargetsRule][com.intellij.platform.lsp.impl.features.usages.LspSearchTargetsRule]):
-   * it also covers a library file that never got the `didOpen` notification.
+   * it also covers a content file served by [LspDynamicFiles], which the opened-files registry does not track.
    */
   private fun createShowUsagesReference(
     psiFile: PsiFile,
@@ -184,7 +204,7 @@ internal class LspImplicitReferenceProvider : ImplicitReferenceProvider {
 
     var rangeInFile: TextRange? = null
 
-    val resolveResults: List<LspNavigatableSymbol> = clientsAndLocationLinks.flatMap { clientAndLocationLinks ->
+    val resolveResults: List<LspDefinitionSymbol> = clientsAndLocationLinks.flatMap { clientAndLocationLinks ->
       clientAndLocationLinks.locationLinks.mapNotNull { locationLink ->
         val originSelectionRange = locationLink.originSelectionRange
         val textRange = if (originSelectionRange != null) {
@@ -198,9 +218,9 @@ internal class LspImplicitReferenceProvider : ImplicitReferenceProvider {
           return@mapNotNull null
         }
         rangeInFile = rangeInFile?.union(textRange) ?: textRange
-        val targetFile = clientAndLocationLinks.lspClient.libraryFiles.findTargetFile(locationLink.targetUri)
+        val targetFile = clientAndLocationLinks.lspClient.dynamicFiles.findTargetFile(locationLink.targetUri)
                          ?: return@mapNotNull null
-        LspNavigatableSymbol(clientAndLocationLinks.lspClient.project, targetFile, locationLink.targetSelectionRange)
+        LspDefinitionSymbol(clientAndLocationLinks.lspClient.project, targetFile, locationLink.targetSelectionRange)
       }
     }
 
@@ -214,6 +234,9 @@ internal class LspImplicitReferenceProvider : ImplicitReferenceProvider {
 private data class LspClientAndLocationLinks(val lspClient: LspClientImpl, val locationLinks: List<LocationLink>)
 
 
+private class ReferenceRequest(val actionId: String, val isCtrlHover: Boolean)
+
+
 private class LspResolvedSymbolReference(
   private val psiFile: PsiFile,
   private val rangeInFile: TextRange,
@@ -223,25 +246,4 @@ private class LspResolvedSymbolReference(
   override fun getRangeInElement(): TextRange = rangeInFile
   override fun resolveReference(): List<Symbol> = resolveResults
   override fun resolvesTo(target: Symbol) = false
-}
-
-
-private class CurrentActionListener : AnActionListener {
-  private val AnAction.baseAction: AnAction
-    get() = (this as? OverridingAction)?.let { (ActionManager.getInstance() as ActionManagerImpl).getBaseAction(this) }
-            ?: this
-
-  override fun beforeActionPerformed(action: AnAction, event: AnActionEvent) {
-    service<CurrentActionHolder>().currentActionClass = action.baseAction.javaClass
-  }
-
-  override fun afterActionPerformed(action: AnAction, event: AnActionEvent, result: AnActionResult) {
-    service<CurrentActionHolder>().currentActionClass = null
-  }
-}
-
-
-@Service(Service.Level.APP)
-internal class CurrentActionHolder {
-  var currentActionClass: Class<out AnAction>? = null
 }

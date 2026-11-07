@@ -24,8 +24,8 @@ public class StubsTest extends LightJavaCodeInsightFixtureTestCase {
   public void testTypeParameters() { doTest(); }
 
   @Override
-  protected String getBasePath() {
-    return TestUtils.getTestDataPath() + "groovy/stubs";
+  protected String getTestDataPath() {
+    return TestUtils.getAbsoluteTestDataPath() + "groovy/stubs";
   }
 
   public void doTest() {

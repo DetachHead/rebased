@@ -144,7 +144,7 @@ internal fun isEntitySource(classSymbol: KaClassSymbol): Boolean =
 context(session: KaSession)
 internal fun computeKind(property: KaPropertySymbol): ObjProperty.ValueKind {
   val getter = property.getter ?: return ObjProperty.ValueKind.Plain
-  if (!getter.hasBody) return ObjProperty.ValueKind.Plain
+  if (!getter.isNotDefault) return ObjProperty.ValueKind.Plain
   val declaration = getter.psi as? KtDeclarationWithBody ?: return ObjProperty.ValueKind.Plain
   val getterText = (declaration.bodyExpression ?: declaration.bodyBlockExpression)?.text
   return when {
@@ -155,6 +155,12 @@ internal fun computeKind(property: KaPropertySymbol): ObjProperty.ValueKind {
 }
 
 context(session: KaSession)
+internal fun getAnnotations(symbol: KaAnnotated): List<ObjAnnotationImpl> =
+  symbol.annotations
+    .mapNotNull { it.classId?.asSingleFqName() }
+    .map { ObjAnnotationImpl(it.asString(), it.pathSegments().map { segment -> segment.asString() }) }
+
+context(session: KaSession)
 internal fun createObjTypeStub(symbol: KaClassSymbol, module: CompiledObjModuleImpl): ObjClassImpl<Obj> {
   val openness = when {
     symbol.isAnnotatedBy(WorkspaceModelDefaults.ABSTRACT_ANNOTATION.classId) -> ObjClass.Openness.abstract
@@ -162,11 +168,9 @@ internal fun createObjTypeStub(symbol: KaClassSymbol, module: CompiledObjModuleI
     else -> ObjClass.Openness.final
   }
 
-  val propertyAnnotations = symbol.annotations
-    .mapNotNull { it.classId?.asSingleFqName() }
-    .map { ObjAnnotationImpl(it.asString(), it.pathSegments().map { segment -> segment.asString() }) }
-  
-  val identifier = symbol.name?.identifier ?: throw MetaModelBuilderException("Could not get identifier of ${symbol.name}", symbol.sourcePsiSafe())
+  val propertyAnnotations = getAnnotations(symbol)
+  val identifier =
+    symbol.name?.identifier ?: throw MetaModelBuilderException("Could not get identifier of ${symbol.name}", symbol.sourcePsiSafe())
 
   return ObjClassImpl(module, identifier, openness, symbol.sourcePsi(), propertyAnnotations)
 }
@@ -174,6 +178,10 @@ internal fun createObjTypeStub(symbol: KaClassSymbol, module: CompiledObjModuleI
 context(session: KaSession)
 internal fun isParent(kaType: KaAnnotated) =
   kaType.isAnnotatedBy(WorkspaceModelDefaults.PARENT_ANNOTATION.classId)
+
+context(session: KaSession)
+internal fun isCustomToString(kaType: KaAnnotated) =
+  kaType.isAnnotatedBy(WorkspaceModelDefaults.TO_STRING_ANNOTATION.classId)
 
 context(session: KaSession)
 internal fun isEntityReference(kaType: KaType?): Boolean {

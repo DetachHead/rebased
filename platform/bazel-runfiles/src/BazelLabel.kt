@@ -11,7 +11,7 @@ data class BazelLabel(
   val target: String,
 ) {
   companion object {
-    private val regex = Regex("(@[a-zA-Z0-9_-]+)?//([a-zA-Z0-9_./-]+)?:([/a-zA-Z0-9._-]+)")
+    private val regex = Regex("(@[a-zA-Z0-9_-]+)?//([a-zA-Z0-9_./-]+)?:([/a-zA-Z0-9._+-]+)")
     fun fromString(label: String): BazelLabel {
       val match = regex.matchEntire(label) ?: error("Bazel label must match '${regex.pattern}': $label")
       val bazelLabel = BazelLabel(

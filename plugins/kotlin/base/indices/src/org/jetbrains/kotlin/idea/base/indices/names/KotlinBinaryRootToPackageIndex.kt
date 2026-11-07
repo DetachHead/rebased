@@ -2,7 +2,7 @@
 package org.jetbrains.kotlin.idea.base.indices.names
 
 import com.intellij.ide.highlighter.JavaClassFileType
-import com.intellij.openapi.diagnostic.rethrowControlFlowException
+import com.intellij.diagnostic.rethrowControlFlowException
 import com.intellij.openapi.fileTypes.FileType
 import com.intellij.openapi.vfs.JarFileSystem
 import com.intellij.openapi.vfs.VfsUtil

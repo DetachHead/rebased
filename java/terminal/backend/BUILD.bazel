@@ -1,6 +1,10 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
 load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
+### auto-generated section `dev intellij.java.terminal.backend` start
+content_module_jar(module = ":backend")
+### auto-generated section `dev intellij.java.terminal.backend` end
+
 ### auto-generated section `build intellij.java.terminal.backend` start
 jvm_library(
     name = "backend",
@@ -32,6 +36,7 @@ jvm_library(
         "//platform/util:util-ui",
         "//platform/projectModel-api:projectModel",
         "//platform/execution",
+        "//platform/consoleView",
         "//platform/lang-api:lang",
         "//platform/platform-impl:ide-impl",
         "//platform/ide-core",
@@ -43,8 +48,6 @@ jvm_library(
         "//java/terminal/shared",
     ],
 )
-
-content_module_jar(module = ":backend")
 
 jvm_library(
     name = "backend_test_lib",
@@ -70,6 +73,7 @@ jvm_library(
         "//platform/util:util-ui_test_lib",
         "//platform/projectModel-api:projectModel_test_lib",
         "//platform/execution:execution_test_lib",
+        "//platform/consoleView:consoleView_test_lib",
         "//platform/lang-api:lang_test_lib",
         "//platform/platform-impl:ide-impl_test_lib",
         "//platform/ide-core:ide-core_test_lib",

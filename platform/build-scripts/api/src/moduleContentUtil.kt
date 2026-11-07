@@ -75,7 +75,7 @@ fun readDescriptor(module: JpsModule, path: String, outputProvider: ModuleOutput
       // Production roots only: the module output below reaches test output solely when
       // `isTestCompilationOutputEnabled`, and an unrestricted source search would not honour that.
       DescriptorSearchPass.PRODUCTION_SOURCES -> {
-        findFileInModuleSources(module = module, relativePath = path, onlyProductionSources = true)?.let { Files.readAllBytes(it) }
+        outputProvider.findFileInModuleSources(module = module, relativePath = path, onlyProductionSources = true)?.let { Files.readAllBytes(it) }
       }
       // Scrambling is not a hazard here - this reads *module output*, which scrambling never rewrites; scrambled
       // descriptors reach a distribution through `CachedDescriptorContainer`, consulted before this function.
@@ -104,8 +104,15 @@ fun readDescriptor(module: JpsModule, path: String, outputProvider: ModuleOutput
   }
 }
 
-private val rootTypeOrder = arrayOf<JpsElementType<out JpsElementBase<*>>>(JavaResourceRootType.RESOURCE, JavaSourceRootType.SOURCE, JavaResourceRootType.TEST_RESOURCE, JavaSourceRootType.TEST_SOURCE)
+/** The order [findFileInModuleSources] asks the source roots of a module in. [ModuleSourceFileIndex] keeps the same order. */
+internal val rootTypeOrder = arrayOf<JpsElementType<out JpsElementBase<*>>>(JavaResourceRootType.RESOURCE, JavaSourceRootType.SOURCE, JavaResourceRootType.TEST_RESOURCE, JavaSourceRootType.TEST_SOURCE)
 
+/**
+ * The file system implementation of [ModuleOutputProvider.findFileInModuleSources]: one probe per source root.
+ *
+ * Build code calls the provider, which answers from [ModuleSourceFileIndex]. This function is the reference the index
+ * follows, and the answer of a provider that has no index.
+ */
 fun findFileInModuleSources(module: JpsModule, relativePath: String, onlyProductionSources: Boolean = false): Path? {
   for (type in rootTypeOrder) {
     for (root in module.sourceRoots) {
@@ -159,7 +166,7 @@ fun findFileInModuleLibraryDependencies(module: JpsModule, relativePath: String,
 }
 
 fun findProductModulesFile(clientMainModuleName: String, provider: ModuleOutputProvider): Path? {
-  return findFileInModuleSources(provider.findRequiredModule(clientMainModuleName), "META-INF/$clientMainModuleName/product-modules.xml")
+  return provider.findFileInModuleSources(provider.findRequiredModule(clientMainModuleName), "META-INF/$clientMainModuleName/product-modules.xml")
 }
 
 /**
@@ -279,7 +286,13 @@ fun resolveDescriptor(
     }
 
     if (pass == DescriptorSearchPass.MODULE_OUTPUT && searchAnyModuleOutput) {
-      outputProvider.findFileInAnyModuleOutput(path, walk?.includePrefix, processedModules)?.let { return it }
+      // The last resort may open the output of every module, so the trace has to name it. A search that lands here
+      // often is the search to give a [declaredOwner].
+      buildSpan("search any module output") { span ->
+        span.setAttribute("path", path)
+        span.setAttribute("module", module.name)
+        outputProvider.findFileInAnyModuleOutput(path, walk?.includePrefix, processedModules)
+      }?.let { return it }
     }
   }
 

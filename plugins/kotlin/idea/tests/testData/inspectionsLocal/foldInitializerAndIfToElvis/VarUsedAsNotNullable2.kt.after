@@ -1,5 +1,5 @@
 fun test(foo: Int?, bar: Int): Int {
-    var i = foo ?: return bar
+    val i = foo ?: return bar
     baz(i)
     val j = i + 1
     return j

@@ -79,13 +79,37 @@ abstract class AbstractLayoutCodeProcessor private constructor(
   var infoCollector: LayoutCodeInfoCollector? = null
     private set
 
-  private sealed interface Target
-  private object ProjectTarget : Target
-  private class ModuleTarget(val module: Module) : Target
+  @ApiStatus.Internal
+  protected sealed interface Target
+  @ApiStatus.Internal
+  protected object ProjectTarget : Target
+  @ApiStatus.Internal
+  protected class ModuleTarget(val module: Module) : Target
   // todo: BUG! includeSubdirs is unused
-  private class DirectoryTarget(val directory: PsiDirectory, val includeSubdirs: Boolean) : Target
-  private class FilesTarget(val files: List<PsiFile>) : Target
-  private class SingleFileTarget(val psiFile: PsiFile) : Target
+  @ApiStatus.Internal
+  protected class DirectoryTarget(val directory: PsiDirectory, val includeSubdirs: Boolean) : Target
+  @ApiStatus.Internal
+  protected class FilesTarget(val files: List<PsiFile>) : Target
+  @ApiStatus.Internal
+  protected class SingleFileTarget(val psiFile: PsiFile) : Target
+
+  @ApiStatus.Internal
+  protected constructor(
+    project: Project,
+    target: Target,
+    progressText: @NlsContexts.ProgressText String,
+    commandName: @NlsContexts.Command String,
+    postRunnable: Runnable?,
+    processChangedTextOnly: Boolean,
+  ) : this(
+    project,
+    target,
+    progressText,
+    commandName,
+    processChangedTextOnly
+  ) {
+    this.postRunnable = postRunnable
+  }
 
   protected constructor(
     project: Project,
@@ -424,7 +448,7 @@ abstract class AbstractLayoutCodeProcessor private constructor(
     private val processors = getAllProcessors()
 
     /** @return Presentable file path or `null` if the processing of this file should be skipped */
-    @RequiresReadLock
+    @RequiresReadLock(generateAssertion = false /* IJPL-115548 */)
     private fun shouldProcessFile(file: VirtualFile): @NlsSafe String? {
       val psiFile = file.findPsiFileSafely()
 
@@ -551,7 +575,7 @@ abstract class AbstractLayoutCodeProcessor private constructor(
     }
   }
 
-  @RequiresReadLock
+  @RequiresReadLock(generateAssertion = false /* IJPL-115548 */)
   private fun VirtualFile.findPsiFileSafely(): PsiFile? =
     if (!myProject.isDisposed && isValid) {
       PsiManager.getInstance(myProject).findFile(this)

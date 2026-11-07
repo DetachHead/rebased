@@ -37,10 +37,10 @@ interface PyModuleService {
   fun isPythonModule(module: Module): Boolean
 
   /**
-   * Do not use it directly, use `Module.pythonSdk = ` instead
+   * Do not use it directly. Use `PyProject.setPythonInterpreter`.
    */
   @ApiStatus.Internal
-  @RequiresWriteLock
+  @RequiresWriteLock(generateAssertion = false /* IJPL-115548 */)
   @PyInternalExecApi
   fun setPythonSdk(module: Module, sdk: Sdk?)
 

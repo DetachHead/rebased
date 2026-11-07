@@ -38,6 +38,7 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.FutureTask;
@@ -48,24 +49,25 @@ import static com.intellij.codeInsight.actions.OptimizeImportsProcessor.Notifica
 
 public class OptimizeImportsProcessor extends AbstractLayoutCodeProcessor {
   private final List<NotificationInfo> myOptimizerNotifications = new SmartList<>();
+  private final boolean myAddUnambiguousImports;
 
   public OptimizeImportsProcessor(@NotNull Project project) {
-    super(project, getCommandName(), getProgressText(), false);
+    this(project, ProjectTarget.INSTANCE, getCommandName(), null, false, true);
   }
 
   public OptimizeImportsProcessor(@NotNull Project project, @NotNull Module module) {
-    super(project, module, getCommandName(), getProgressText(), false);
+    this(project, new ModuleTarget(module), getCommandName(), null, false, true);
   }
 
   public OptimizeImportsProcessor(@NotNull Project project,
                                   @NotNull PsiDirectory directory,
                                   boolean includeSubdirs,
                                   boolean processOnlyVcsChangedFiles) {
-    super(project, directory, includeSubdirs, getProgressText(), getCommandName(), processOnlyVcsChangedFiles);
+    this(project, new DirectoryTarget(directory, includeSubdirs), getCommandName(), null, processOnlyVcsChangedFiles, true);
   }
 
   public OptimizeImportsProcessor(@NotNull Project project, @NotNull PsiFile file) {
-    super(project, file, getProgressText(), getCommandName(), false);
+    this(project, new SingleFileTarget(file), getCommandName(), null, false, true);
   }
 
   public OptimizeImportsProcessor(@NotNull Project project, PsiFile @NotNull [] files, @Nullable Runnable postRunnable) {
@@ -76,11 +78,35 @@ public class OptimizeImportsProcessor extends AbstractLayoutCodeProcessor {
                                   PsiFile @NotNull [] files,
                                   @NotNull @NlsContexts.Command String commandName,
                                   @Nullable Runnable postRunnable) {
-    super(project, files, getProgressText(), commandName, postRunnable, false);
+    this(project, files, commandName, postRunnable, true);
+  }
+
+  /**
+   * @param addUnambiguousImports whether to also add the unambiguous missing imports when the user enables it in the settings.
+   *                              Pass {@code false} to only remove unused imports and order the rest, whatever the settings are.
+   */
+  @ApiStatus.Internal
+  public OptimizeImportsProcessor(@NotNull Project project,
+                                  PsiFile @NotNull [] files,
+                                  @NotNull @NlsContexts.Command String commandName,
+                                  @Nullable Runnable postRunnable,
+                                  boolean addUnambiguousImports) {
+    this(project, new FilesTarget(Arrays.asList(files)), commandName, postRunnable, false, addUnambiguousImports);
+  }
+
+  private OptimizeImportsProcessor(@NotNull Project project,
+                                   @NotNull Target target,
+                                   @NotNull @NlsContexts.Command String commandName,
+                                   @Nullable Runnable postRunnable,
+                                   boolean processChangedTextOnly,
+                                   boolean addUnambiguousImports) {
+    super(project, target, getProgressText(), commandName, postRunnable, processChangedTextOnly);
+    myAddUnambiguousImports = addUnambiguousImports;
   }
 
   public OptimizeImportsProcessor(@NotNull AbstractLayoutCodeProcessor previousProcessor) {
     super(previousProcessor, getCommandName(), getProgressText());
+    myAddUnambiguousImports = true;
   }
 
   @Override
@@ -154,38 +180,46 @@ public class OptimizeImportsProcessor extends AbstractLayoutCodeProcessor {
 
   @Override
   protected @NotNull FutureTask<Boolean> prepareTask(@NotNull PsiFile psiFile, boolean processChangedTextOnly) {
-    if (ReadAction.computeBlocking(() -> DumbService.isDumb(psiFile.getProject()))) {
-      return emptyTask();
-    }
-
     awaitFileCodeStyleSettings(psiFile);
 
-    List<Runnable> runnables = ReadAction.computeBlocking(() -> collectOptimizers(psiFile));
-    runnables.addAll(OptimizeImportsSuspendHelper.collectSuspendOptimizers(psiFile));
-
-    if (runnables.isEmpty()) {
+    if (DumbService.isDumb(psiFile.getProject())) {
       return emptyTask();
     }
 
-    List<BooleanSupplier> hints = ApplicationManager.getApplication().isDispatchThread()
-                                  ? Collections.emptyList()
-                                  : ReadAction.computeBlocking(() -> collectAutoImports(psiFile));
+    final List<Runnable> runnablesSuspendOptimizers = OptimizeImportsSuspendHelper.collectSuspendOptimizers(psiFile);
 
-    return new FutureTask<>(() -> {
-      ThreadingAssertions.assertEventDispatchThread();
-      CoreCodeStyleUtil.setSequentialProcessingAllowed(false);
-      try {
-        for (Runnable runnable : runnables) {
-          runnable.run();
-          myOptimizerNotifications.add(getNotificationInfo(runnable));
+    return ReadAction.nonBlocking(() -> {
+      if (DumbService.isDumb(psiFile.getProject()) || !psiFile.isValid()) {
+        return emptyTask();
+      }
+
+      List<Runnable> runnables = new SmartList<>();
+      runnables.addAll(collectOptimizers(psiFile));
+      runnables.addAll(runnablesSuspendOptimizers);
+      if (runnables.isEmpty()) {
+        return emptyTask();
+      }
+
+      List<BooleanSupplier> hints = !myAddUnambiguousImports || ApplicationManager.getApplication().isDispatchThread()
+                                    ? Collections.emptyList()
+                                    : collectAutoImports(psiFile);
+
+      return new FutureTask<>(() -> {
+        ThreadingAssertions.assertEventDispatchThread();
+        CoreCodeStyleUtil.setSequentialProcessingAllowed(false);
+        try {
+          for (Runnable runnable : runnables) {
+            runnable.run();
+            myOptimizerNotifications.add(getNotificationInfo(runnable));
+          }
+          putNotificationInfoIntoCollector();
+          fixAllImportsSilently(psiFile, hints);
         }
-        putNotificationInfoIntoCollector();
-        fixAllImportsSilently(psiFile, hints);
-      }
-      finally {
-        CoreCodeStyleUtil.setSequentialProcessingAllowed(true);
-      }
-    }, true);
+        finally {
+          CoreCodeStyleUtil.setSequentialProcessingAllowed(true);
+        }
+      }, true);
+    }).executeSynchronously();
   }
 
   /**

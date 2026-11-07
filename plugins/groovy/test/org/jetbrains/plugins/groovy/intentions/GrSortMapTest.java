@@ -26,8 +26,8 @@ public class GrSortMapTest extends GrIntentionTestCase {
   }
 
   @Override
-  protected String getBasePath() {
-    return TestUtils.getTestDataPath() + "intentions/sortMap/";
+  protected String getTestDataPath() {
+    return TestUtils.getAbsoluteTestDataPath() + "intentions/sortMap/";
   }
 
   public void testBasicMapSort() {

@@ -1,13 +1,10 @@
 package com.intellij.terminal.backend.hyperlinks
 
 import com.intellij.openapi.diagnostic.logger
-import com.intellij.openapi.vfs.VirtualFile
-import com.intellij.openapi.vfs.VirtualFileManager
 import com.intellij.platform.eel.EelDescriptor
-import com.intellij.platform.eel.annotations.NativePath
 import com.intellij.platform.eel.path.EelPath
 import com.intellij.platform.eel.path.EelPathException
-import com.intellij.platform.eel.provider.asNioPath
+import com.intellij.platform.util.annotations.paths.OsPath
 import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.plugins.terminal.hyperlinks.filter.TerminalHyperlinkFilterContext
 
@@ -17,33 +14,21 @@ class TerminalHyperlinkFilterContextImpl(
   override val userHomeDirectory: EelPath,
 ) : TerminalHyperlinkFilterContext {
   @Volatile
-  private var workingDirectory: VirtualFile? = null
+  override var currentWorkingDirectory: EelPath? = null
+    private set
 
-  override val currentWorkingDirectory: VirtualFile?
-    get() = workingDirectory?.takeIf { it.isValid }
-
-  fun updateCurrentDirectory(directory: @NativePath String?) {
-    workingDirectory = findVirtualDirectory(directory)
+  fun updateCurrentDirectory(directory: @OsPath String?) {
+    currentWorkingDirectory = parseDirectory(directory)
   }
 
-  private fun findVirtualDirectory(directory: @NativePath String?): VirtualFile? {
+  private fun parseDirectory(directory: @OsPath String?): EelPath? {
     if (directory.isNullOrBlank()) return null
-    val eelPath = try {
+    return try {
       EelPath.parse(directory, eelDescriptor)
     }
     catch (e: EelPathException) {
       logger<TerminalHyperlinkFilterContextImpl>().info("Failed to parse path: $directory, $eelDescriptor", e)
-      return null
-    }
-    val nioPath = try {
-      eelPath.asNioPath()
-    }
-    catch (e: IllegalArgumentException) {
-      logger<TerminalHyperlinkFilterContextImpl>().info("FileSystem not found for path: $directory, $eelDescriptor", e)
-      return null
-    }
-    return VirtualFileManager.getInstance().findFileByNioPath(nioPath)?.takeIf {
-      it.isValid && it.isDirectory
+      null
     }
   }
 }

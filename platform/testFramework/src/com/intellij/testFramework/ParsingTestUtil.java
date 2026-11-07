@@ -9,6 +9,8 @@ import com.intellij.openapi.command.WriteCommandAction;
 import com.intellij.openapi.util.Couple;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.psi.PsiDocumentManager;
+import com.intellij.psi.PsiElement;
+import com.intellij.psi.PsiElementVisitor;
 import com.intellij.psi.PsiErrorElement;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.PsiRecursiveElementVisitor;
@@ -61,6 +63,18 @@ public final class ParsingTestUtil {
     if (!errors.isEmpty()) {
       fail("Found PsiElement errors at offsets:\n" + String.join("\n", errors));
     }
+  }
+
+  /**
+   * Visits all PSI elements of {@code file}, so that the parser builds the full tree.
+   */
+  public static void ensureParsed(@NotNull PsiFile file) {
+    file.accept(new PsiElementVisitor() {
+      @Override
+      public void visitElement(@NotNull PsiElement element) {
+        element.acceptChildren(this);
+      }
+    });
   }
 
   /**

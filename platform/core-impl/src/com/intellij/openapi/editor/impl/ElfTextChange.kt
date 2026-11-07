@@ -3,7 +3,7 @@ package com.intellij.openapi.editor.impl
 
 import com.intellij.openapi.editor.event.DocumentEvent
 import com.intellij.openapi.editor.ex.DocumentSnapshot
-import com.intellij.openapi.editor.ex.DocumentTextPatch
+import com.intellij.openapi.editor.ex.DocumentPatch
 import com.intellij.openapi.editor.impl.event.DocumentEventImpl
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.NlsContexts.Command
@@ -17,14 +17,14 @@ import com.intellij.openapi.util.NlsContexts.Command
  * update, including the whole-text instance of a whole-text replacement.
  */
 internal class ElfTextChange(
-  val snapshotBefore: DocumentSnapshot,
-  val changeEvent: DocumentEvent,
-  val patch: DocumentTextPatch,
-  val isInBulkUpdate: Boolean,
-  val project: Project?,
-  val commandName: @Command String?,
-  val commandGroupId: Any?,
-  val isTransparent: Boolean,
+    val snapshotBefore: DocumentSnapshot,
+    val changeEvent: DocumentEvent,
+    val patch: DocumentPatch,
+    val isInBulkUpdate: Boolean,
+    val project: Project?,
+    val commandName: @Command String?,
+    val commandGroupId: Any?,
+    val isTransparent: Boolean,
 ) {
   init {
     if (changeEvent is DocumentEventImpl) {

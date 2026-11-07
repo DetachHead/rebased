@@ -8,47 +8,55 @@ import com.intellij.platform.pluginSystem.parser.impl.elements.ModuleLoadingRule
 import com.intellij.platform.pluginSystem.parser.impl.elements.xmlValue
 import io.opentelemetry.api.trace.Span
 import org.jdom.Element
+import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.intellij.build.BuildContext
 import org.jetbrains.intellij.build.CompilationContext
 import org.jetbrains.intellij.build.ContentModuleFilter
+import org.jetbrains.intellij.build.ModuleOutputProvider
 import org.jetbrains.intellij.build.PLUGIN_XML_RELATIVE_PATH
+import org.jetbrains.intellij.build.ProductProperties
+import org.jetbrains.intellij.build.classPath.DescriptorResolveContext
 import org.jetbrains.intellij.build.classPath.DescriptorSearchScope
 import org.jetbrains.intellij.build.classPath.XIncludeElementResolverImpl
-import org.jetbrains.intellij.build.classPath.descriptorResolveContext
 import org.jetbrains.intellij.build.classPath.resolveAndEmbedContentModuleDescriptor
 import org.jetbrains.intellij.build.classPath.resolveIncludes
 import org.jetbrains.intellij.build.productLayout.LIB_MODULE_PREFIX
 import org.jetbrains.intellij.build.productLayout.buildProductContentXml
 import org.jetbrains.jps.model.java.JavaSourceRootType
+import java.nio.file.Path
 
 // result _must be_ consistent, do not use Set.of or HashSet here
-internal suspend fun processAndGetProductPluginContentModules(
+internal fun processAndGetProductPluginContentModules(
   layout: PlatformLayout,
   descriptorCache: ScopedCachedDescriptorContainer,
   includedPlatformModulesPartialList: Collection<String>,
-  context: BuildContext,
+  productProperties: ProductProperties,
+  outputProvider: ModuleOutputProvider,
+  contentModuleFilter: ContentModuleFilter,
+  descriptorContext: DescriptorResolveContext,
+  embedContentModuleDescriptors: Boolean,
+  markModuleForScrambling: (String, Boolean) -> Boolean,
 ): Set<ModuleItem> {
-  val productPluginSourceModuleName = context.productProperties.applicationInfoModule
+  val productPluginSourceModuleName = productProperties.applicationInfoModule
+  val productPluginSourceModule = outputProvider.findRequiredModule(productPluginSourceModuleName)
   val file = requireNotNull(
-    context.findFileInModuleSources(productPluginSourceModuleName, PLUGIN_XML_RELATIVE_PATH)
-    ?: context.findFileInModuleSources(moduleName = productPluginSourceModuleName, relativePath = "META-INF/${context.productProperties.platformPrefix}Plugin.xml")
+    outputProvider.findFileInModuleSources(productPluginSourceModule, PLUGIN_XML_RELATIVE_PATH)
+    ?: outputProvider.findFileInModuleSources(productPluginSourceModule, "META-INF/${productProperties.platformPrefix}Plugin.xml")
   ) { "Cannot find product plugin descriptor in '$productPluginSourceModuleName' module" }
 
   val element: Element
   val moduleToSetChainMapping: Map<String, List<String>>?
-  val moduleToIncludeDependenciesMapping: Map<String, Boolean>?
   val descriptorResolverModules: Collection<String>
-  val programmaticModulesSpec = context.productProperties.getProductContentDescriptor()
+  val programmaticModulesSpec = productProperties.getProductContentDescriptor()
   if (programmaticModulesSpec == null) {
     element = JDOMUtil.load(file)
     moduleToSetChainMapping = null
-    moduleToIncludeDependenciesMapping = null
     descriptorResolverModules = includedPlatformModulesPartialList
   }
   else {
     val buildResult = buildProductContentXml(
       spec = programmaticModulesSpec,
-      outputProvider = context.outputProvider,
+      outputProvider = outputProvider,
       inlineXmlIncludes = true,
       inlineModuleSets = true,
       metadataBuilder = { sb ->
@@ -59,7 +67,6 @@ internal suspend fun processAndGetProductPluginContentModules(
 
     element = JDOMUtil.load(buildResult.xml)
     moduleToSetChainMapping = buildResult.moduleToSetChainMapping.mapKeys { it.key.value }
-    moduleToIncludeDependenciesMapping = buildResult.moduleToIncludeDependenciesMapping.mapKeys { it.key.value }
     descriptorResolverModules = LinkedHashSet<String>().apply {
       addAll(includedPlatformModulesPartialList)
       for ((_, modules) in buildResult.contentBlocks) {
@@ -77,23 +84,24 @@ internal suspend fun processAndGetProductPluginContentModules(
   // be specified in an included file. This is done not only for performance but for correctness.
   val xIncludeResolver = XIncludeElementResolverImpl(
     searchPath = listOf(DescriptorSearchScope(descriptorResolverModules, descriptorCache)),
-    context = descriptorResolveContext(context),
+    context = descriptorContext,
   )
   resolveIncludes(element = element, elementResolver = xIncludeResolver)
 
   val moduleItems = LinkedHashSet<ModuleItem>()
-  filterAndProcessContentModules(rootElement = element, pluginMainModuleName = null, context = context) { moduleElement, moduleName, loadingRule ->
+  filterAndProcessContentModules(rootElement = element, pluginMainModuleName = null, contentModuleFilter = contentModuleFilter) { moduleElement, moduleName, loadingRule, _ ->
     processProductModule(
       moduleElement = moduleElement,
       layout = layout,
       result = moduleItems,
       moduleToSetChainOverride = moduleToSetChainMapping,
-      moduleToIncludeDependenciesOverride = moduleToIncludeDependenciesMapping,
       descriptorCache = descriptorCache,
       xIncludeResolver = xIncludeResolver,
       moduleName = moduleName,
       isEmbedded = loadingRule != null && loadingRule == ModuleLoadingRuleValue.EMBEDDED.xmlValue,
-      context = context,
+      outputProvider = outputProvider,
+      embedContentModuleDescriptors = embedContentModuleDescriptors,
+      markModuleForScrambling = markModuleForScrambling,
     )
   }
 
@@ -107,19 +115,20 @@ internal suspend fun processAndGetProductPluginContentModules(
   return moduleItems
 }
 
+/** One `<module/>` of a `<content>` block. [refused] is `true` for a module the filter refuses but the descriptor keeps. */
 private data class ContentModuleData(
   val element: Element,
   val name: String,
   val loadingRule: String?,
+  val refused: Boolean,
 )
 
 private fun collectContentModules(
   rootElement: Element,
   pluginMainModuleName: String?,
-  context: BuildContext,
+  contentModuleFilter: ContentModuleFilter,
 ): List<ContentModuleData> {
   val result = ArrayList<ContentModuleData>()
-  var contentModuleFilter: ContentModuleFilter? = null
   for (content in rootElement.getChildren("content")) {
     val iterator = content.getChildren("module").iterator()
     while (iterator.hasNext()) {
@@ -128,32 +137,51 @@ private fun collectContentModules(
         "Module name is not specified for ${JDOMUtil.writeElement(moduleElement)}"
       }
       val loadingRule = moduleElement.getAttributeValue("loading")
+      var refused = false
       if (isOptionalLoadingRule(loadingRule)) {
-        if (contentModuleFilter == null) {
-          contentModuleFilter = context.getContentModuleFilter()
-        }
-
         if (!contentModuleFilter.isOptionalModuleIncluded(moduleName = moduleName.substringBeforeLast('/'), pluginMainModuleName = pluginMainModuleName)) {
-          Span.current().addEvent("Module '$moduleName' is excluded from ${if (pluginMainModuleName == null) "product" else "plugin $pluginMainModuleName"} by $contentModuleFilter")
-          iterator.remove()
-          continue
+          val owner = if (pluginMainModuleName == null) "product" else "plugin $pluginMainModuleName"
+          if (!contentModuleFilter.keepsRefusedModuleInDescriptor(pluginMainModuleName)) {
+            Span.current().addEvent("Module '$moduleName' is excluded from $owner by $contentModuleFilter")
+            iterator.remove()
+            continue
+          }
+          // The run time excludes the module, so the descriptor keeps it and the distribution places no jar of it.
+          Span.current().addEvent("Module '$moduleName' of $owner is refused by $contentModuleFilter; the descriptor keeps it and no jar is packed")
+          refused = true
         }
       }
 
-      result.add(ContentModuleData(element = moduleElement, name = moduleName, loadingRule = loadingRule))
+      result.add(ContentModuleData(element = moduleElement, name = moduleName, loadingRule = loadingRule, refused = refused))
     }
   }
   return result
 }
 
-internal suspend fun filterAndProcessContentModules(
+internal fun filterAndProcessContentModules(
   rootElement: Element,
   pluginMainModuleName: String?,
   context: BuildContext,
-  contentHandler: suspend (moduleElement: Element, moduleName: String, loadingRule: String?) -> Unit,
+  contentHandler: (moduleElement: Element, moduleName: String, loadingRule: String?, refused: Boolean) -> Unit,
 ) {
-  for (module in collectContentModules(rootElement = rootElement, pluginMainModuleName = pluginMainModuleName, context = context)) {
-    contentHandler(module.element, module.name, module.loadingRule)
+  filterAndProcessContentModules(rootElement, pluginMainModuleName, context.getContentModuleFilter(), contentHandler)
+}
+
+/**
+ * Walks the `<module/>` elements of every `<content>` block of [rootElement] and hands each kept one to [contentHandler].
+ *
+ * A refused module of the core plugin leaves the tree. A refused module of a bundled plugin leaves the tree too, unless
+ * [ContentModuleFilter.keepsRefusedModuleInDescriptor] says the run time excludes it: then the handler sees it with
+ * `refused = true`, embeds its descriptor, and the packer skips its jar, see `computeModuleSourcesByContent`.
+ */
+internal fun filterAndProcessContentModules(
+  rootElement: Element,
+  pluginMainModuleName: String?,
+  contentModuleFilter: ContentModuleFilter,
+  contentHandler: (moduleElement: Element, moduleName: String, loadingRule: String?, refused: Boolean) -> Unit,
+) {
+  for (module in collectContentModules(rootElement = rootElement, pluginMainModuleName = pluginMainModuleName, contentModuleFilter = contentModuleFilter)) {
+    contentHandler(module.element, module.name, module.loadingRule, module.refused)
   }
 }
 
@@ -162,26 +190,25 @@ private fun processProductModule(
   layout: PlatformLayout,
   result: LinkedHashSet<ModuleItem>,
   moduleToSetChainOverride: Map<String, List<String>>? = null,
-  moduleToIncludeDependenciesOverride: Map<String, Boolean>? = null,
   descriptorCache: ScopedCachedDescriptorContainer,
   xIncludeResolver: XIncludeElementResolverImpl,
   moduleName: String,
   isEmbedded: Boolean,
-  context: BuildContext,
+  outputProvider: ModuleOutputProvider,
+  embedContentModuleDescriptors: Boolean,
+  markModuleForScrambling: (String, Boolean) -> Boolean,
 ) {
-  val willBeScrambled = markContentModuleToScrambleIfNeeded(moduleName = moduleName, context = context, isEmbedded = isEmbedded)
+  val willBeScrambled = markModuleForScrambling(moduleName, isEmbedded)
   val relativeOutputFile = layout.getProductModuleOutputFile(moduleName) ?: "$moduleName.jar"
 
   // extract module set from override mapping (for programmatic spec)
   val moduleSet = moduleToSetChainOverride?.get(moduleName)
-  val includeDependencies = moduleToIncludeDependenciesOverride?.get(moduleName) ?: false
   result.add(
     ModuleItem(
       moduleName = moduleName,
       relativeOutputFile = relativeOutputFile,
       reason = if (isEmbedded) ModuleIncludeReasons.PRODUCT_EMBEDDED_MODULES else ModuleIncludeReasons.PRODUCT_MODULES,
       moduleSet = moduleSet,
-      includeDependencies = includeDependencies,
     )
   )
 
@@ -197,12 +224,12 @@ private fun processProductModule(
   // An assembly that produces neither of the two files the inlined descriptors reach skips this entirely - resolving a
   // descriptor means reading that module's jar, which then becomes an input of the assembly. See
   // [BuildOptions.embedProductContentModuleDescriptors].
-  if (!willBeScrambled && context.options.embedProductContentModuleDescriptors) {
+  if (!willBeScrambled && embedContentModuleDescriptors) {
     resolveAndEmbedContentModuleDescriptor(
       moduleElement = moduleElement,
       descriptorCache = descriptorCache,
       xIncludeResolver = xIncludeResolver,
-      outputProvider = context.outputProvider,
+      outputProvider = outputProvider,
     )
   }
   // For Gateway or a module-based loader, where PLUGIN_CLASSPATH isn’t used, performance will be slightly affected
@@ -239,6 +266,12 @@ internal fun markContentModuleToScrambleIfNeeded(moduleName: String, context: Bu
 }
 
 internal fun isModuleCloseSource(moduleName: String, context: CompilationContext): Boolean {
+  return isModuleCloseSource(moduleName = moduleName, outputProvider = context.outputProvider, communityHomeDir = context.paths.communityHomeDir)
+}
+
+/** [isModuleCloseSource] with no build context, for the dev-distribution plan generator. */
+@ApiStatus.Internal
+fun isModuleCloseSource(moduleName: String, outputProvider: ModuleOutputProvider, communityHomeDir: Path): Boolean {
   if (moduleName.endsWith(".resources") || moduleName.endsWith(".icons") || moduleName.startsWith(LIB_MODULE_PREFIX)) {
     return false
   }
@@ -248,10 +281,35 @@ internal fun isModuleCloseSource(moduleName: String, context: CompilationContext
     return false
   }
 
-  val sourceRoots = context.outputProvider.findRequiredModule(moduleName).sourceRoots.filter { it.rootType == JavaSourceRootType.SOURCE }
+  val sourceRoots = outputProvider.findRequiredModule(moduleName).sourceRoots.filter { it.rootType == JavaSourceRootType.SOURCE }
   return sourceRoots.isNotEmpty() && sourceRoots.any {
-    !it.path.startsWith(context.paths.communityHomeDir)
+    !it.path.startsWith(communityHomeDir)
   }
+}
+
+/**
+ * Whether the product descriptor embeds no descriptor for the product content module [moduleName], because the product
+ * scrambles the module.
+ *
+ * The answer of [markContentModuleToScrambleIfNeeded], without its write to `contentModulesToScramble`. That write also
+ * happens for a closed-source module of `productImplementationModules`, which `createPlatformLayout` marks before it
+ * processes the content, so such a module counts as embedded here.
+ */
+@ApiStatus.Internal
+fun isProductContentModuleScrambled(
+  moduleName: String,
+  isEmbedded: Boolean,
+  productProperties: ProductProperties,
+  outputProvider: ModuleOutputProvider,
+  communityHomeDir: Path,
+): Boolean {
+  if (productProperties.contentModulesToScramble.contains(moduleName)) {
+    return true
+  }
+  val productLayout = productProperties.productLayout
+  val marked = isEmbedded ||
+               (productLayout.productImplementationModules.contains(moduleName) && !productLayout.excludedModuleNames.contains(moduleName))
+  return marked && isModuleCloseSource(moduleName = moduleName, outputProvider = outputProvider, communityHomeDir = communityHomeDir)
 }
 
 internal fun contentModuleNameToDescriptorFileName(moduleName: String): String = "${moduleName.replace('/', '.')}.xml"

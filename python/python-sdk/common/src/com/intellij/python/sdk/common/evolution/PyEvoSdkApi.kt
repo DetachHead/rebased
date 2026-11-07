@@ -167,6 +167,24 @@ interface PyEvoSdkApi : RemoteApi<Unit> {
    * disables its popup while `true`, instead of the current interpreter and its actions.
    */
   suspend fun sdkConfigurationInProgress(projectId: ProjectId): Flow<Boolean>
+
+  /**
+   * The rows of the platform's `PythonPackageManagerActions` group that apply to this project's interpreter —
+   * uv's lock/sync on a uv environment, conda's export/update on a conda one, and so on.
+   *
+   * Each action in that group decides for itself whether it applies, by resolving its package manager from the
+   * dependency file in the context it is updated against. That decision is made here, and not on the frontend: the
+   * actions are backend classes, so a frontend `ActionManager` answers with the `BackendDelegatingAction` wrapper
+   * registered for the id, whose `update()` leaves the presentation untouched. Every row then read as visible, and the
+   * widget offered every tool's actions at once whatever the interpreter was (PY-92487).
+   *
+   * Addressed to a `PyProject` rather than asked once per session for the same reason: which rows apply is a fact
+   * about the interpreter in use, which only a target names.
+   *
+   * Returned as ready-to-draw rows carrying the [EvoLeafDto.actionId] they are run back by — see [performNodeAction],
+   * which the frontend dispatches them through under [EvoNodeIds.PACKAGE_MANAGER].
+   */
+  suspend fun listPackageManagerActions(projectId: ProjectId, pyProjectKey: String): List<EvoLeafDto>
 }
 
 @ApiStatus.Internal
@@ -274,6 +292,10 @@ suspend fun requestEvoShowToolProcessOutput(projectId: ProjectId, nodeId: String
 suspend fun requestEvoSdkConfigurationInProgress(projectId: ProjectId): Flow<Boolean> =
   PyEvoSdkApi().sdkConfigurationInProgress(projectId)
 
+@ApiStatus.Internal
+suspend fun requestEvoPackageManagerActions(projectId: ProjectId, pyProjectKey: String): List<EvoLeafDto> =
+  PyEvoSdkApi().listPackageManagerActions(projectId, pyProjectKey)
+
 /**
  * Frontend-safe, serializable projection of a `PyInterpreterItem` (an interpreter's display
  * label/icon), plus the [ref] needed to select it. All fields are pre-computed on the backend so the
@@ -294,13 +316,10 @@ data class PyInterpreterDto(
    * URL of the dependency file this interpreter's package manager works with (`pyproject.toml`, `environment.yml`,
    * `requirements.txt`, …), or `null` when it has none.
    *
-   * The popup shows the whole `PythonPackageManagerActions` group and puts this file into its data context, which is
-   * what each action gates on in `update()` and acts on in `actionPerformed`. Naming it here — instead of whatever the
-   * editor happens to show, which has nothing to do with the interpreter — is what keeps a conda `environment.yml`
-   * action from firing against a `pyproject.toml`, and lets the applicable rows work whatever file is open.
-   *
-   * `null` is a statement, not a gap: the popup masks the file keys outright, so an interpreter with no dependency file
-   * shows no package-manager rows regardless of what is open, rather than borrowing the editor's file.
+   * It is what the package-manager rows apply to, so a change to it changes which of them apply. The frontend never
+   * opens it: those rows are gated and run on the backend, against the file resolved there — see
+   * [PyEvoSdkApi.listPackageManagerActions]. What it is read for here is telling one interpreter's rendering from
+   * another's, so a popup built before the file changed is rebuilt after it (`interpreterRowsChanged`).
    */
   val dependencyFileUrl: @NonNls String? = null,
   /**
@@ -339,11 +358,20 @@ data class EvoPyProjectDto(
    */
   val isMain: Boolean,
   /**
-   * [key] of the root of the tool workspace (uv/poetry) this takes part in, as its root or as a member; `null` when
-   * standalone. Every member of a workspace shares the one environment declared at its root, so the backend resolves
-   * every directory it works with against that root — this is what lets the popup name the workspace in its title.
+   * [key] of the root of the tool workspace (uv/poetry) this takes part in, as its root or as a member. A standalone
+   * project is its own root and states its own key. Every member of a workspace shares the one environment declared at
+   * its root, so the backend resolves every directory it works with against that root — this is what lets the popup
+   * name the workspace in its title, which it does only where the root is another project.
    */
   val workspaceRootKey: @NonNls String? = null,
+  /**
+   * The interpreter this `PyProject` uses, or `null` when it has none.
+   *
+   * Stated here so the frontend can tell two projects on one interpreter apart from two on different ones without
+   * asking about either: the widget states an interpreter, so that is what its data belongs to, and a project it has
+   * never asked about renders from what another project on the same interpreter already fetched (PY-90174).
+   */
+  val interpreterRef: PyInterpreterRef? = null,
 )
 
 /**
@@ -352,14 +380,22 @@ data class EvoPyProjectDto(
  * `ToolId`, which the backend resolves through its provider list; these are the ids no `ToolId` can supply, so they
  * are the ones at risk of being spelled twice and drifting.
  *
- * [ADVANCED] is the only one both sides use ([ASSOCIATED] and [SHORTCUTS] name frontend-synthetic nodes the backend
- * never dispatches on), but all three are reserved: a provider claiming one would shadow it, which is what the
- * backend's startup uniqueness check rejects.
+ * [ADVANCED] and [PACKAGE_MANAGER] are the ones both sides use ([ASSOCIATED] and [SHORTCUTS] name frontend-synthetic
+ * nodes the backend never dispatches on), but all four are reserved: a provider claiming one would shadow it, which is
+ * what the backend's startup uniqueness check rejects.
  */
 @ApiStatus.Internal
 object EvoNodeIds {
-  /** The "advanced" node — the full set of add-interpreter actions. Not a tool; the only backend-dispatched id here. */
+  /** The "advanced" node — the full set of add-interpreter actions. Not a tool; backend-dispatched. */
   const val ADVANCED: @NonNls String = "advanced"
+
+  /**
+   * The package-manager actions of the interpreter in use — see [PyEvoSdkApi.listPackageManagerActions].
+   *
+   * Not a node the popup draws: its rows sit in the "Current Environment" section rather than in a submenu. It is a
+   * node id because [PyEvoSdkApi.performNodeAction] dispatches on one, and these rows are run that way.
+   */
+  const val PACKAGE_MANAGER: @NonNls String = "packageManager"
 
   /** Frontend-synthetic: the "Associated environments" node, whose rows are existing SDKs. */
   const val ASSOCIATED: @NonNls String = "associated"
@@ -368,7 +404,7 @@ object EvoNodeIds {
   const val SHORTCUTS: @NonNls String = "shortcuts"
 
   /** Every id above — the set a tool provider may not claim. */
-  val RESERVED: Set<String> = setOf(ADVANCED, ASSOCIATED, SHORTCUTS)
+  val RESERVED: Set<String> = setOf(ADVANCED, PACKAGE_MANAGER, ASSOCIATED, SHORTCUTS)
 }
 
 /**

@@ -42,6 +42,11 @@ fun ActionButtonUi.waitSelected(selected: Boolean, timeout: Duration = 5.seconds
   }
 }
 
+fun ActionButtonUi.setSelected(selected: Boolean) {
+  if (isSelected != selected) click()
+  waitSelected(selected)
+}
+
 @Remote("com.intellij.openapi.actionSystem.impl.ActionButton")
 interface ActionButtonComponent {
   fun getIcon(): Icon

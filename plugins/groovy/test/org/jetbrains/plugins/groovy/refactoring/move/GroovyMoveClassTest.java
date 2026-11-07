@@ -18,8 +18,8 @@ import org.jetbrains.plugins.groovy.util.TestUtils;
 
 public class GroovyMoveClassTest extends GroovyMoveTestBase {
   @Override
-  protected String getBasePath() {
-    return TestUtils.getTestDataPath() + "refactoring/move/moveClass/";
+  protected String getTestDataPath() {
+    return TestUtils.getAbsoluteTestDataPath() + "refactoring/move/moveClass/";
   }
 
   public void testMoveMultiple1() {

@@ -3,6 +3,7 @@ package com.intellij.ide.starter.runner
 import com.intellij.ide.starter.config.ConfigurationStorage
 import com.intellij.ide.starter.config.classFileVerification
 import com.intellij.ide.starter.config.includeRuntimeModuleRepositoryInIde
+import com.intellij.ide.starter.config.skipPeriodicIdeThreadDumps
 import com.intellij.ide.starter.di.di
 import com.intellij.ide.starter.ide.IDERemDevTestContext
 import com.intellij.ide.starter.ide.IDEStartConfig
@@ -316,6 +317,10 @@ data class IDERunContext(
     collectingProcessId: Long,
     processName: String,
   ) {
+    if (ConfigurationStorage.skipPeriodicIdeThreadDumps()) {
+      logOutput("Periodic thread dumps are disabled, not monitoring `$processName` of $contextName")
+      return
+    }
     collectJavaThreadDumpsWhileAlive(
       isAlive = { process.isAlive },
       javaHome = jdkHome,
@@ -354,6 +359,10 @@ data class IDERunContext(
 
   private fun setupLogDir(): IDERunContext = addVMOptionsPatch {
     addSystemProperty("idea.log.path", lastIdeReportingData.logsDir)
+  }
+
+  fun disableNonModalWelcomeScreen(): IDERunContext = addVMOptionsPatch {
+    addSystemProperty("idea.welcome.screen.non.modal.enabled", false)
   }
 
   fun withScreenRecording() {

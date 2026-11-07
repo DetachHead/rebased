@@ -2,18 +2,20 @@
   <!-- region Generated dependencies - run `Generate Product Layouts` to regenerate -->
   <dependencies>
     <module name="intellij.json.backend"/>
-    <module name="intellij.libraries.jackson"/>
-    <module name="intellij.libraries.jackson.databind"/>
-    <module name="intellij.libraries.jackson.dataformat.yaml"/>
+    <module name="intellij.libraries.jackson3"/>
+    <module name="intellij.libraries.jackson3.databind"/>
+    <module name="intellij.libraries.jackson3.dataformat.yaml"/>
     <module name="intellij.libraries.jetbrains.annotations"/>
     <module name="intellij.libraries.kotlinx.io"/>
     <module name="intellij.platform.analysis"/>
     <module name="intellij.platform.core"/>
+    <module name="intellij.platform.eel.provider"/>
     <module name="intellij.platform.projectModel"/>
     <module name="intellij.python.community"/>
+    <module name="intellij.python.community.impl.conda.common"/>
     <module name="intellij.python.community.impl.installer"/>
     <module name="intellij.python.processOutput.common"/>
-    <module name="intellij.python.pytools"/>
+    <module name="intellij.python.pytools.backend"/>
     <module name="intellij.python.requirements.backend"/>
     <module name="intellij.python.sdk.backend"/>
     <module name="intellij.yaml"/>

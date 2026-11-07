@@ -12,15 +12,16 @@ import com.jetbrains.python.codeInsight.parseDataclassParameters
 import com.jetbrains.python.psi.AccessDirection
 import com.jetbrains.python.psi.PyCallExpression
 import com.jetbrains.python.psi.PyCallable
-import com.jetbrains.python.psi.PyClass
 import com.jetbrains.python.psi.PyElementGenerator
 import com.jetbrains.python.psi.PyExpression
 import com.jetbrains.python.psi.PyFunction
 import com.jetbrains.python.psi.PyNamedParameter
 import com.jetbrains.python.psi.PyReferenceExpression
+import com.jetbrains.python.psi.PyTargetExpression
 import com.jetbrains.python.psi.PyTypedElement
 import com.jetbrains.python.psi.PyUtil
 import com.jetbrains.python.psi.impl.PyBuiltinCache
+import com.jetbrains.python.psi.impl.PyCallExpressionHelper
 import com.jetbrains.python.psi.impl.PyCallExpressionNavigator
 import com.jetbrains.python.psi.resolve.PyResolveContext
 import com.jetbrains.python.psi.types.PyCallableParameter
@@ -28,14 +29,13 @@ import com.jetbrains.python.psi.types.PyCallableParameterImpl
 import com.jetbrains.python.psi.types.PyCallableType
 import com.jetbrains.python.psi.types.PyCallableTypeImpl
 import com.jetbrains.python.psi.types.PyClassType
+import com.jetbrains.python.psi.types.PyOverloadType
 import com.jetbrains.python.psi.types.PyType
 import com.jetbrains.python.psi.types.PyTypeChecker
 import com.jetbrains.python.psi.types.PyTypeMember
 import com.jetbrains.python.psi.types.PyTypeProviderBase
-import com.jetbrains.python.psi.types.PyTypeUtil.notNullToRef
-import com.jetbrains.python.psi.types.PyTypeUtil.toStream
-import com.jetbrains.python.psi.types.PyUnsafeUnionType
 import com.jetbrains.python.psi.types.TypeEvalContext
+import org.jetbrains.annotations.ApiStatus
 
 class PyDataclassTypeProvider : PyTypeProviderBase() {
 
@@ -44,13 +44,17 @@ class PyDataclassTypeProvider : PyTypeProviderBase() {
   }
 
   override fun getReferenceType(referenceTarget: PsiElement, context: TypeEvalContext, anchor: PsiElement?): Ref<PyType>? {
-    // MyDataclass() call
-    val anchor = anchor?.let(PyCallExpressionNavigator::getPyCallExpressionByCallee)
-    if (referenceTarget is PyClass && anchor is PyCallExpression) {
-      return generateDataclassConstructorType(context.getType(referenceTarget), context).notNullToRef()
+    if (referenceTarget is PyTargetExpression) {
+      getUnannotatedConverterFieldType(referenceTarget, context)?.let { return Ref.create(it) }
     }
 
     return null
+  }
+
+  /** The converter return type of a `dataclass_transform` [field] without an annotation. An annotated field keeps its declared type. */
+  private fun getUnannotatedConverterFieldType(field: PyTargetExpression, context: TypeEvalContext): PyType? {
+    if (field.annotationValue != null || field.typeCommentAnnotation != null) return null
+    return PyDataclassTransformResolver.getConverterReturnType(field, context)
   }
 
   override fun getParameterType(param: PyNamedParameter, func: PyFunction, context: TypeEvalContext): Ref<PyType>? {
@@ -72,15 +76,10 @@ class PyDataclassTypeProvider : PyTypeProviderBase() {
       .firstOrNull()
   }
 
-  override fun prepareCalleeTypeForCall(type: PyType?, callee: PyExpression, context: TypeEvalContext): Ref<PyCallableType?>? {
-    for (t in type.toStream()) {
-      if (t !is PyClassType) {
-        continue
-      }
-      if (!t.isDefinition) {
-        continue
-      }
-      val dataclassType = generateDataclassConstructorType(t, context) as? PyCallableType
+  override fun prepareCalleeTypeForCall(type: PyType?, callee: PyExpression, context: TypeEvalContext): Ref<PyType?>? {
+    if (type is PyClassType && type.isDefinition) {
+      val classType = PyCallExpressionHelper.stripDefaultTypeArguments(type, context)
+      val dataclassType = generateDataclassConstructorType(classType, context)
       if (dataclassType != null) {
         return Ref.create(dataclassType)
       }
@@ -139,23 +138,6 @@ class PyDataclassTypeProvider : PyTypeProviderBase() {
     return null
   }
 
-  private fun generateDataclassConstructorType(clsType: PyType?, context: TypeEvalContext): PyType? {
-    if (clsType !is PyClassType) return null
-    val genericClassType = clsType.takeIf { it.isParameterized }
-                           ?: PyTypeChecker.findGenericDefinitionType(clsType.pyClass, context)
-                           ?: clsType
-
-    val acc = collectDataclassInitFields(genericClassType, context, initOnly = true) ?: return null
-    val controlling = acc.controllingParameters ?: return null
-    val dataclassResolver = controlling.type.resolver
-    val paramsSets = dataclassResolver?.buildInitSignatureParameterSets(acc) ?: return null
-    if (paramsSets.isEmpty()) return null
-
-    return PyUnsafeUnionType.unsafeUnion(
-      paramsSets.map {PyCallableTypeImpl(it, genericClassType.toInstance())}
-    )
-  }
-
   private fun getDataclassesReplaceType(referenceExpression: PyReferenceExpression, context: TypeEvalContext): PyCallableType? {
     val call = PyCallExpressionNavigator.getPyCallExpressionByCallee(referenceExpression) ?: return null
     val callee = call.callee as? PyReferenceExpression ?: return null
@@ -190,5 +172,28 @@ class PyDataclassTypeProvider : PyTypeProviderBase() {
     dataclassParameters.mapTo(parameters) { PyCallableParameterImpl.nonPsi(it.name, it.getType(context), ellipsis) }
 
     return PyCallableTypeImpl(parameters, dataclassType.getReturnType(context))
+  }
+
+  companion object {
+    /**
+     * Returns the type of the synthesized constructor of the dataclass [clsType], or `null` if [clsType] is not a dataclass.
+     */
+    @ApiStatus.Internal
+    @JvmStatic
+    fun generateDataclassConstructorType(clsType: PyType?, context: TypeEvalContext): PyType? {
+      if (clsType !is PyClassType) return null
+      val genericClassType = clsType.takeIf { it.isParameterized }
+                             ?: PyTypeChecker.findGenericDefinitionType(clsType.pyClass, context)
+                             ?: clsType
+
+      val acc = collectDataclassInitFields(genericClassType, context, initOnly = true) ?: return null
+      val controlling = acc.controllingParameters ?: return null
+      val dataclassResolver = controlling.type.resolver
+      val paramsSets = dataclassResolver?.buildInitSignatureParameterSets(acc) ?: return null
+      if (paramsSets.isEmpty()) return null
+
+      val signatures = paramsSets.distinct().map { PyCallableTypeImpl(it, genericClassType.toInstance()) }
+      return if (signatures.size > 1) PyOverloadType(signatures, null) else signatures.single()
+    }
   }
 }

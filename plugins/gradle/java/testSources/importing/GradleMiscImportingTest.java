@@ -1,4 +1,4 @@
-// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.plugins.gradle.importing;
 
 import com.intellij.ide.highlighter.ModuleFileType;
@@ -28,6 +28,7 @@ import com.intellij.pom.java.LanguageLevel;
 import com.intellij.psi.PsiJavaModule;
 import com.intellij.testFramework.IdeaTestUtil;
 import com.intellij.util.ArrayUtilRt;
+import com.intellij.util.SystemProperties;
 import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.plugins.gradle.model.ExternalProject;
@@ -45,6 +46,8 @@ import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.locks.LockSupport;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.jetbrains.plugins.gradle.testFramework.util.GradleTestEelUtilKt.assumeOnLocalEnvironmentOnly;
@@ -63,6 +66,9 @@ public class GradleMiscImportingTest extends GradleJavaImportingTestCase {
   public static Collection<Object[]> data() {
     return Arrays.asList(new Object[][]{{BASE_GRADLE_VERSION}});
   }
+
+  @Override
+  public void assumeGradleVersion() { }
 
   @Override
   public void setUp() throws Exception {
@@ -496,6 +502,34 @@ public class GradleMiscImportingTest extends GradleJavaImportingTestCase {
     importProject(script(it -> it.withJavaPlugin()));
     String newValue = System.getProperty("library.jansi.path");
     assertEquals("The [library.jansi.path] should be preserved, but it has changed", oldValue, newValue);
+  }
+
+  @Test
+  @TargetVersions("7.6+")
+  public void testJnaPropertyNotMaskedDuringImport() throws Exception {
+    String key = "jna.boot.library.path";
+    String sentinel = "/some/test/jna/path";
+    String previousValue = SystemProperties.setProperty(key, sentinel);
+    AtomicBoolean masked = new AtomicBoolean();
+    AtomicBoolean importFinished = new AtomicBoolean();
+    Thread watcher = new Thread(() -> {
+      while (!importFinished.get()) {
+        if (!sentinel.equals(System.getProperty(key))) {
+          masked.set(true);
+        }
+        LockSupport.parkNanos(100_000);
+      }
+    }, "JNA property watcher");
+    watcher.start();
+    try {
+      importProject(script(it -> it.withJavaPlugin()));
+    }
+    finally {
+      importFinished.set(true);
+      watcher.join();
+      SystemProperties.setProperty(key, previousValue);
+    }
+    assertFalse("The [jna.boot.library.path] must stay set while Gradle " + getGradleVersion() + " imports the project", masked.get());
   }
 
   @Test

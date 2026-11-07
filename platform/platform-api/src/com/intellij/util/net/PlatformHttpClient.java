@@ -31,6 +31,7 @@ import java.net.http.HttpClient;
 import java.net.http.HttpHeaders;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.net.http.WebSocket;
 import java.nio.ByteBuffer;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
@@ -148,24 +149,17 @@ public final class PlatformHttpClient {
     }
     catch (IOException e) {
       ProgressManager.checkCanceled();
-      var cause = e.getCause();
-      if (cause instanceof IOException && requireNonNullElse(e.getMessage(), "").contains("too many authentication attempts")) {
-        var stack = cause.getStackTrace();
-        if (
-          stack.length > 1 &&
-          "jdk.internal.net.http.AuthenticationFilter".equals(stack[0].getClassName()) &&
-          "response".equals(stack[0].getMethodName())
-        ) {
-          var proxy = IdeProxyAuthenticator.isProxied(request.uri());
-          if (proxy) {
-            JdkProxyProvider.showProxyAuthNotification();
-            var logger = Logger.getInstance(PlatformHttpClient.class);
-            if (logger.isDebugEnabled()) logger.debug("proxy auth failed for " + request.uri(), e);
-          }
-          var statusCode = proxy ? HttpURLConnection.HTTP_PROXY_AUTH : HttpURLConnection.HTTP_UNAUTHORIZED;
-          var message = IdeCoreBundle.message("error.connection.failed.status", statusCode);
-          throw new HttpStatusException(message, statusCode, request.uri().toString());
+      if (requireNonNullElse(e.getMessage(), "").contains("too many authentication attempts")
+          && isAuthenticationFilterError(e)) {
+        var proxy = IdeProxyAuthenticator.isProxied(request.uri());
+        if (proxy) {
+          JdkProxyProvider.showProxyAuthNotification();
+          var logger = Logger.getInstance(PlatformHttpClient.class);
+          if (logger.isDebugEnabled()) logger.debug("proxy auth failed for " + request.uri(), e);
         }
+        var statusCode = proxy ? HttpURLConnection.HTTP_PROXY_AUTH : HttpURLConnection.HTTP_UNAUTHORIZED;
+        var message = IdeCoreBundle.message("error.connection.failed.status", statusCode);
+        throw new HttpStatusException(message, statusCode, request.uri().toString());
       }
       throw e;
     }
@@ -191,6 +185,22 @@ public final class PlatformHttpClient {
     }
 
     return response;
+  }
+
+  ///
+  /// Checks whether the exception was thrown from the authentication filter.
+  /// Can be used to adapt the client to the hard-coded auth handling
+  ///
+  /// @param connectionException an exception caught from HttpClient send methods
+  /// @return whether the exception occurred in {@code jdk.internal.net.http.AuthenticationFilter.response} method
+  ///
+  public static boolean isAuthenticationFilterError(@NotNull IOException connectionException) {
+    var cause = connectionException.getCause();
+    if (!(cause instanceof IOException)) return false;
+    var stack = cause.getStackTrace();
+    return stack.length > 1
+           && "jdk.internal.net.http.AuthenticationFilter".equals(stack[0].getClassName())
+           && "response".equals(stack[0].getMethodName());
   }
 
   public static HttpResponse.BodyHandler<String> gzipStringBodyHandler() {
@@ -379,6 +389,36 @@ public final class PlatformHttpClient {
     @Override
     public Optional<Executor> executor() {
       return delegate.executor();
+    }
+
+    @Override
+    public WebSocket.Builder newWebSocketBuilder() {
+      return delegate.newWebSocketBuilder();
+    }
+
+    @Override
+    public void shutdown() {
+      delegate.shutdown();
+    }
+
+    @Override
+    public boolean awaitTermination(Duration duration) throws InterruptedException {
+      return delegate.awaitTermination(duration);
+    }
+
+    @Override
+    public boolean isTerminated() {
+      return delegate.isTerminated();
+    }
+
+    @Override
+    public void shutdownNow() {
+      delegate.shutdownNow();
+    }
+
+    @Override
+    public void close() {
+      delegate.close();
     }
 
     @Override

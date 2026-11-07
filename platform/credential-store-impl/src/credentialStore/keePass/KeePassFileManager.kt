@@ -6,6 +6,7 @@ import com.intellij.credentialStore.CredentialStoreUiService
 import com.intellij.credentialStore.EncryptionSpec
 import com.intellij.credentialStore.LOG
 import com.intellij.credentialStore.kdbx.IncorrectMainPasswordException
+import com.intellij.credentialStore.kdbx.KdbxHeader
 import com.intellij.credentialStore.kdbx.KdbxPassword
 import com.intellij.credentialStore.kdbx.KeePassDatabase
 import com.intellij.credentialStore.kdbx.loadKdbx
@@ -22,6 +23,7 @@ import java.nio.file.Path
 import java.nio.file.StandardCopyOption
 import java.security.SecureRandom
 import kotlin.io.path.exists
+import kotlin.io.path.inputStream
 
 open class KeePassFileManager(private val file: Path,
                               mainKeyFile: Path,
@@ -68,6 +70,13 @@ open class KeePassFileManager(private val file: Path,
     catch (e: IncorrectMainPasswordException) {
       throw e
     }
+    catch (e: UnsupportedKdbxFileException) {
+      LOG.warn(e)
+      CredentialStoreUiService.getInstance().showErrorMessage(
+        event?.getData(PlatformCoreDataKeys.CONTEXT_COMPONENT),
+        CredentialStoreBundle.message("kee.pass.dialog.title.cannot.import"),
+        CredentialStoreBundle.message("kee.pass.dialog.message.unsupported.file", e.file.fileName))
+    }
     catch (e: Exception) {
       LOG.warn(e)
       CredentialStoreUiService.getInstance().showErrorMessage(
@@ -94,6 +103,15 @@ open class KeePassFileManager(private val file: Path,
   private fun doImportOrUseExisting(file: Path, event: AnActionEvent?): Boolean {
     val contextComponent = event?.getData(PlatformCoreDataKeys.CONTEXT_COMPONENT)
 
+    // Fail fast on an unsupported or corrupted file, before any password prompt.
+    // The header needs no password, and the password dialog cannot report this error.
+    try {
+      file.inputStream().buffered().use { KdbxHeader(it) }
+    }
+    catch (e: Exception) {
+      throw UnsupportedKdbxFileException(file, e)
+    }
+
     // check the main key file in parent dir of imported file
     val possibleMainKeyFile = file.parent.resolve(MAIN_KEY_FILE_NAME)
     var mainPassword = MainKeyFileStorage(possibleMainKeyFile).load()
@@ -115,6 +133,11 @@ open class KeePassFileManager(private val file: Path,
         }
         catch (_: IncorrectMainPasswordException) {
           CredentialStoreBundle.message("dialog.message.main.password.not.correct")
+        }
+        catch (e: Exception) {
+          // show the error inside the dialog: an exception here would escape into the event pump of the dialog
+          LOG.warn(e)
+          CredentialStoreBundle.message("kee.pass.dialog.message")
         }
       }) {
       return false
@@ -189,3 +212,8 @@ open class KeePassFileManager(private val file: Path,
     askAndSetMainKey(null, topNote = CredentialStoreBundle.message("kee.pass.top.note"))
   }
 }
+
+/**
+ * The file is not a KeePass database that the IDE can read: the signature, the version, or the header is not valid.
+ */
+class UnsupportedKdbxFileException(val file: Path, cause: Throwable) : RuntimeException(cause)

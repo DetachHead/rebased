@@ -6,7 +6,6 @@ import com.intellij.codeInsight.codeVision.CodeVisionEntry
 import com.intellij.codeInsight.codeVision.CodeVisionHost
 import com.intellij.codeInsight.codeVision.CodeVisionInitializer
 import com.intellij.codeInsight.codeVision.CodeVisionProviderFactory
-import com.intellij.codeInsight.codeVision.CodeVisionState
 import com.intellij.codeInsight.codeVision.settings.CodeVisionSettings
 import com.intellij.codeInsight.codeVision.ui.model.ProjectCodeVisionModel
 import com.intellij.concurrency.JobLauncher
@@ -49,7 +48,11 @@ class CodeVisionPass(
     @Internal
     fun collectData(editor: Editor, file: PsiFile, providers: List<DaemonBoundCodeVisionProvider>): CodeVisionData {
       val providerIdToLenses = ConcurrentHashMap<String, DaemonBoundCodeVisionCacheService.CodeVisionWithStamp>()
-      collect(EmptyProgressIndicator(), editor, file, providerIdToLenses, providers)
+      val indicator = EmptyProgressIndicator()
+      ProgressManager.getInstance().runProcess({
+         collect(editor, file, providerIdToLenses, providers)
+      }, indicator)
+
       val allProviders = CodeVisionProviderFactory.createAllProviders(file.project)
       val dataForAllProviders = HashMap<String, DaemonBoundCodeVisionCacheService.CodeVisionWithStamp>()
       val modificationStamp = file.modificationStamp
@@ -62,15 +65,14 @@ class CodeVisionPass(
       return CodeVisionData(dataForAllProviders)
     }
 
-    private fun collect(progress: ProgressIndicator,
-                        editor: Editor,
+    private fun collect(editor: Editor,
                         file: PsiFile,
                         providerIdToLenses: ConcurrentHashMap<String, DaemonBoundCodeVisionCacheService.CodeVisionWithStamp>,
                         providers: List<DaemonBoundCodeVisionProvider>) {
       val modificationTracker = PsiModificationTracker.getInstance(editor.project)
       tracer.spanBuilder("codeVision").use { span ->
         span.setAttribute("file", file.name)
-        JobLauncher.getInstance().invokeConcurrentlyUnderProgress(providers, progress, Processor { provider ->
+        JobLauncher.getInstance().invokeConcurrentlyUnderContextProgress(providers, Processor { provider ->
           tracer.spanBuilder(provider.javaClass.simpleName).use {
             val results: List<Pair<TextRange, CodeVisionEntry>>
             val duration = measureTimeMillis {
@@ -113,7 +115,7 @@ class CodeVisionPass(
     if (!CodeVisionProjectSettings.getInstance(myProject).isEnabledForProject()) return
     val providers = DaemonBoundCodeVisionProvider.extensionPoint.extensionList
       .filter {  settings.isProviderEnabled(it.groupId) }
-    collect(progress, editor, myFile, providerIdToLenses, providers)
+    collect(editor, myFile, providerIdToLenses, providers)
   }
 
   override fun doApplyInformationToEditor() {

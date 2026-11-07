@@ -10,6 +10,10 @@ jps_test(
 )
 ### skip generation section `test intellij.java.typeMigration.tests`
 
+### auto-generated section `dev intellij.java.typeMigration` start
+content_module_jar(module = ":typeMigration")
+### auto-generated section `dev intellij.java.typeMigration` end
+
 ### auto-generated section `build intellij.java.typeMigration` start
 jvm_library(
     name = "typeMigration",
@@ -52,8 +56,6 @@ jvm_library(
     ],
 )
 
-content_module_jar(module = ":typeMigration")
-
 jvm_library(
     name = "typeMigration_test_lib",
     testonly = True,
@@ -69,8 +71,6 @@ jvm_library(
         "//platform/analysis-api:analysis_test_lib",
         "//platform/code-style-api:codeStyle_test_lib",
         "//platform/core-api:core_test_lib",
-        "//platform/core-ui",
-        "//platform/core-ui:core-ui_test_lib",
         "//platform/editor-ui-api:editor-ui_test_lib",
         "//platform/refactoring:refactoring_test_lib",
         "//platform/util:util_test_lib",
@@ -80,18 +80,10 @@ jvm_library(
         "//platform/structuralsearch:structuralSearch_test_lib",
         "//java/java-syntax:syntax_test_lib",
         "//java/java-psi-api:psi_test_lib",
-        "//platform/testFramework",
-        "//platform/testFramework:testFramework_test_lib",
         "//java/java-impl:impl_test_lib",
-        "//java/testFramework",
-        "//java/testFramework:testFramework_test_lib",
-        "//platform/code-style-impl:codeStyle-impl",
-        "//platform/code-style-impl:codeStyle-impl_test_lib",
         "//java/java-impl-refactorings:impl-refactorings_test_lib",
         "//java/codeserver/highlighting:highlighting_test_lib",
         "//java/java-frontback-psi-api:frontback-psi_test_lib",
-        "//platform/projectModel-api:projectModel",
-        "//platform/projectModel-api:projectModel_test_lib",
         "//libraries/fastutil:fastutil_test_lib",
         "//libraries/kotlinx/collections-immutable:libraries-kotlinx-collections-immutable_test_lib",
         "//jps/model-api:model_test_lib",
@@ -120,6 +112,11 @@ jvm_library(
     ),
     module_name = "intellij.java.typeMigration.tests",
     visibility = ["//visibility:public"],
+    runtime_deps = [
+        # do not sort,
+        "//platform/vcs/plugin",
+        "//xml/plugin",
+    ],
 )
 
 jvm_library(
@@ -138,7 +135,12 @@ jvm_library(
         "//java/typeMigration:typeMigration_test_lib",
     ],
     visibility = ["//visibility:public"],
-    runtime_deps = [":typeMigration-tests"],
+    runtime_deps = [
+        # do not sort,
+        ":typeMigration-tests",
+        "//platform/vcs/plugin:plugin_test_lib",
+        "//xml/plugin:plugin_test_lib",
+    ],
     deps = [
         # do not sort,
         "//platform/analysis-api:analysis",
@@ -171,8 +173,6 @@ jvm_library(
         "//platform/structure-view-impl/plugin:plugin_test_lib",
         "//platform/todo/plugin",
         "//platform/todo/plugin:plugin_test_lib",
-        "//libraries/misc/plugin",
-        "//libraries/misc/plugin:plugin_test_lib",
         "//java/java-syntax:syntax",
         "//java/java-syntax:syntax_test_lib",
         "//java/java-psi-api:psi",

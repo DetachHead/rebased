@@ -68,7 +68,7 @@ public class GroovyHighlightUsagesTest extends LightGroovyTestCase {
   }
 
   @Override
-  public final String getBasePath() {
-    return TestUtils.getTestDataPath() + "highlighting/usages/";
+  public final String getTestDataPath() {
+    return TestUtils.getAbsoluteTestDataPath() + "highlighting/usages/";
   }
 }

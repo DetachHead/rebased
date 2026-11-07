@@ -27,22 +27,15 @@
     <orderEntry type="module" module-name="intellij.platform.debugger" />
     <orderEntry type="module" module-name="intellij.platform.usageView" />
     <orderEntry type="module" module-name="intellij.platform.lang.impl" />
+    <orderEntry type="module" module-name="intellij.platform.lang" />
     <orderEntry type="module" module-name="intellij.python.sdk.backend" />
     <orderEntry type="module" module-name="intellij.platform.core.ui" />
     <orderEntry type="module" module-name="intellij.platform.execution.impl" />
     <orderEntry type="module" module-name="intellij.libraries.kotlinx.serialization.core" />
     <orderEntry type="module" module-name="intellij.libraries.kotlinx.serialization.json" />
-    <orderEntry type="module" module-name="intellij.platform.testFramework" scope="TEST" />
-    <orderEntry type="module" module-name="intellij.pycharm.community" scope="TEST" />
     <orderEntry type="module" module-name="intellij.python.community.services.systemPython" />
-    <orderEntry type="module" module-name="intellij.python.community.junit5Tests.framework" scope="TEST" />
-    <orderEntry type="module" module-name="intellij.platform.testFramework.junit5" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.util.ui" />
-    <orderEntry type="module" module-name="intellij.python.venv" scope="TEST" />
-    <orderEntry type="module" module-name="intellij.python.community.services.internal.impl" scope="TEST" />
-    <orderEntry type="module" module-name="intellij.python.community.plugin" scope="TEST" />
     <orderEntry type="module" module-name="intellij.libraries.stream" />
-    <orderEntry type="module" module-name="intellij.python.test.env.junit5" scope="TEST" />
-    <orderEntry type="module" module-name="intellij.python.test.env.common" scope="TEST" />
+    <orderEntry type="module" module-name="intellij.platform.eel" />
   </component>
 </module>

@@ -5,14 +5,14 @@ interface E {
 }
 
 class B : E {
-    override val foo: (String) -> Unit = { s -> doSmth(s) }
+    override val foo: (String) -> Unit = { string -> doSmth(string) }
 }
 
 class C : E {
-    override val foo: (String) -> Unit = { s -> s.doSmth2() }
-        get() = { s ->
+    override val foo: (String) -> Unit = { string -> string.doSmth2() }
+        get() = { string ->
             field
-            doSmth(s)
+            doSmth(string)
         }
 }
 
@@ -20,10 +20,10 @@ class D : E {
     override val foo: (String) -> Unit
         get() {
             if (true) {
-                return { s -> s.doSmth2() }
+                return { string -> string.doSmth2() }
             }
 
-            return { s -> doSmth(s) }
+            return { string -> doSmth(string) }
         }
 }
 

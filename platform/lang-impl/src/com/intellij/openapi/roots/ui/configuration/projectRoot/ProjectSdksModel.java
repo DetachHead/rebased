@@ -1,7 +1,6 @@
-// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.roots.ui.configuration.projectRoot;
 
-import com.intellij.execution.target.TargetBasedSdkAdditionalData;
 import com.intellij.ide.DataManager;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.actionSystem.AnActionEvent;
@@ -38,14 +37,12 @@ import com.intellij.util.ArrayUtilRt;
 import com.intellij.util.Consumer;
 import com.intellij.util.EventDispatcher;
 import com.intellij.util.concurrency.annotations.RequiresEdt;
-import one.util.streamex.StreamEx;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.Icon;
 import javax.swing.JComponent;
-import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -57,6 +54,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Predicate;
 
+import static com.intellij.execution.target.SdkEelMatching.sdkMatchesEel;
 import static com.intellij.openapi.roots.ui.configuration.projectRoot.SdkNameToolsKt.suggestSdkNamePostfix;
 import static com.intellij.openapi.util.NlsActions.ActionText;
 
@@ -103,20 +101,13 @@ public class ProjectSdksModel implements SdkModel {
     mySdkEventsDispatcher.removeListener(listener);
   }
 
-  public void syncSdks() {
-    syncSdks(LocalEelMachine.INSTANCE);
-  }
-
-  /**
-   * @param eelMachine can be null only if the corresponding feature flag is disabled.
-   */
   @ApiStatus.Internal
-  public final void syncSdks(@Nullable EelMachine eelMachine) {
+  public final void syncSdks(@NotNull EelMachine eelMachine) {
     final Sdk[] projectSdks = ProjectJdkTable.getInstance().getAllJdks();
     for (Sdk sdk : projectSdks) {
       if (myProjectSdks.containsKey(sdk) || myProjectSdks.containsValue(sdk)) continue;
 
-      if (eelMachine != null && !sdkMatchesEel(eelMachine, sdk)) continue;
+      if (!sdkMatchesEel(eelMachine, sdk)) continue;
 
       Sdk editableCopy;
       try {
@@ -167,11 +158,25 @@ public class ProjectSdksModel implements SdkModel {
   }
 
   public void disposeUIResources() {
-    StreamEx.ofValues(myProjectSdks).select(Disposable.class).forEach(Disposer::dispose);
+    myProjectSdks.values().stream().filter(Disposable.class::isInstance).map(Disposable.class::cast).forEach(Disposer::dispose);
     myProjectSdks.clear();
     myInitialized = false;
   }
 
+  /**
+   * Returns the SDKs of this model.
+   * <p>
+   * A key is an original SDK. It is an SDK from {@link ProjectJdkTable}, or an SDK that {@link #doAdd(Sdk, java.util.function.Consumer)}
+   * added and {@link #apply()} did not write to the table yet.
+   * A value is the editable copy of its key. The UI changes only the copy. {@link #apply()} writes the copy to the table.
+   * <p>
+   * {@link #reset(Project)} and {@link #syncSdks(EelMachine)} fill the map from {@link ProjectJdkTable}.
+   * They skip the SDKs that do not match the eel machine.
+   * {@link #removeSdk(Sdk)} removes the SDK from the map.
+   * <p>
+   * The result is the internal map, not a copy. If you change it, you change the model,
+   * but the model does not send events and does not set {@link #isModified()}.
+   */
   public @NotNull HashMap<Sdk, Sdk> getProjectSdks() {
     return myProjectSdks;
   }
@@ -263,15 +268,15 @@ public class ProjectSdksModel implements SdkModel {
         break;
       }
       final SdkAdditionalData sdkAdditionalData = currItem.getSdkAdditionalData();
-      if (sdkAdditionalData instanceof ValidatableSdkAdditionalData) {
+      if (sdkAdditionalData instanceof ValidatableSdkAdditionalData data) {
         try {
-          ((ValidatableSdkAdditionalData)sdkAdditionalData).checkValid(this);
+          data.checkValid(this);
         }
         catch (ConfigurationException e) {
           if (rootConfigurable != null) {
             final Object projectJdk = rootConfigurable.getSelectedObject();
-            if (!(projectJdk instanceof Sdk) ||
-                !Comparing.strEqual(((Sdk)projectJdk).getName(), currName)) { //do not leave current item with current name
+            if (!(projectJdk instanceof Sdk sdk) ||
+                !Comparing.strEqual(sdk.getName(), currName)) { //do not leave current item with current name
               rootConfigurable.selectNodeInTree(currName);
             }
           }
@@ -419,7 +424,12 @@ public class ProjectSdksModel implements SdkModel {
     LOG.assertTrue(downloadExtension.supportsDownload(type));
     myModified = true;
 
-    downloadExtension.showDownloadUI(type, this, parent, project, selectedSdk, null, sdk -> setupInstallableSdk(type, sdk, callback));
+    downloadExtension.showDownloadUI(type, this, parent, project, selectedSdk, null,
+                                     sdk -> {
+                                       final Sdk incompleteSdk = createIncompleteSdk(type, sdk);
+                                       callback.accept(incompleteSdk);
+                                       downloadSdk(project, incompleteSdk);
+                                     });
   }
 
   @ApiStatus.Internal
@@ -453,18 +463,25 @@ public class ProjectSdksModel implements SdkModel {
     return createSdkInternal(type, newSdkName, home);
   }
 
+  /**
+   * @deprecated use {@link #createIncompleteSdk(SdkType, SdkDownloadTask)} and {@link #downloadSdk(Project, Sdk)}
+   * to show project-bounded download progress.
+   */
+  @Deprecated(forRemoval = true)
   @RequiresEdt
   public void setupInstallableSdk(@NotNull SdkType type,
                                   @NotNull SdkDownloadTask downloadTask,
                                   @Nullable java.util.function.Consumer<? super Sdk> callback) {
-    final Sdk incompleteSdk = createIncompleteSdk(type, downloadTask, callback);
-    downloadSdk(incompleteSdk);
+    final Sdk incompleteSdk = createIncompleteSdk(type, downloadTask);
+    if (callback != null) {
+      callback.accept(incompleteSdk);
+    }
+    downloadSdk(null, incompleteSdk);
   }
 
   @ApiStatus.Internal
   public final @NotNull Sdk createIncompleteSdk(@NotNull SdkType type,
-                                                @NotNull SdkDownloadTask downloadTask,
-                                                java.util.function.@Nullable Consumer<? super Sdk> callback) {
+                                                @NotNull SdkDownloadTask downloadTask) {
     Sdk tempSdk = createDownloadSdkInternal(type, downloadTask, myProjectSdks.values());
 
     AtomicReference<Sdk> sdk = new AtomicReference<>();
@@ -473,9 +490,6 @@ public class ProjectSdksModel implements SdkModel {
       tracker.registerEditableSdk(tempSdk, editableSdk);
       tracker.tryRegisterSdkDownloadFailureHandler(editableSdk, () -> removeSdk(editableSdk));
       sdk.set(editableSdk);
-      if (callback != null) {
-        callback.accept(editableSdk);
-      }
     });
 
     return sdk.get();
@@ -483,9 +497,19 @@ public class ProjectSdksModel implements SdkModel {
 
   @RequiresEdt
   @ApiStatus.Internal
-  public static void downloadSdk(Sdk sdk) {
+  public static void downloadSdk(@Nullable Project project, @NotNull Sdk sdk) {
     SdkDownloadTracker tracker = SdkDownloadTracker.getInstance();
-    tracker.startSdkDownloadIfNeeded(sdk);
+    tracker.startSdkDownloadIfNeeded(project, sdk);
+  }
+
+  /**
+   * @deprecated use {@link #downloadSdk(Project, Sdk)} to show download progress
+   */
+  @Deprecated
+  @RequiresEdt
+  @ApiStatus.Internal
+  public static void downloadSdk(Sdk sdk) {
+    downloadSdk(null, sdk);
   }
 
   private void setupSdk(@NotNull Sdk newJdk, @Nullable java.util.function.Consumer<? super Sdk> callback) {
@@ -547,32 +571,6 @@ public class ProjectSdksModel implements SdkModel {
 
   public boolean isInitialized() {
     return myInitialized;
-  }
-
-  @ApiStatus.Internal
-  public static boolean sdkMatchesEel(@NotNull EelMachine eelMachine, Sdk sdk) {
-    if (sdk.getSdkAdditionalData() instanceof TargetBasedSdkAdditionalData) {
-      return true;
-    }
-    String sdkHomePath = sdk.getHomePath();
-    return sdkMatchesEel(eelMachine, sdkHomePath);
-  }
-
-  @ApiStatus.Internal
-  public static boolean sdkMatchesEel(@NotNull EelMachine eelMachine, String sdkHomePath) {
-    if (sdkHomePath != null) {
-      try {
-        Path path = Path.of(sdkHomePath);
-        if (EelProviderUtil.ownsPath(eelMachine, path)) {
-          return true;
-        }
-      }
-      catch (InvalidPathException ignored) {
-        // Ignored.
-        return eelMachine == LocalEelMachine.INSTANCE;
-      }
-    }
-    return false;
   }
 
   private static @NotNull List<SdkType> getAddableSdkTypes(@Nullable Predicate<? super SdkTypeId> filter) {

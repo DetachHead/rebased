@@ -3,8 +3,8 @@ package org.jetbrains.plugins.groovy.lang.parser;
 
 public class SwitchExpressionParsingTest extends GroovyParsingTestCase {
   @Override
-  public String getBasePath() {
-    return super.getBasePath() + "statements/switch/expression";
+  public String getTestDataPath() {
+    return super.getTestDataPath() + "statements/switch/expression";
   }
 
   public void testAsInCompiler1() { doTest(); }

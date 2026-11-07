@@ -99,6 +99,13 @@ sealed interface VersionedUserDataFMap : KeyFMap {
 
   fun isStorageEmpty(): Boolean = storageSize() == 0
 
+  fun isEligibleForAsyncCleanup(): Boolean {
+    for (i in 0 until storageSize()) {
+      if (payloadMapAt(i).size() > 1) return true
+    }
+    return false
+  }
+
   @Suppress("unused") // used in `@Debug.Renderer`
   fun arrayOfEntries(): Array<VersionedUserDataEntry> {
     return Array(storageSize()) { VersionedUserDataEntry(keyAt(it), payloadMapAt(it)) }
@@ -571,6 +578,9 @@ private fun VersionedPayloadMap?.normalize(): VersionedPayloadMap? {
  * Returns the payload map without stale versions, `null` if the key can be dropped, or `this` if nothing has changed.
  */
 private fun VersionedPayloadMap.cleaned(minVersion: Long): VersionedPayloadMap? {
+  require(minVersion % 2 == 0L) {
+    "Version for cleanup must be even"
+  }
   val cleanedPayloadMap = cleanupStaleVersions(minVersion) ?: this
   return cleanedPayloadMap.normalize()
 }
@@ -628,11 +638,7 @@ private fun VersionedUserDataFMap.cleanupStorage(minVersion: Long): VersionedUse
 }
 
 private fun VersionedUserDataFMap.runGarbageCollection(): VersionedUserDataFMap {
-  val registry = InternalPsiVersioning.PsiVersionRegistry.instance
-  var minVersion = Long.MAX_VALUE
-  for (version in registry.getFrozenKeys()) {
-    minVersion = minOf(minVersion, version)
-  }
+  val minVersion = InternalPsiVersioning.PsiVersionRegistry.instance.minVersionForCleaning()
   return cleanup(minVersion)
 }
 

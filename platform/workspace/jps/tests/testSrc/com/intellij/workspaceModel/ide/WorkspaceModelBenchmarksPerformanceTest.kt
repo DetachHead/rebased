@@ -63,7 +63,7 @@ import com.intellij.testFramework.rules.ProjectModelExtension
 import com.intellij.testFramework.utils.io.createDirectory
 import com.intellij.testFramework.workspaceModel.updateProjectModel
 import com.intellij.tools.ide.metrics.benchmark.Benchmark
-import com.intellij.workspaceModel.ide.impl.createIdeVirtualFileUrlManager
+import com.intellij.workspaceModel.ide.impl.IdeVirtualFileUrlManagerImpl
 import com.intellij.workspaceModel.ide.impl.WorkspaceModelCacheSerializer.PluginAwareEntityTypesResolver
 import com.intellij.workspaceModel.ide.impl.jps.serialization.CachingJpsFileContentReader
 import com.intellij.workspaceModel.ide.impl.jps.serialization.SerializationContextForTests
@@ -230,7 +230,7 @@ class WorkspaceModelBenchmarksPerformanceTest {
   fun serializeCommunityProject(testInfo: TestInfo) {
     val storageBuilder = MutableEntityStorage.create()
     val projectDir = Path.of(PathManagerEx.getCommunityHomePath())
-    val manager = createIdeVirtualFileUrlManager()
+    val manager = IdeVirtualFileUrlManagerImpl()
     runBlocking {
       loadProject(toConfigLocation(projectDir, manager), storageBuilder, manager)
     }
@@ -274,14 +274,14 @@ class WorkspaceModelBenchmarksPerformanceTest {
 
   @Test
   fun rbsNewOnManyContentRoots(testInfo: TestInfo) {
-    val manager = createIdeVirtualFileUrlManager()
+    val manager = IdeVirtualFileUrlManagerImpl()
     val newFolder = tempFolder.newRandomDirectory()
 
     val storageBuilder = MutableEntityStorage.create()
     val module = ModuleEntity("data", emptyList(), MySource)
     storageBuilder.addEntity(module)
     repeat(1_000) {
-      storageBuilder.addEntity(ContentRootEntity(manager.getOrCreateFromUrl(VfsUtilCore.pathToUrl("$newFolder/url${it}")), emptyList(), MySource) {
+      storageBuilder.addEntity(ContentRootEntity(manager.storeAndGet(VfsUtilCore.pathToUrl("$newFolder/url${it}")), emptyList(), MySource) {
         this.module = module
       })
     }
@@ -290,7 +290,7 @@ class WorkspaceModelBenchmarksPerformanceTest {
     val replaceModule = ModuleEntity("data", emptyList(), MySource)
     replaceStorage.addEntity(replaceModule)
     repeat(1_000) {
-      replaceStorage.addEntity(ContentRootEntity(manager.getOrCreateFromUrl(VfsUtilCore.pathToUrl("$newFolder/url${it}")), emptyList(), MySource) {
+      replaceStorage.addEntity(ContentRootEntity(manager.storeAndGet(VfsUtilCore.pathToUrl("$newFolder/url${it}")), emptyList(), MySource) {
         this.module = replaceModule
       })
     }
@@ -326,7 +326,7 @@ class WorkspaceModelBenchmarksPerformanceTest {
           projectModel.project.service<EntitiesOrphanage>().update {
             repeat(10_000) { counter ->
               it.addEntity(ModuleEntity("Module$counter", emptyList(), OrphanageWorkerEntitySource) {
-                contentRoots = listOf(ContentRootEntity(manager.getOrCreateFromUrl(VfsUtilCore.pathToUrl("$newFolder/data$counter")), emptyList(), MySource))
+                contentRoots = listOf(ContentRootEntity(manager.storeAndGet(VfsUtilCore.pathToUrl("$newFolder/data$counter")), emptyList(), MySource))
               })
             }
           }
@@ -361,13 +361,13 @@ class WorkspaceModelBenchmarksPerformanceTest {
             repeat(10_000) { counter ->
               it.addEntity(ModuleEntity("Module$counter", emptyList(), OrphanageWorkerEntitySource) {
                 contentRoots = listOf(
-                  ContentRootEntity(manager.getOrCreateFromUrl("$newFolder/data$counter"), emptyList(), OrphanageWorkerEntitySource) {
+                  ContentRootEntity(manager.storeAndGet("$newFolder/data$counter"), emptyList(), OrphanageWorkerEntitySource) {
                     this.sourceRoots = listOf(
-                      SourceRootEntity(manager.getOrCreateFromUrl("$newFolder/one$counter"), DEFAULT_SOURCE_ROOT_TYPE_ID, MySource),
-                      SourceRootEntity(manager.getOrCreateFromUrl("$newFolder/two$counter"), DEFAULT_SOURCE_ROOT_TYPE_ID, MySource),
-                      SourceRootEntity(manager.getOrCreateFromUrl("$newFolder/three$counter"), DEFAULT_SOURCE_ROOT_TYPE_ID, MySource),
-                      SourceRootEntity(manager.getOrCreateFromUrl("$newFolder/four$counter"), DEFAULT_SOURCE_ROOT_TYPE_ID, MySource),
-                      SourceRootEntity(manager.getOrCreateFromUrl("$newFolder/five$counter"), DEFAULT_SOURCE_ROOT_TYPE_ID, MySource),
+                      SourceRootEntity(manager.storeAndGet("$newFolder/one$counter"), DEFAULT_SOURCE_ROOT_TYPE_ID, MySource),
+                      SourceRootEntity(manager.storeAndGet("$newFolder/two$counter"), DEFAULT_SOURCE_ROOT_TYPE_ID, MySource),
+                      SourceRootEntity(manager.storeAndGet("$newFolder/three$counter"), DEFAULT_SOURCE_ROOT_TYPE_ID, MySource),
+                      SourceRootEntity(manager.storeAndGet("$newFolder/four$counter"), DEFAULT_SOURCE_ROOT_TYPE_ID, MySource),
+                      SourceRootEntity(manager.storeAndGet("$newFolder/five$counter"), DEFAULT_SOURCE_ROOT_TYPE_ID, MySource),
                     )
                   })
               })
@@ -377,7 +377,7 @@ class WorkspaceModelBenchmarksPerformanceTest {
           WorkspaceModel.getInstance(projectModel.project).updateProjectModel {
             repeat(10_000) { counter ->
               it.addEntity(ModuleEntity("Module$counter", emptyList(), MySource) {
-                contentRoots = listOf(ContentRootEntity(manager.getOrCreateFromUrl("$newFolder/data$counter"), emptyList(), MySource))
+                contentRoots = listOf(ContentRootEntity(manager.storeAndGet("$newFolder/data$counter"), emptyList(), MySource))
               })
             }
           }
@@ -406,9 +406,9 @@ class WorkspaceModelBenchmarksPerformanceTest {
             repeat(10_000) { counter ->
               it.addEntity(ModuleEntity("Module$counter", emptyList(), OrphanageWorkerEntitySource) {
                 contentRoots = List(10) { contentCounter ->
-                  ContentRootEntity(manager.getOrCreateFromUrl(VfsUtilCore.pathToUrl("$newFolder/data$contentCounter$counter")), emptyList(), OrphanageWorkerEntitySource) {
+                  ContentRootEntity(manager.storeAndGet(VfsUtilCore.pathToUrl("$newFolder/data$contentCounter$counter")), emptyList(), OrphanageWorkerEntitySource) {
                     sourceRoots = List(10) { sourceCounter ->
-                      SourceRootEntity(manager.getOrCreateFromUrl(VfsUtilCore.pathToUrl("$newFolder/one$sourceCounter$contentCounter$counter")), DEFAULT_SOURCE_ROOT_TYPE_ID, MySource)
+                      SourceRootEntity(manager.storeAndGet(VfsUtilCore.pathToUrl("$newFolder/one$sourceCounter$contentCounter$counter")), DEFAULT_SOURCE_ROOT_TYPE_ID, MySource)
                     }
                   }
                 }
@@ -420,7 +420,7 @@ class WorkspaceModelBenchmarksPerformanceTest {
             repeat(10_000) { counter ->
               it.addEntity(ModuleEntity("Module$counter", emptyList(), MySource) {
                 contentRoots = List(10) { contentCounter ->
-                  ContentRootEntity(manager.getOrCreateFromUrl(VfsUtilCore.pathToUrl("$newFolder/data$contentCounter$counter")), emptyList(), OrphanageWorkerEntitySource)
+                  ContentRootEntity(manager.storeAndGet(VfsUtilCore.pathToUrl("$newFolder/data$contentCounter$counter")), emptyList(), OrphanageWorkerEntitySource)
                 }
               })
             }

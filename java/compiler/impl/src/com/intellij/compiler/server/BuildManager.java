@@ -5,8 +5,6 @@ import com.intellij.compiler.CompilerConfiguration;
 import com.intellij.compiler.CompilerConfigurationImpl;
 import com.intellij.compiler.CompilerWorkspaceConfiguration;
 import com.intellij.compiler.YourKitProfilerService;
-import com.intellij.compiler.cache.CompilerCacheConfigurator;
-import com.intellij.compiler.cache.CompilerCacheStartupActivity;
 import com.intellij.compiler.impl.CompilerUtil;
 import com.intellij.compiler.impl.javaCompiler.eclipse.EclipseCompilerConfiguration;
 import com.intellij.compiler.impl.javaCompiler.javac.JavacConfiguration;
@@ -90,12 +88,14 @@ import com.intellij.openapi.util.registry.RegistryManagerKt;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.util.text.Strings;
 import com.intellij.openapi.vfs.CharsetToolkit;
-import com.intellij.openapi.vfs.LocalFileSystem;
+import com.intellij.openapi.vfs.StandardFileSystems;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.vfs.VirtualFileManager;
 import com.intellij.openapi.vfs.newvfs.BulkFileListener;
 import com.intellij.openapi.vfs.newvfs.ManagingFS;
+import com.intellij.openapi.vfs.newvfs.RefreshQueue;
 import com.intellij.openapi.vfs.newvfs.events.VFileEvent;
+import com.intellij.openapi.wm.WindowManager;
 import com.intellij.platform.backend.workspace.GlobalWorkspaceModelCache;
 import com.intellij.platform.backend.workspace.WorkspaceModelCache;
 import com.intellij.platform.eel.path.EelPath;
@@ -105,7 +105,6 @@ import com.intellij.platform.eel.provider.utils.EelPathUtils;
 import com.intellij.platform.eel.provider.utils.EelProjectUtils;
 import com.intellij.platform.eel.provider.utils.EelSystemFolderUtils;
 import com.intellij.platform.workspace.storage.InternalEnvironmentName;
-import com.intellij.ui.ComponentUtil;
 import com.intellij.util.Alarm;
 import com.intellij.util.ArrayUtil;
 import com.intellij.util.ConcurrencyUtil;
@@ -138,6 +137,7 @@ import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.VisibleForTesting;
 import org.jetbrains.ide.BuiltInServerManager;
 import org.jetbrains.ide.BuiltInServerManagerImpl;
 import org.jetbrains.io.ChannelRegistrar;
@@ -151,7 +151,6 @@ import org.jetbrains.jps.api.TaskFutureAdapter;
 import org.jetbrains.jps.cmdline.BuildMain;
 import org.jetbrains.jps.cmdline.ClasspathBootstrap;
 import org.jetbrains.jps.incremental.Utils;
-import org.jetbrains.jps.incremental.storage.ProjectStamps;
 import org.jetbrains.jps.javac.ExternalJavacProcess;
 import org.jetbrains.jps.model.java.compiler.JavaCompilers;
 import org.jetbrains.jps.util.Iterators;
@@ -230,8 +229,6 @@ public final class BuildManager implements Disposable {
     path -> !(path.contains(elem -> StringUtil.equalsIgnoreCase(elem, IDEA_PROJECT_DIR_PATTERN)) ||
               Strings.endsWithIgnoreCase(path.getName(), IWS_EXTENSION) ||
               Strings.endsWithIgnoreCase(path.getName(), IPR_EXTENSION));
-
-  private static final String JPS_USE_EXPERIMENTAL_STORAGE = "jps.use.experimental.storage";
 
   private final boolean IS_UNIT_TEST_MODE;
   private final Map<TaskFuture<?>, Project> myAutomakeFutures = Collections.synchronizedMap(new HashMap<>());
@@ -370,69 +367,21 @@ public final class BuildManager implements Disposable {
             myUnprocessedEvents.addAll(events);
           }
           myAutomakeTrigger.execute(() -> {
-            if (!application.isDisposed()) {
-              ReadAction.run(() -> {
-                if (application.isDisposed()) {
-                  return;
-                }
-                List<VFileEvent> snapshot;
-                synchronized (myUnprocessedEvents) {
-                  if (myUnprocessedEvents.isEmpty()) {
-                    return;
-                  }
-                  snapshot = new ArrayList<>(myUnprocessedEvents);
-                  myUnprocessedEvents.clear();
-                }
-                if (shouldTriggerMake(snapshot)) {
-                  scheduleAutoMake();
-                }
-              });
+            // Take the snapshot outside the read action. A cancelled read action evaluates the same snapshot again.
+            var snapshot = takeUnprocessedEvents();
+            if (snapshot.isEmpty() || application.isDisposed()) {
+              return;
             }
-            else {
-              synchronized (myUnprocessedEvents) {
-                myUnprocessedEvents.clear();
-              }
+            // The project lookup reads the AWT focus state. Keep it outside the read action.
+            var project = getCurrentContextProject();
+            // A pending write action cancels the read action, and the call runs it again.
+            // A ProcessCanceledException from the cancelled executor scope leaves this task on purpose.
+            var shouldTrigger = ReadAction.nonBlocking(() -> shouldTriggerMake(project, snapshot)).executeSynchronously();
+            if (shouldTrigger) {
+              scheduleAutoMake();
             }
           });
         }
-      }
-
-      private static boolean shouldTriggerMake(List<? extends VFileEvent> events) {
-        if (PowerSaveMode.isEnabled()) {
-          return false;
-        }
-
-        Project project = null;
-        ProjectFileIndex fileIndex = null;
-
-        for (var event : events) {
-          var eventFile = event.getFile();
-          if (eventFile == null) {
-            continue;
-          }
-          if (!eventFile.isValid()) {
-            return true; // should be deleted
-          }
-
-          if (project == null) {
-            // lazy init
-            project = getCurrentContextProject();
-            if (project == null) {
-              return false;
-            }
-            fileIndex = ProjectRootManager.getInstance(project).getFileIndex();
-          }
-
-          if (fileIndex.isInContent(eventFile)) {
-            if (ProjectUtil.isProjectOrWorkspaceFile(eventFile) ||
-                GeneratedSourcesFilter.isGeneratedSourceByAnyFilter(eventFile, project)) {
-              // changes in project files or generated stuff should not trigger auto-make
-              continue;
-            }
-            return true;
-          }
-        }
-        return false;
       }
     });
 
@@ -464,6 +413,62 @@ public final class BuildManager implements Disposable {
       var future = AppExecutorUtil.getAppScheduledExecutorService().scheduleWithFixedDelay(() -> runCommand(myGCTask), 3, 180, TimeUnit.MINUTES);
       Disposer.register(this, () -> future.cancel(false));
     }
+  }
+
+  private @NotNull List<VFileEvent> takeUnprocessedEvents() {
+    synchronized (myUnprocessedEvents) {
+      if (myUnprocessedEvents.isEmpty()) {
+        return List.of();
+      }
+      var snapshot = List.copyOf(myUnprocessedEvents);
+      myUnprocessedEvents.clear();
+      return snapshot;
+    }
+  }
+
+  /**
+   * Decides if a batch of VFS events needs an auto-make.
+   * @param project the project that provides the content roots, or {@code null} if no project has the focus
+   * @param events  the buffered VFS events in the order of arrival
+   * @return {@code true} if an auto-make must be scheduled
+   */
+  @ApiStatus.Internal
+  @VisibleForTesting
+  public static boolean shouldTriggerMake(@Nullable Project project, @NotNull List<? extends VFileEvent> events) {
+    if (PowerSaveMode.isEnabled() || ApplicationManager.getApplication().isDisposed()) {
+      return false;
+    }
+
+    ProjectFileIndex fileIndex = null;
+
+    for (var event : events) {
+      ProgressManager.checkCanceled();
+
+      var eventFile = event.getFile();
+      if (eventFile == null) {
+        continue;
+      }
+      if (!eventFile.isValid()) {
+        return true; // should be deleted
+      }
+
+      if (fileIndex == null) {
+        if (!isValidProject(project)) {
+          return false;
+        }
+        fileIndex = ProjectRootManager.getInstance(project).getFileIndex();
+      }
+
+      if (fileIndex.isInContent(eventFile)) {
+        if (ProjectUtil.isProjectOrWorkspaceFile(eventFile) ||
+            GeneratedSourcesFilter.isGeneratedSourceByAnyFilter(eventFile, project)) {
+          // changes in project files or generated stuff should not trigger auto-make
+          continue;
+        }
+        return true;
+      }
+    }
+    return false;
   }
 
   private void configureIdleAutomake(@NotNull RegistryManager registryManager) {
@@ -774,9 +779,10 @@ public final class BuildManager implements Disposable {
 
     Project project = null;
     if (!GraphicsEnvironment.isHeadless()) {
+      // This method runs on a background thread. Read the focus state only. Do not create an AWT component here.
       var window = KeyboardFocusManager.getCurrentKeyboardFocusManager().getActiveWindow();
       if (window == null) {
-        window = ComponentUtil.getActiveWindow();
+        window = WindowManager.getInstance().getMostRecentFocusedWindow();
       }
       project = getProjectForComponent(window);
     }
@@ -962,15 +968,14 @@ public final class BuildManager implements Disposable {
         var mappedPaths = ContainerUtil.map(paths, pathMapper::apply);
         CmdlineRemoteProto.Message.ControllerMessage params;
         if (isRebuild) {
-          params = CmdlineProtoUtil.createBuildRequest(mappedProjectPath, scopes, List.of(), userData, globals, null, null);
+          params = CmdlineProtoUtil.createBuildRequest(mappedProjectPath, scopes, List.of(), userData, globals, null);
         }
         else if (onlyCheckUpToDate) {
           params = CmdlineProtoUtil.createUpToDateCheckRequest(mappedProjectPath, scopes, mappedPaths, userData, globals, currentFSChanges);
         }
         else {
           var pathsToMake = isMake ? List.<String>of() : mappedPaths;
-          var cacheSettings = isMake ? CompilerCacheConfigurator.getCacheDownloadSettings(project) : null;
-          params = CmdlineProtoUtil.createBuildRequest(mappedProjectPath, scopes, pathsToMake, userData, globals, currentFSChanges, cacheSettings);
+          params = CmdlineProtoUtil.createBuildRequest(mappedProjectPath, scopes, pathsToMake, userData, globals, currentFSChanges);
         }
         if (!usingPreloadedProcess) {
           myMessageDispatcher.registerBuildMessageHandler(future, params);
@@ -1276,8 +1281,11 @@ public final class BuildManager implements Disposable {
           environmentName, requiredFeatureVersion));
       }
     }
-    @SuppressWarnings("removal")
-    var sdk = JavaAwareProjectJdkTableImpl.getInstanceEx().getInternalJdk();
+    var sdk = ProjectJdkTable.getInstance().getInternalJdk();
+    if (sdk == null) {
+      throw new IllegalStateException("No compatible JDK found and " + ProjectJdkTable.getInstance().getClass().getName() +
+                                      " provides no internal JDK");
+    }
     return new Pair<>(sdk, JavaSdk.getInstance().getVersion(sdk));
   }
 
@@ -1477,11 +1485,7 @@ public final class BuildManager implements Disposable {
     }
 
     cmdLine.addParameter("-Djava.awt.headless=true");
-    if (Boolean.getBoolean(JPS_USE_EXPERIMENTAL_STORAGE)) {
-      cmdLine.addParameter("-D" + JPS_USE_EXPERIMENTAL_STORAGE + "=true");
-    }
 
-    attachJnaBootLibraryIfNeeded(project, cmdLine);
     if (Registry.is("jps.build.use.workspace.model")) {
       // todo: upload workspace model to remote side because it runs with eel
       var globalCacheId = "Local";
@@ -1622,13 +1626,6 @@ public final class BuildManager implements Disposable {
       // Both formats "<host>:<port>" and "<port>" are accepted.
       // https://docs.oracle.com/en/java/javase/11/docs/specs/jpda/conninv.html#socket-transport
       cmdLine.addParameter("-agentlib:jdwp=transport=dt_socket,server=y,suspend=y,address=" + debugPort);
-    }
-
-    // portable caches
-    if (RegistryManager.getInstance().is("compiler.process.use.portable.caches") &&
-        CompilerCacheConfigurator.isServerUrlConfigured(project) &&
-        CompilerCacheStartupActivity.isLineEndingsConfiguredCorrectly()) {
-      cmdLine.addParameter("-D" + ProjectStamps.PORTABLE_CACHES_PROPERTY + "=true");
     }
 
     // DepGraph-based IC implementation
@@ -1858,22 +1855,6 @@ public final class BuildManager implements Disposable {
     }
 
     return processHandler;
-  }
-
-  private static void attachJnaBootLibraryIfNeeded(
-    @NotNull Project project,
-    @NotNull BuildCommandLineBuilder cmdLine
-  ) {
-    // it's impossible to use a Windows DLL inside a non-local environment
-    if (!(EelProviderUtil.getEelDescriptor(project) instanceof LocalEelDescriptor)) {
-      return;
-    }
-    var jnaBootLibraryPath = System.getProperty("jna.boot.library.path");
-    if (jnaBootLibraryPath != null) {
-      cmdLine.addPathParameter("-Djna.boot.library.path=", jnaBootLibraryPath);
-      cmdLine.addParameter("-Djna.nosys=true");
-      cmdLine.addParameter("-Djna.noclasspath=true");
-    }
   }
 
   private static void showSnapshotNotificationAfterFinish(@NotNull Project project) {
@@ -2324,7 +2305,7 @@ public final class BuildManager implements Disposable {
 
             CompilerUtil.refreshOutputRoots(candidates);
 
-            var lfs = LocalFileSystem.getInstance();
+            var lfs = StandardFileSystems.local();
             try {
               Collection<VirtualFile> toRefresh = ReadAction.nonBlocking(() -> {
                 if (project.isDisposed()) {
@@ -2336,7 +2317,7 @@ public final class BuildManager implements Disposable {
               }).executeSynchronously();
 
               if (!toRefresh.isEmpty()) {
-                lfs.refreshFiles(toRefresh, true, true, null);
+                RefreshQueue.getInstance().refresh(true, true, null, toRefresh);
               }
             }
             catch (@SuppressWarnings("IncorrectCancellationExceptionHandling") ProcessCanceledException ignored) { }

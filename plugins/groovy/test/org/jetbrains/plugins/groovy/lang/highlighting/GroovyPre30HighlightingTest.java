@@ -14,7 +14,7 @@ public class GroovyPre30HighlightingTest extends GroovyVersionBasedTest {
   }
 
   @Override
-  public final String getBasePath() {
-    return TestUtils.getTestDataPath() + "highlighting/pre30/";
+  public final String getTestDataPath() {
+    return TestUtils.getAbsoluteTestDataPath() + "highlighting/pre30/";
   }
 }

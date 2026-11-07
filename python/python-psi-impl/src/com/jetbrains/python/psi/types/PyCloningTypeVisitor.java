@@ -8,6 +8,7 @@ import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import java.util.Collections;
 import java.util.IdentityHashMap;
 import java.util.Map;
 import java.util.Set;
@@ -37,8 +38,10 @@ import java.util.stream.Collectors;
 @ApiStatus.Experimental
 public abstract class PyCloningTypeVisitor extends PyTypeVisitorExt<PyType> {
   private final @NotNull TypeEvalContext myTypeEvalContext;
-  private final @NotNull Set<@Nullable PyType> cloning = Sets.newIdentityHashSet();
-  private final @NotNull Map<@Nullable PyType, @Nullable PyType> cloned = new IdentityHashMap<>();
+  // Synchronized rather than concurrent: while `python.type.any` is off, an unknown type is a null, and a null key is what a
+  // ConcurrentHashMap refuses. A lazily cloned component is asked for on any thread, outside the traversal that filled these.
+  private final @NotNull Set<@Nullable PyType> cloning = Collections.synchronizedSet(Sets.newIdentityHashSet());
+  private final @NotNull Map<@Nullable PyType, @Nullable PyType> cloned = Collections.synchronizedMap(new IdentityHashMap<>());
 
   public static @Nullable PyType clone(@Nullable PyType type, @NotNull PyCloningTypeVisitor visitor) {
     return visitor.clone(type);
@@ -51,26 +54,25 @@ public abstract class PyCloningTypeVisitor extends PyTypeVisitorExt<PyType> {
   // Intentionally not marked as @Nullable to avoid false positives. 
   // A recursive type is an exceptional case.
   protected final <T extends PyType> T clone(@Nullable PyType type) {
-    PyAnyType.validate(type);
-    final @Nullable PyType result;
-    if (cloned.containsKey(type)) {
-      result = cloned.get(type);
-    }
-    else {
-      result = doClone(type);
-      PyAnyType.validate(result);
-      cloned.put(type, result);
-    }
     //noinspection unchecked
-    return (T)result;
+    return (T)doClone(type);
   }
 
   private @Nullable PyType doClone(@Nullable PyType type) {
+    PyAnyType.validate(type);
+    if (cloned.containsKey(type)) {
+      return cloned.get(type);
+    }
     if (!cloning.add(type)) {
+      // The "unknown" breaking the cycle is valid for this path only, so it is deliberately not memoized: a type whose
+      // components are cloned lazily asks for the same type again outside of any cycle, and has to get its real clone.
       return PyAnyType.getUnknown();
     }
     try {
-      return visit(type, this);
+      final PyType result = visit(type, this);
+      PyAnyType.validate(result);
+      cloned.put(type, result);
+      return result;
     }
     finally {
       cloning.remove(type);
@@ -119,8 +121,29 @@ public abstract class PyCloningTypeVisitor extends PyTypeVisitorExt<PyType> {
 
   @Override
   public PyType visitPyTypedDictType(@NotNull PyTypedDictType typedDictType) {
+    // Cloned lazily, so that cloning a TypedDict does not force item types that may refer back to it.
+    return new PyTypedDictType(
+      typedDictType.getName(),
+      evalContext -> cloneFields(typedDictType, evalContext),
+      typedDictType.myClass,
+      typedDictType.isDefinition(),
+      typedDictType.getDeclarationElement(),
+      typedDictType.isClosed(),
+      evalContext -> cloneExtraItems(typedDictType, evalContext),
+      typedDictType.getDeclaredTypeParameters(),
+      ContainerUtil.map(typedDictType.getTypeArguments(), type -> clone(type)));
+  }
+
+  private @NotNull PyTypedDictType.FieldTypeAndTotality cloneExtraItems(@NotNull PyTypedDictType typedDictType,
+                                                                       @NotNull TypeEvalContext context) {
+    PyTypedDictType.FieldTypeAndTotality extraItems = typedDictType.extraItems(context);
+    return new PyTypedDictType.FieldTypeAndTotality(extraItems.getValue(), clone(extraItems.getType()), extraItems.getQualifiers());
+  }
+
+  private @NotNull Map<String, PyTypedDictType.FieldTypeAndTotality> cloneFields(@NotNull PyTypedDictType typedDictType,
+                                                                                @NotNull TypeEvalContext context) {
     // TODO Copied from PyTypeChecker.substitute, revise
-    final var substitutedTDFields = typedDictType.getFields().entrySet().stream().collect(
+    return typedDictType.fields(context).entrySet().stream().collect(
       Collectors.toMap(
         Map.Entry::getKey,
         field -> new PyTypedDictType.FieldTypeAndTotality(
@@ -130,14 +153,11 @@ public abstract class PyCloningTypeVisitor extends PyTypeVisitorExt<PyType> {
         )
       )
     );
-    return new PyTypedDictType(typedDictType.getName(), substitutedTDFields, typedDictType.myClass, typedDictType.isDefinition(),
-                               typedDictType.getDeclarationElement(), typedDictType.isClosed(), clone(typedDictType.getExtraItemsType()),
-                               typedDictType.getExtraItemsQualifiers());
   }
 
   @Override
   public PyType visitPyUnionType(@NotNull PyUnionType unionType) {
-    return PyUnionType.union(ContainerUtil.map(unionType.getMembers(), type -> clone(type)));
+    return PyUnionType.unionOrUnknown(ContainerUtil.map(unionType.getMembers(), type -> clone(type)));
   }
 
   @Override
@@ -147,7 +167,7 @@ public abstract class PyCloningTypeVisitor extends PyTypeVisitorExt<PyType> {
 
   @Override
   public PyType visitPyIntersectionType(@NotNull PyIntersectionType intersectionType) {
-    return PyIntersectionType.intersection(ContainerUtil.map(intersectionType.getMembers(), type -> clone(type)));
+    return PyIntersectionType.intersectionOrTop(ContainerUtil.map(intersectionType.getMembers(), type -> clone(type)));
   }
 
   @Override

@@ -19,7 +19,7 @@ import com.intellij.platform.workspace.jps.serialization.impl.JpsProjectSerializ
 import com.intellij.platform.workspace.storage.EntitySource
 import com.intellij.platform.workspace.storage.MutableEntityStorage
 import com.intellij.platform.workspace.storage.WorkspaceEntity
-import com.intellij.platform.workspace.storage.impl.url.ConcurrentVirtualFileUrlManager
+import com.intellij.platform.workspace.storage.impl.url.VirtualFileUrlManagerImpl
 import com.intellij.platform.workspace.storage.url.VirtualFileUrlManager
 import com.intellij.testFramework.UsefulTestCase
 import com.intellij.testFramework.junit5.TestApplication
@@ -64,7 +64,7 @@ class ImlCreationPropertyTest {
 
   @BeforeEach
   fun prepareProject() {
-    virtualFileManager = ConcurrentVirtualFileUrlManager()
+    virtualFileManager = VirtualFileUrlManagerImpl()
 
     val configurationManager = ExternalStorageConfigurationManager.getInstance(projectModel.project)
     configurationManager.isEnabled = true
@@ -206,7 +206,7 @@ class ImlCreationPropertyTest {
       val path = configLocation.baseDirectoryUrl.toPath().resolve(contentRootPath).createDirectories()
 
       storage.modifyModuleEntity(moduleEntity) {
-        this.contentRoots += ContentRootEntity(virtualFileManager.getOrCreateFromUrl(VfsUtilCore.pathToUrl(path.toString())), emptyList(), moduleEntity.entitySource)
+        this.contentRoots += ContentRootEntity(virtualFileManager.storeAndGet(VfsUtilCore.pathToUrl(path.toString())), emptyList(), moduleEntity.entitySource)
       }
     }
   }

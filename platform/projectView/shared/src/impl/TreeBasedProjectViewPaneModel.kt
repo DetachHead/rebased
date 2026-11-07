@@ -3,6 +3,9 @@
 
 package com.intellij.platform.projectView.impl
 
+import com.intellij.codeInsight.multiverse.EditorContextManager
+import com.intellij.codeWithMe.ClientId
+import com.intellij.codeWithMe.asContextElement
 import com.intellij.ide.DataManager
 import com.intellij.ide.DeleteProvider
 import com.intellij.ide.IdeView
@@ -18,6 +21,7 @@ import com.intellij.ide.projectView.impl.ProjectViewPane
 import com.intellij.ide.projectView.impl.nodes.LibraryGroupElement
 import com.intellij.ide.projectView.impl.nodes.NamedLibraryElement
 import com.intellij.ide.util.DirectoryChooserUtil
+import com.intellij.ide.util.EditorHelper
 import com.intellij.idea.AppMode
 import com.intellij.notebook.editor.BackedVirtualFile
 import com.intellij.openapi.actionSystem.CommonDataKeys
@@ -49,6 +53,7 @@ import com.intellij.openapi.roots.ui.configuration.actions.ModuleDeleteProvider
 import com.intellij.openapi.util.NlsSafe
 import com.intellij.openapi.util.registry.Registry
 import com.intellij.openapi.vfs.VirtualFile
+import com.intellij.platform.ide.productMode.IdeProductMode
 import com.intellij.platform.projectView.pane.BackendProjectViewNodeModel
 import com.intellij.platform.projectView.pane.BackendProjectViewPaneStateAccessor
 import com.intellij.platform.projectView.pane.PROJECT_VIEW_SELECTED_NODE_IDS_KEY
@@ -61,6 +66,7 @@ import com.intellij.platform.projectView.pane.ProjectViewPaneDnDHandler
 import com.intellij.platform.projectView.pane.ProjectViewPaneId
 import com.intellij.platform.projectView.pane.ProjectViewPaneLoadChildrenOptions
 import com.intellij.platform.projectView.pane.ProjectViewPaneModel
+import com.intellij.platform.projectView.pane.ProjectViewPaneNavigateOptionsImpl
 import com.intellij.platform.projectView.pane.ProjectViewPaneSelectionOptions
 import com.intellij.platform.projectView.pane.ProjectViewPaneStateBuilder
 import com.intellij.platform.projectView.pane.SUPER_ROOT_ID
@@ -69,6 +75,7 @@ import com.intellij.platform.projectView.pane.SelectByEditor
 import com.intellij.platform.projectView.pane.SelectInRequest
 import com.intellij.platform.projectView.pane.SuspendingBackendProjectViewPaneStateAccessor
 import com.intellij.platform.projectView.pane.buildProjectViewNodeModel
+import com.intellij.platform.projectView.runSafelyCancellable
 import com.intellij.platform.projectView.settings.ProjectViewPaneFileNestingValue
 import com.intellij.platform.projectView.settings.ProjectViewPaneOption
 import com.intellij.platform.projectView.settings.ProjectViewPaneSettingsAccessor
@@ -81,13 +88,16 @@ import com.intellij.platform.util.coroutines.childScope
 import com.intellij.platform.util.coroutines.flow.throttle
 import com.intellij.pom.Navigatable
 import com.intellij.psi.PsiDirectory
-import com.intellij.psi.PsiDocumentManager
 import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiFile
 import com.intellij.psi.PsiFileSystemItem
 import com.intellij.psi.PsiManager
+import com.intellij.psi.SmartPsiElementPointer
+import com.intellij.psi.createSmartPointer
 import com.intellij.psi.util.PsiUtilCore
 import com.intellij.ui.tree.TreeVisitor
+import com.intellij.ui.treeStructure.TreeNodePresentationImpl
+import com.intellij.util.concurrency.annotations.RequiresReadLock
 import com.intellij.util.containers.nullize
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
@@ -187,6 +197,10 @@ abstract class TreeBasedProjectViewPaneModel<T : Any>(override val project: Proj
    */
   @ApiStatus.OverrideOnly
   protected open suspend fun flushExternalUpdates() { }
+
+  override suspend fun refreshSettings() {
+    updateSettings()
+  }
 
   protected fun updateSettings() {
     currentTreeState.load()?.scheduleUpdateSettings()
@@ -383,6 +397,11 @@ abstract class TreeBasedProjectViewPaneModel<T : Any>(override val project: Proj
 
     override fun selectElement(element: PsiElement) {
       currentTreeState.load()?.scheduleSelectElement(element)
+      // In the monolith mode, clients of this 20 years old API expect the file to be open immediately,
+      // because they can correct the caret placement according to the new file template.
+      if (IdeProductMode.isMonolith && element !is PsiDirectory) {
+        EditorHelper.openInEditor(element, false, true)
+      }
     }
   }
   
@@ -405,6 +424,8 @@ abstract class TreeBasedProjectViewPaneModel<T : Any>(override val project: Proj
     }
   }
 
+  private data class SelectRequest(val elementPointer: SmartPsiElementPointer<PsiElement>, val clientId: ClientId)
+
   private inner class ProjectViewPaneTreeState(
     private val id: ProjectViewPaneId,
     private val builder: ProjectViewPaneStateBuilder,
@@ -415,7 +436,8 @@ abstract class TreeBasedProjectViewPaneModel<T : Any>(override val project: Proj
 
     private val stateUpdateRequests = Channel<StateUpdateRequest>(capacity = Channel.UNLIMITED)
     // Only the latest selection matters, so an old pending request may be dropped in favor of a newer one.
-    private val selectRequests = Channel<PsiElement>(capacity = 1, onBufferOverflow = BufferOverflow.DROP_OLDEST)
+    private val selectRequests = Channel<SelectRequest>(capacity = 1, onBufferOverflow = BufferOverflow.DROP_OLDEST)
+
     private val pendingUpdates = ConcurrentHashMap<Long, ProjectViewNodeUpdateOptions>()
 
     private val pendingUpdatesSignal = MutableStateFlow(0L)
@@ -447,6 +469,19 @@ abstract class TreeBasedProjectViewPaneModel<T : Any>(override val project: Proj
 
     private var nextId = 1L
 
+    /** Debug description of the node. */
+    private fun n(nodeId: Long): String {
+      return buildString {
+        append(nodeId)
+        val node = state.getNodeById(nodeId)
+        if (node != null) {
+          append(" [")
+          append((node.presentation as TreeNodePresentationImpl).mainText)
+          append("]")
+        }
+      }
+    }
+
     suspend fun run() {
       try {
         coroutineScope {
@@ -455,45 +490,56 @@ abstract class TreeBasedProjectViewPaneModel<T : Any>(override val project: Proj
           initialize()
           onStateChanged(suspendingState)
           launch(CoroutineName("Collect updates for the PV pane $id")) {
-            createUpdater().continuouslyUpdatePane(this@TreeBasedProjectViewPaneModel, progressReporter)
+            runSafelyCancellable(LOG, taskDescription = { "updater for the pane $id" }) {
+              createUpdater().continuouslyUpdatePane(this@TreeBasedProjectViewPaneModel, progressReporter)
+            }
           }
           launch(CoroutineName("Flush updates for the PV pane $id")) {
-            pendingUpdatesSignal.throttle(timeMs = 50).collect {
-              scheduleProcessPendingUpdates()
+            runSafelyCancellable(LOG, taskDescription = { "processing pending updates for the pane $id" }) {
+              pendingUpdatesSignal.throttle(timeMs = 50).collect {
+                scheduleProcessPendingUpdates()
+              }
             }
           }
           launch(CoroutineName("Update requests for the PV pane $id")) {
-            for (request in stateUpdateRequests) {
-              when (request) {
-                is LoadChildrenRequest -> {
-                  updateChildren(request.parentId, allowLoading = true, deep = false)
+            runSafelyCancellable(LOG, taskDescription = { "processing update requests for the PV pane $id" }) {
+              for (request in stateUpdateRequests) {
+                LOG.trace { "Processing update request $request" }
+                when (request) {
+                  is LoadChildrenRequest -> {
+                    updateChildren(request.parentId, allowLoading = true, deep = false)
+                  }
+                  is ProcessPendingUpdatesRequest -> {
+                    processPendingUpdates()
+                  }
+                  is UpdateNodeModelRequest<*> -> {
+                    builder.updateNode(request.model)
+                  }
+                  is UpdateSettingsRequest -> {
+                    applySettings()
+                  }
+                  is SetOptionRequest -> {
+                    applyOptionChange(request.option, request.newValue)
+                  }
+                  is SetSortKeyRequest -> {
+                    applySortKeyChange(request.sortKey)
+                  }
+                  is SelectNodeRequest -> {
+                    builder.selectNode(request.nodePath) { options -> 
+                      options.requestFocus = request.requestFocus
+                    }
+                  }
                 }
-                is ProcessPendingUpdatesRequest -> {
-                  processPendingUpdates()
-                }
-                is UpdateNodeModelRequest<*> -> {
-                  builder.updateNode(request.model)
-                }
-                is UpdateSettingsRequest -> {
-                  applySettings()
-                }
-                is SetOptionRequest -> {
-                  applyOptionChange(request.option, request.newValue)
-                }
-                is SetSortKeyRequest -> {
-                  applySortKeyChange(request.sortKey)
-                }
-                is SelectNodeRequest -> {
-                  builder.selectNode(request.nodePath)
-                }
+                appliedUpdateEpoch.value = request.epoch
+                onStateChanged(suspendingState)
               }
-              appliedUpdateEpoch.value = request.epoch
-              onStateChanged(suspendingState)
             }
           }
           launch(CoroutineName("Select requests for the PV pane $id")) {
-            selectRequests.consumeAsFlow().collectLatest { element ->
-              selectElementImpl(element)
+            runSafelyCancellable(LOG, taskDescription = { "executing select requests for the pane $id" }) {
+              selectRequests.consumeAsFlow().collectLatest { element ->
+                selectElementImpl(element)
+              }
             }
           }
         }
@@ -549,7 +595,7 @@ abstract class TreeBasedProjectViewPaneModel<T : Any>(override val project: Proj
     }
 
     fun scheduleSelectElement(element: PsiElement) {
-      selectRequests.trySend(element)
+      selectRequests.trySend(SelectRequest(element.createSmartPointer(), ClientId.current))
     }
 
     private fun scheduleProcessPendingUpdates(): Long {
@@ -612,14 +658,28 @@ abstract class TreeBasedProjectViewPaneModel<T : Any>(override val project: Proj
       return existingChildren
     }
 
-    private suspend fun selectElementImpl(element: PsiElement) {
+    private suspend fun selectElementImpl(request: SelectRequest) {
       // Make sure everything submitted before the selection request is reflected in the tree,
       // so that a just-created element can be found (the equivalent of the old myNodeUpdater.updateImmediately).
       awaitPendingUpdates()
-      val file = readAction { if (element.isValid) PsiUtilCore.getVirtualFile(element) else null }
-      val nodePath = findNodePathForTarget(element, file) ?: return
-      // Route the actual state-flow emission through the single update-requests writer (see run()).
-      schedule { SelectNodeRequest(it, nodePath) }
+      val (target, isDir) = readAction {
+        val element = request.elementPointer.dereference() ?: return@readAction null
+        val file = if (element.isValid) PsiUtilCore.getVirtualFile(element) else null
+        Pair(SelectTarget(request.elementPointer, file), element is PsiDirectory)
+      } ?: return
+      val nodePath = findNodePathForTarget(target) ?: return
+      var requestFocus = isDir
+      // Old school legacy stuff: open the new file if it's a file.
+      // In the monolith, for legacy reasons we open the file immediately and synchronously in MyIdeView.
+      if (!isDir && !IdeProductMode.isMonolith) {
+        withContext(request.clientId.asContextElement()) { // the editor has to know the client ID to focus it on the frontend
+          if (!navigate(nodePath.nodeIds.last(), ProjectViewPaneNavigateOptionsImpl(requestFocus = true))) {
+            // If the editor can't be opened, focus the new file in the PV at least.
+            requestFocus = true
+          }
+        }
+      }
+      schedule { SelectNodeRequest(it, nodePath, requestFocus) }
     }
 
     suspend fun findNodeForSelectIn(request: SelectInRequest): ProjectViewNodePath? {
@@ -628,9 +688,8 @@ abstract class TreeBasedProjectViewPaneModel<T : Any>(override val project: Proj
       // then make the tree reflect everything submitted so far (the equivalent of the old updateImmediately),
       // then search. The result is the same node the legacy Project View would select.
       val target = computeSelectTarget(request) ?: return null
-      if (target.element == null && target.file == null) return null
       awaitPendingUpdates()
-      return findNodePathForTarget(target.element, target.file)
+      return findNodePathForTarget(target)
     }
 
     /**
@@ -639,13 +698,13 @@ abstract class TreeBasedProjectViewPaneModel<T : Any>(override val project: Proj
      * the case with top-level Kotlin functions and Kotlin files), so fall back to matching the file only. Unlike
      * [selectElementImpl] this neither awaits pending updates nor schedules a selection: it only finds the path.
      */
-    private suspend fun findNodePathForTarget(element: PsiElement?, file: VirtualFile?): ProjectViewNodePath? {
+    private suspend fun findNodePathForTarget(target: SelectTarget): ProjectViewNodePath? {
       val visitorProvider = createSelectNodeVisitorProvider()
-      tryFindPath(visitorProvider.createSelectNodeVisitor(element, file))?.let { return it }
-      if (element == null) return null // we've already tried looking for the file only
-      if (file == null) return null // no file to try
+      tryFindPath(visitorProvider.createSelectNodeVisitor(target.elementPointer, target.file))?.let { return it }
+      if (target.elementPointer == null) return null // we've already tried looking for the file only
+      if (target.file == null) return null // no file to try
       if (Registry.`is`("async.project.view.support.extra.select.disabled", false)) return null
-      return tryFindPath(visitorProvider.createSelectNodeVisitor(element = null, file = file))
+      return tryFindPath(visitorProvider.createSelectNodeVisitor(elementPointer = null, file = target.file))
     }
 
     private suspend fun tryFindPath(visitor: ProjectViewSelectNodeVisitor<T>): ProjectViewNodePath? {
@@ -658,23 +717,25 @@ abstract class TreeBasedProjectViewPaneModel<T : Any>(override val project: Proj
       is SelectByEditor -> computeEditorTarget(request)
     }
 
-    private suspend fun computeContextTarget(context: SelectInContext): SelectTarget? {
-      if (!canSelectContext(context)) return null
-      return normalizeContextSelector(context)
+    private suspend fun computeContextTarget(context: SelectInContext): SelectTarget? = readAction {
+      if (!canSelectContext(context)) return@readAction null
+      normalizeContextSelector(context)
     }
 
-    private suspend fun canSelectContext(context: SelectInContext): Boolean = readAction {
-      if (project.isDisposed || !project.isInitialized) return@readAction false
-      if (!context.virtualFile.isValid) return@readAction false
-      val psiItem = contextPsiFile(project, context) ?: return@readAction false
+    @RequiresReadLock
+    private fun canSelectContext(context: SelectInContext): Boolean {
+      if (project.isDisposed || !project.isInitialized) return false
+      if (!context.virtualFile.isValid) return false
+      val psiItem = contextPsiFile(project, context) ?: return false
       val vFile = PsiUtilCore.getVirtualFile(psiItem)?.let { BackedVirtualFile.getOriginFileIfBacked(it) }
-      if (vFile == null || !vFile.isValid) return@readAction false
-      ProjectViewPane.canBeSelectedInProjectView(project, vFile)
+      if (vFile == null || !vFile.isValid) return false
+      return ProjectViewPane.canBeSelectedInProjectView(project, vFile)
     }
 
-    private suspend fun normalizeContextSelector(context: SelectInContext): SelectTarget? = readAction {
-      if (project.isDisposed) return@readAction null
-      normalizeSelector(context.virtualFile, context.selectorInFile)
+    @RequiresReadLock
+    private fun normalizeContextSelector(context: SelectInContext): SelectTarget? {
+      if (project.isDisposed) return null
+      return normalizeSelector(context.virtualFile, context.selectorInFile)
     }
 
     private suspend fun computeEditorTarget(request: SelectByEditor): SelectTarget? {
@@ -701,7 +762,7 @@ abstract class TreeBasedProjectViewPaneModel<T : Any>(override val project: Proj
           continue
         }
         val target = computeEditorTargetFor(fileEditor)
-        if (target != null) return target // stop at the first editor with a PSI file, like the classic code
+        if (target != null) return target
       }
       return null
     }
@@ -712,47 +773,51 @@ abstract class TreeBasedProjectViewPaneModel<T : Any>(override val project: Proj
         DataManager.getInstance().getDataContext(fileEditor.component).getData(SelectInContext.DATA_KEY)
       }
       if (providedContext != null) return normalizeContextSelector(providedContext)
-      val psiFile = editorPsiFile(fileEditor) ?: return null // no PSI file => skip (getPsiFilePointer == null)
+      val psiFilePointer = editorPsiFilePointer(fileEditor) ?: return null
       // EditorSelectInContext.getSelectorInFile is the caret element;
       // SimpleSelectInContext.getSelectorInFile is the file itself.
-      val selector: PsiElement = if (fileEditor is TextEditor) editorCaretElement(fileEditor, psiFile) ?: psiFile else psiFile
+      val selectorPointer = if (fileEditor is TextEditor) editorCaretElementPointer(fileEditor, psiFilePointer) ?: psiFilePointer else psiFilePointer
       return readAction {
         if (project.isDisposed) return@readAction null
-        normalizeSelector(psiFile.viewProvider.virtualFile, selector)
+        val psiFile = psiFilePointer.dereference() ?: return@readAction null
+        normalizeSelector(psiFile.viewProvider.virtualFile, selectorPointer.dereference())
       }
     }
 
-    private suspend fun editorPsiFile(fileEditor: FileEditor): PsiFile? {
+    private suspend fun editorPsiFilePointer(fileEditor: FileEditor): SmartPsiElementPointer<PsiFile>? {
       if (!withContext(Dispatchers.UI) { fileEditor.isValid }) return null
       return if (fileEditor is TextEditor) {
         val editor = fileEditor.editor
         if (withContext(Dispatchers.UI) { editor.isDisposed }) return null
-        readAction { PsiDocumentManager.getInstance(project).getPsiFile(editor.document) }
+        readAction { EditorContextManager.getPsiFileForEditor(editor, project)?.createSmartPointer() }
       }
       else {
         val file = withContext(Dispatchers.UI) { fileEditor.file } ?: return null
-        readAction { if (file.isValid) PsiManager.getInstance(project).findFile(file) else null }
+        readAction { if (file.isValid) PsiManager.getInstance(project).findFile(file)?.createSmartPointer() else null }
       }
     }
 
-    private suspend fun editorCaretElement(fileEditor: TextEditor, psiFile: PsiFile): PsiElement? {
+    private suspend fun editorCaretElementPointer(fileEditor: TextEditor, psiFilePointer: SmartPsiElementPointer<PsiFile>): SmartPsiElementPointer<PsiElement>? {
       val editor = fileEditor.editor
       val offset = withContext(Dispatchers.UI) { if (editor.isDisposed) -1 else editor.caretModel.offset }
       if (offset < 0) return null
       return constrainedReadAction(ReadConstraint.withDocumentsCommitted(project)) {
-        if (psiFile.isValid) psiFile.findElementAt(offset) else null
+        val psiFile = psiFilePointer.dereference() ?: return@constrainedReadAction null
+        if (psiFile.isValid) psiFile.findElementAt(offset)?.createSmartPointer() else null
       }
     }
 
+    @RequiresReadLock
     private fun normalizeSelector(file: VirtualFile, rawSelector: Any?): SelectTarget? {
       val selector = rawSelector ?: PsiUtilCore.findFileSystemItem(project, file)
-      if (selector !is PsiElement) return SelectTarget(element = null, file = file) // non-PSI (or no) selector => file-only search
+      if (selector !is PsiElement) return SelectTarget(elementPointer = null, file = file) // non-PSI (or no) selector => file-only search
       if (!selector.isValid) return null // an invalid PSI selector: the classic code throws, we treat it as "no target"
       val original = selector.originalElement
       return if (original != null && original.isValid) normalizeElement(original) else null
     }
 
-    private fun normalizeElement(element: PsiElement): SelectTarget {
+    @RequiresReadLock
+    private fun normalizeElement(element: PsiElement): SelectTarget? {
       var topLevel: PsiElement? = null
       val providers = DumbService.getInstance(project).filterByDumbAwareness(TreeStructureProvider.EP.getExtensions(project))
       for (provider in providers) {
@@ -760,13 +825,13 @@ abstract class TreeBasedProjectViewPaneModel<T : Any>(override val project: Proj
           topLevel = provider.getTopLevelElement(element)
         }
         if (topLevel != null) {
-          if (!topLevel.isValid) return SelectTarget(element = null, file = null) // classic throws; treat as "no target"
+          if (!topLevel.isValid) return null
           break
         }
       }
-      val toSelect = findElementToSelect(element, topLevel) ?: return SelectTarget(element = null, file = null)
+      val toSelect = findElementToSelect(element, topLevel) ?: return null
       val vFile = PsiUtilCore.getVirtualFile(toSelect)?.let { BackedVirtualFile.getOriginFileIfBacked(it) }
-      return SelectTarget(toSelect, vFile)
+      return SelectTarget(toSelect.createSmartPointer(), vFile)
     }
 
     private suspend fun applySettings() {
@@ -869,29 +934,39 @@ abstract class TreeBasedProjectViewPaneModel<T : Any>(override val project: Proj
       // it could be that the update was requested after we updated it.
       // To avoid this scenario, we first remove all existing requests, then process it.
       // This guarantees that all our updates will be at least as recent as the requests are.
+      LOG.debug { "Processing pending updates for the path ${nodePath.nodeIds.joinToString { n(it) }}" }
       val updatesForPath = nodePath.nodeIds.map { nodeId -> nodeId to pendingUpdates.remove(nodeId) }
       for ((nodeId, updateOptions) in updatesForPath) {
+        LOG.trace { "Update for ${n(nodeId)}: $updateOptions" }
         if (updateOptions == null) continue
-        applyNodeUpdate(nodeId, updateOptions)
-        if (updateOptions.deep) break // we've just updated all deeper nodes
+        val effectiveOptions = applyNodeUpdate(nodeId, updateOptions)
+        if (effectiveOptions == null) break // the node is gone with all its children
+        if (effectiveOptions.deep) break // we've just updated all deeper nodes
       }
     }
 
-    private suspend fun applyNodeUpdate(nodeId: Long, updateOptions: ProjectViewNodeUpdateOptions) {
-      val node = suspendingState.getNodeById(nodeId) ?: return
-      val newNodeModel = createUpdatedModel(node)
-      if (newNodeModel == null) { // the node was removed/invalidated
-        val parent = suspendingState.getParentByChildId(nodeId) ?: return
-        val siblings = suspendingState.getChildren(parent) ?: return
-        val childIndex = siblings.indexOf(node).takeIf { it != -1 } ?: return
-        builder.removeNodeChild(parent.id, childIndex)
+    private suspend fun applyNodeUpdate(nodeId: Long, updateOptions: ProjectViewNodeUpdateOptions): ProjectViewNodeUpdateOptions? {
+      var node = suspendingState.getNodeById(nodeId) ?: return null // was removed earlier, nothing to update
+      var effectiveOptions = updateOptions
+      var newNodeModel: BackendProjectViewNodeModel<T>?
+      while (true) {
+        newNodeModel = createUpdatedModel(node)
+        if (newNodeModel != null) break
+        // A structural update like this can happen, for example, if there was some restructuring of a subtree.
+        // For example, we had "org.example", and created "org.something", which means "org.example" no longer exists as a single flattened node,
+        // and we have "org" instead with two children. Trying to update "org.example" will find out that it's gone, so we need to update its parent's children instead.
+        // Otherwise, it'll simply disappear (IJPL-255213).
+        LOG.trace { "The node ${n(node.id)} no longer exists, meaning it's a structural update of an ancestor, propagating..." }
+        node = suspendingState.getParentByChildId(node.id) ?: return null // was removed earlier, nothing to update
+        LOG.trace { "Trying ${n(node.id)}..." }
+        effectiveOptions = updateOptions.withDeep()
       }
-      else {
-        builder.updateNode(newNodeModel)
-        if (updateOptions.deep) { // update recursively, but only already loaded children
-          updateChildren(parentId = nodeId, allowLoading = false, deep = true)
-        }
+      LOG.trace { "The node ${n(node.id)} is updated, the new model is $newNodeModel" }
+      builder.updateNode(newNodeModel)
+      if (effectiveOptions.deep) { // update recursively, but only already loaded children
+        updateChildren(parentId = node.id, allowLoading = false, deep = true)
       }
+      return effectiveOptions
     }
 
     suspend fun updateChildren(parentId: Long, allowLoading: Boolean, deep: Boolean) {
@@ -900,13 +975,16 @@ abstract class TreeBasedProjectViewPaneModel<T : Any>(override val project: Proj
     }
 
     private suspend fun updateChildren(parentModel: BackendProjectViewNodeModel<T>, allowLoading: Boolean, deep: Boolean) {
-      LOG.debug { "Updating the children of ID = ${parentModel.id}" }
+      LOG.debug { "Updating the children of ${n(parentModel.id)}" }
       parentModel as ProjectViewNodeModelImpl<T>
       val newChildren = nodeProvider.getChildren(if (parentModel.id == SUPER_ROOT_ID) null else parentModel.userObject) ?: return
       LOG.trace { "The new children are $newChildren" }
       val oldModels = suspendingState.getChildren(parentModel)
 
-      if (oldModels == null && !allowLoading) return
+      if (oldModels == null && !allowLoading) {
+        LOG.trace { "The node children were not loaded, and loading was not requested: ${n(parentModel.id)}" }
+        return
+      }
 
       if (oldModels == null) { // first time loaded, must send even if empty
         LOG.trace { "The children were loaded for the first time, applying as-is" }
@@ -1046,7 +1124,7 @@ abstract class TreeBasedProjectViewPaneModel<T : Any>(override val project: Proj
 
     private suspend fun ensureNotLeaf(node: ProjectViewNodeModelImpl<T>) {
       if (node.presentation.isLeaf) {
-        LOG.debug { "The node ID = ${node.id} will have children now, making sure it's not a leaf" }
+        LOG.debug { "The node ${n(node.id)} will have children now, making sure it's not a leaf" }
         builder.updateNode(buildProjectViewNodeModel(node.id, node.userObject) { nodeBuilder ->
           nodeBuilder.setModel(node)
           nodeBuilder.buildPresentation { presentationBuilder ->
@@ -1100,13 +1178,12 @@ private data class ProcessPendingUpdatesRequest(override val epoch: Long) : Stat
 private data class UpdateSettingsRequest(override val epoch: Long) : StateUpdateRequest()
 private data class SetOptionRequest(override val epoch: Long, val option: ProjectViewPaneOption, val newValue: Boolean) : StateUpdateRequest()
 private data class SetSortKeyRequest(override val epoch: Long, val sortKey: ProjectViewPaneSortKey) : StateUpdateRequest()
-private data class SelectNodeRequest(override val epoch: Long, val nodePath: ProjectViewNodePath) : StateUpdateRequest()
+private data class SelectNodeRequest(override val epoch: Long, val nodePath: ProjectViewNodePath, val requestFocus: Boolean) : StateUpdateRequest()
 private data class UpdateNodeModelRequest<T>(override val epoch: Long, val id: Long, val model: BackendProjectViewNodeModel<T>) : StateUpdateRequest()
 
 private val LOG = logger<TreeBasedProjectViewPaneModel<*>>()
 
-/** The (element, file) pair to look for in the tree, as computed from a [SelectInRequest]. */
-private class SelectTarget(val element: PsiElement?, val file: VirtualFile?)
+private data class SelectTarget(val elementPointer: SmartPsiElementPointer<PsiElement>?, val file: VirtualFile?)
 
 /**
  * Replica of the package-private `SelectInTargetPsiWrapper.findElementToSelect` (which is `protected static`, so it

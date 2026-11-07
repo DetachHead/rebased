@@ -6,6 +6,8 @@ import com.intellij.codeInsight.documentation.DocumentationManagerProtocol.PSI_E
 import com.intellij.codeInsight.hint.HintManager
 import com.intellij.codeInsight.hint.HintManagerImpl
 import com.intellij.codeInsight.hint.HintUtil
+import com.intellij.concurrency.currentThreadContext
+import com.intellij.concurrency.installThreadContext
 import com.intellij.injected.editor.EditorWindow
 import com.intellij.internal.statistic.service.fus.collectors.UIEventLogger.CtrlMouseHintShown
 import com.intellij.lang.documentation.ide.impl.DocumentationManager
@@ -14,6 +16,7 @@ import com.intellij.lang.injection.InjectedLanguageManager
 import com.intellij.model.Pointer
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.actionSystem.ActionManager
+import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.MouseShortcut
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.EDT
@@ -45,6 +48,7 @@ import com.intellij.openapi.fileEditor.FileEditorManagerListener.FILE_EDITOR_MAN
 import com.intellij.openapi.keymap.KeymapManager
 import com.intellij.openapi.project.DumbModeBlockedFunctionality
 import com.intellij.openapi.project.DumbService
+import com.intellij.openapi.project.DumbUtil
 import com.intellij.openapi.project.IndexNotReadyException
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.startup.ProjectActivity
@@ -84,6 +88,8 @@ import javax.swing.JComponent
 import javax.swing.SwingUtilities
 import javax.swing.event.HyperlinkEvent
 import javax.swing.event.HyperlinkListener
+import kotlin.coroutines.CoroutineContext
+import kotlin.coroutines.EmptyCoroutineContext
 import kotlin.math.max
 import kotlin.math.min
 
@@ -113,6 +119,27 @@ class CtrlMouseHandler2(
 
   private var myLastMouseLocation: Point? = null
 
+  private val computing: ThreadLocal<Boolean> = ThreadLocal.withInitial { false }
+
+  /**
+   * `true` while this handler computes the Ctrl/Cmd-hover data on the current thread, as opposed to an explicit navigation action.
+   * Providers may use this to answer from cheap sources only, because the hover is recomputed on every mouse move.
+   */
+  @ApiStatus.Internal
+  fun isComputing(): Boolean = computing.get()
+
+  @VisibleForTesting
+  internal fun <T> computing(block: () -> T): T {
+    val previous = computing.get()
+    computing.set(true)
+    try {
+      return block()
+    }
+    finally {
+      computing.set(previous)
+    }
+  }
+
   override fun mouseMoved(e: EditorMouseEvent) {
     if (e.isConsumed) {
       return
@@ -136,8 +163,14 @@ class CtrlMouseHandler2(
       cancelAndClear()
       return
     }
+    val request = CtrlMouseRequest(editor, e.offset, action)
+    if (myState?.request == request) {
+      // Already highlighted for this very offset. Mouse movement produces an event per pixel, so without this the computation
+      // is cancelled and redone several times per character, which is felt by providers that resolve out of process.
+      return
+    }
     cancelHandlerJob()
-    handle(CtrlMouseRequest(editor, e.offset, action))
+    handle(request)
   }
 
   private fun ignoreMovement(screenPoint: Point): Boolean {
@@ -234,7 +267,9 @@ class CtrlMouseHandler2(
     }
   }
 
-  private suspend fun compute(request: CtrlMouseRequest): CtrlMouseResult? = withContext(Dispatchers.Default) {
+  private suspend fun compute(request: CtrlMouseRequest): CtrlMouseResult? = withContext(
+    Dispatchers.Default + ctrlMouseActionContext(request.action)
+  ) {
     try {
       constrainedReadAction(ReadConstraint.withDocumentsCommitted(project)) {
         computeInReadAction(request)
@@ -242,8 +277,10 @@ class CtrlMouseHandler2(
     }
     catch (e: IndexNotReadyException) {
       DumbService.getInstance(project).showDumbModeNotificationForFunctionalityWithCoalescing(
-        CodeInsightBundle.dumbModeMessage("notification.element.information.is.not.available.during.index.update",
-                                          "notification.element.information.is.not.available.in.light.mode"),
+        DumbUtil.dumbModeMessage(
+          CodeInsightBundle.message("notification.element.information.is.not.available.during.index.update"),
+          CodeInsightBundle.message("notification.element.information.is.not.available.in.light.mode")
+        ),
         DumbModeBlockedFunctionality.CtrlMouseHandler,
         Pair(request.action.javaClass.name, request.editor.virtualFile?.path)
       )
@@ -253,7 +290,8 @@ class CtrlMouseHandler2(
 
   private fun computeInReadAction(request: CtrlMouseRequest): CtrlMouseResult? {
     return injectedThenHost(project, request.editor, request.offset) { editor, file, offset ->
-      val data: CtrlMouseData = request.action.getCtrlMouseData(editor, file, offset) ?: return@injectedThenHost null
+      val data: CtrlMouseData = computing { request.action.getCtrlMouseData(editor, file, offset) }
+                                ?: return@injectedThenHost null
       val result = CtrlMouseResult(
         data.isNavigatable,
         data.ranges,
@@ -484,5 +522,19 @@ private fun editorPoint(event: HyperlinkEvent, editor: Editor): Point {
 
 @ApiStatus.Internal
 fun getCtrlMouseData(actionId: String, editor: Editor, file: PsiFile, offset: Int): CtrlMouseData? {
-  return getCtrlMouseAction(actionId)?.getCtrlMouseData(editor, file, offset)
+  val action = getCtrlMouseAction(actionId) ?: return null
+  // This entry point is blocking, so the element cannot be added with `withContext` the way the mouse handler does it.
+  return installThreadContext(currentThreadContext() + CtrlMouseActionElement(actionId), replace = true) {
+    action.getCtrlMouseData(editor, file, offset)
+  }
+}
+
+/**
+ * Tells providers which action is asking, for the duration of the computation.
+ * Empty for an action the [ActionManager] doesn't know, which cannot be one a keymap resolved a mouse shortcut to.
+ */
+private fun ctrlMouseActionContext(action: CtrlMouseAction): CoroutineContext {
+  val actionId = (action as? AnAction)?.let { ActionManager.getInstance().getId(it) }
+                 ?: return EmptyCoroutineContext
+  return CtrlMouseActionElement(actionId)
 }

@@ -13,7 +13,6 @@ import com.intellij.workspaceModel.core.fileIndex.WorkspaceFileSetExclusionCondi
 import com.intellij.workspaceModel.core.fileIndex.WorkspaceFileSetWithCustomData
 import org.intellij.lang.annotations.MagicConstant
 import org.jetbrains.jps.model.fileTypes.FileNameMatcherFactory
-import java.util.concurrent.CopyOnWriteArrayList
 
 /**
  * Base interface for collections of file sets associated with a file in [WorkspaceFileIndexData]. 
@@ -29,7 +28,28 @@ internal sealed interface StoredFileSetCollection {
   /** Adds a new element to the collection and return the updated set. */
   fun add(fileSet: StoredFileSet): StoredFileSetCollection
 
-  /** Removes elements satisfying the given predicate and returns the update collection if `null` if all elements were removed. */
+  /**
+   * Adds all [fileSets] at once and returns the updated collection. Prefer this to a loop over [add], which rebuilds
+   * the backing list once per element.
+   *
+   * Like [add], this appends within each of the two groups, so elements stay in registration order. [find] returns
+   * the first match, so the order decides which file set wins for a root that has several.
+   */
+  fun addAll(fileSets: List<StoredFileSet>): StoredFileSetCollection {
+    if (fileSets.isEmpty()) return this
+    if (fileSets.size == 1) return add(fileSets[0])
+    val combined = ArrayList<StoredFileSet>(fileSets.size + 2)
+    forEach { if (it is ExcludedFileSet) combined.add(it) }
+    fileSets.filterTo(combined) { it is ExcludedFileSet }
+    forEach { if (it !is ExcludedFileSet) combined.add(it) }
+    fileSets.filterTo(combined) { it !is ExcludedFileSet }
+    return MultipleStoredWorkspaceFileSets(combined)
+  }
+
+  /**
+   * Removes elements satisfying the given predicate and returns the update collection if `null` if all elements were removed.
+   * [predicate] is called exactly once per element, so a caller may collect the removed elements from it.
+   */
   fun removeIf(predicate: (StoredFileSet) -> Boolean): StoredFileSetCollection?
 
   /**
@@ -119,7 +139,7 @@ internal class WorkspaceFileSetImpl(
   override val fileSets: List<WorkspaceFileSetWithCustomData<*>> get() = listOf(this)
 
   override fun add(fileSet: StoredFileSet): StoredFileSetCollection {
-    return if (fileSet is WorkspaceFileSetImpl) TwoWorkspaceFileSets(this, fileSet) else MultipleStoredWorkspaceFileSets(CopyOnWriteArrayList(arrayOf(fileSet, this)))
+    return if (fileSet is WorkspaceFileSetImpl) TwoWorkspaceFileSets(this, fileSet) else MultipleStoredWorkspaceFileSets(listOf(fileSet, this))
   }
 
   override fun computeMasks(currentMasks: Int, project: Project, honorExclusion: Boolean, file: VirtualFile): Int {
@@ -176,7 +196,9 @@ internal class WorkspaceFileSetImpl(
  */
 private data class TwoWorkspaceFileSets(private val first: WorkspaceFileSetImpl, private val second: WorkspaceFileSetImpl): StoredFileSetCollection, MultipleWorkspaceFileSets {
   override fun add(fileSet: StoredFileSet): StoredFileSetCollection {
-    return MultipleStoredWorkspaceFileSets(CopyOnWriteArrayList(arrayOf(fileSet, first, second)))
+    val all: List<StoredFileSet> =
+      if (fileSet is ExcludedFileSet) listOf(fileSet, first, second) else listOf(first, second, fileSet)
+    return MultipleStoredWorkspaceFileSets(all)
   }
 
   override fun removeIf(predicate: (StoredFileSet) -> Boolean): StoredFileSetCollection? {
@@ -236,27 +258,42 @@ private data class TwoWorkspaceFileSets(private val first: WorkspaceFileSetImpl,
 /**
  * Represents a generic case with multiple elements in [StoredFileSetCollection].
  */
-internal class MultipleStoredWorkspaceFileSets(private val storedFileSets: MutableList<StoredFileSet>) : StoredFileSetCollection, MultipleWorkspaceFileSets {
+internal class MultipleStoredWorkspaceFileSets(private val storedFileSets: List<StoredFileSet>) : StoredFileSetCollection, MultipleWorkspaceFileSets {
+  /**
+   * Returns a new list with [added] merged in, keeping every [ExcludedFileSet] before every [WorkspaceFileSetImpl]
+   * and appending within each of the two groups.
+   */
+  private fun merged(added: List<StoredFileSet>): List<StoredFileSet> {
+    val excluded = added.filterIsInstance<ExcludedFileSet>()
+    if (excluded.isEmpty()) return storedFileSets + added
+    val boundary = storedFileSets.indexOfFirst { it !is ExcludedFileSet }.let { if (it < 0) storedFileSets.size else it }
+    val combined = ArrayList<StoredFileSet>(storedFileSets.size + added.size)
+    combined.addAll(storedFileSets.subList(0, boundary))
+    combined.addAll(excluded)
+    combined.addAll(storedFileSets.subList(boundary, storedFileSets.size))
+    added.filterTo(combined) { it !is ExcludedFileSet }
+    return combined
+  }
+
   override fun add(fileSet: StoredFileSet): StoredFileSetCollection {
-    if (fileSet is ExcludedFileSet && storedFileSets.last() !is ExcludedFileSet) {
-      storedFileSets.add(0, fileSet)
-    }
-    else {
-      storedFileSets.add(fileSet)
-    }
-    return this
+    return MultipleStoredWorkspaceFileSets(merged(listOf(fileSet)))
+  }
+
+  override fun addAll(fileSets: List<StoredFileSet>): StoredFileSetCollection {
+    if (fileSets.isEmpty()) return this
+    return MultipleStoredWorkspaceFileSets(merged(fileSets))
   }
 
   override fun removeIf(predicate: (StoredFileSet) -> Boolean): StoredFileSetCollection? {
-    storedFileSets.removeIf(predicate)
-    return when (storedFileSets.size) {
+    val remaining = storedFileSets.filterNot(predicate)
+    return when (remaining.size) {
       0 -> null
-      1 -> storedFileSets.single()
+      1 -> remaining.single()
       2 -> {
-        val (first, second) = storedFileSets
-        if (first is WorkspaceFileSetImpl && second is WorkspaceFileSetImpl) TwoWorkspaceFileSets(first, second) else this
+        val (first, second) = remaining
+        if (first is WorkspaceFileSetImpl && second is WorkspaceFileSetImpl) TwoWorkspaceFileSets(first, second) else MultipleStoredWorkspaceFileSets(remaining)
       }
-      else -> this
+      else -> MultipleStoredWorkspaceFileSets(remaining)
     }
   }
 
@@ -336,16 +373,39 @@ internal object WorkspaceFileKindMask {
   const val ALL = CONTENT or EXTERNAL or CUSTOM or CONTENT_NON_INDEXABLE or EXTERNAL_NON_INDEXABLE
 }
 
-internal sealed interface ExcludedFileSet : StoredFileSet {
+/**
+ * Defines an exclusion rule registered at [root].
+ * A [WorkspaceFileSetImpl] defines an inclusion rule that adds files to the workspace.
+ * Exclusion rules restrict which files belong to these file sets.
+ *
+ * Inclusion rules can be registered below [root], inside the scope of an exclusion rule.
+ * The exclusion type determines whether it also applies to files covered by a nested inclusion rule:
+ *
+ * * [ByFileKind], [ByPattern], and [ByCondition] allow a nested inclusion rule to include excluded files again.
+ * * [ByUnscopedCondition] and [UnscopedRoot] continue to exclude matching files even inside a nested inclusion rule.
+ *
+ * [WorkspaceFileIndexEx.getFileInfo] applies exclusion rules when `honorExclusion` is `true`.
+ */
+internal sealed interface ExcludedFileSet : StoredFileSet, WorkspaceExcludeFileSet {
+  /**
+   * The file or directory where the rule is registered.
+   * The rule type determines whether the rule excludes this root itself.
+   */
   val root: VirtualFile
 
   override fun add(fileSet: StoredFileSet): StoredFileSetCollection {
-    return MultipleStoredWorkspaceFileSets(CopyOnWriteArrayList(arrayOf(this, fileSet)))
+    return MultipleStoredWorkspaceFileSets(listOf(this, fileSet))
   }
 
-  class ByFileKind(override val root: VirtualFile, @MagicConstant(flagsFromClass = WorkspaceFileKindMask::class) val mask: Int,
+  /**
+   * Excludes [root] and its descendants from the kinds selected by [mask].
+   * [mask] uses [WorkspaceFileKindMask] bits. [WorkspaceFileKindMask.ALL] excludes all kinds.
+   * A nested inclusion rule can include files again.
+   */
+  class ByFileKind(override val root: VirtualFile, @MagicConstant(flagsFromClass = WorkspaceFileKindMask::class) override val mask: Int,
                    override val entityPointer: EntityPointer<WorkspaceEntity>,
-                   override val entityStorageKind: EntityStorageKind = EntityStorageKind.MAIN) : ExcludedFileSet {
+                   override val entityStorageKind: EntityStorageKind = EntityStorageKind.MAIN)
+    : ExcludedFileSet, WorkspaceExcludeFileSet.ByFileKind {
     override fun computeMasks(currentMasks: Int, project: Project, honorExclusion: Boolean, file: VirtualFile): Int {
       val withExclusion = if (honorExclusion) currentMasks.unsetAcceptedKinds(mask) else currentMasks
       return withExclusion or StoredFileSetKindMask.IRRELEVANT_FILE_SET
@@ -372,9 +432,50 @@ internal sealed interface ExcludedFileSet : StoredFileSet {
     }
   }
 
+  /**
+   * Excludes [root] and its descendants from all kinds.
+   * The exclusion continues to apply inside a nested inclusion rule, as [ByUnscopedCondition] does.
+   * With [directoryOnly] it applies only while [root] is a directory.
+   */
+  class UnscopedRoot(override val root: VirtualFile, override val directoryOnly: Boolean,
+                     override val entityPointer: EntityPointer<WorkspaceEntity>,
+                     override val entityStorageKind: EntityStorageKind) : ExcludedFileSet, WorkspaceExcludeFileSet.UnscopedRoot {
+    override fun computeMasks(currentMasks: Int, project: Project, honorExclusion: Boolean, file: VirtualFile): Int {
+      val excludes = honorExclusion && (!directoryOnly || root.isDirectory)
+      val withExclusion = if (excludes) currentMasks.unsetAcceptedKinds(WorkspaceFileKindMask.ALL) else currentMasks
+      return withExclusion or StoredFileSetKindMask.IRRELEVANT_FILE_SET
+    }
+
+    override fun hasSameProperties(other: StoredFileSet): Boolean {
+      if (other !is UnscopedRoot) return false
+      return root == other.root &&
+             directoryOnly == other.directoryOnly &&
+             entityStorageKind == other.entityStorageKind &&
+             entityPointer.isPointerToEntityOfSameTypeAs(other.entityPointer)
+    }
+
+    override fun hashcodeOfProperties(): Int {
+      var result = root.hashCode()
+      result = 31 * result + directoryOnly.hashCode()
+      result = 31 * result + entityPointer.classHashcode()
+      result = 31 * result + entityStorageKind.hashCode()
+      return result
+    }
+
+    override fun toString(): String {
+      return "ExcludedFileSet.UnscopedRoot{root=$root, directoryOnly=$directoryOnly}"
+    }
+  }
+
+  /**
+   * Excludes matching files and directories strictly below [root] from all kinds.
+   * The [patterns] match file names and support `*` and `?` wildcards.
+   * The rule also excludes the descendants of matching directories.
+   * A nested inclusion rule can include files again.
+   */
   class ByPattern(override val root: VirtualFile, patterns: List<String>,
                   override val entityPointer: EntityPointer<WorkspaceEntity>,
-                  override val entityStorageKind: EntityStorageKind) : ExcludedFileSet {
+                  override val entityStorageKind: EntityStorageKind) : ExcludedFileSet, WorkspaceExcludeFileSet.ByPattern {
     val table = FileTypeAssocTableUtil.newScalableFileTypeAssocTable<Boolean>()
 
     init {
@@ -383,10 +484,12 @@ internal sealed interface ExcludedFileSet : StoredFileSet {
       }
     }
 
+    override fun matches(fileName: CharSequence): Boolean = table.findAssociatedFileType(fileName) != null
+
     private fun isExcluded(file: VirtualFile): Boolean {
       var current = file
       while (current != root) {
-        if (table.findAssociatedFileType(current.nameSequence) != null) {
+        if (matches(current.nameSequence)) {
           return true
         }
         current = current.parent
@@ -420,9 +523,15 @@ internal sealed interface ExcludedFileSet : StoredFileSet {
     }
   }
 
-  class ByCondition(override val root: VirtualFile, val condition: WorkspaceFileSetExclusionCondition,
+  /**
+   * Excludes files and directories that satisfy [condition] from all kinds.
+   * The rule applies to [root] and its descendants.
+   * It also excludes the descendants of matching directories.
+   * A nested inclusion rule can include files again.
+   */
+  class ByCondition(override val root: VirtualFile, override val condition: WorkspaceFileSetExclusionCondition,
                     override val entityPointer: EntityPointer<WorkspaceEntity>,
-                    override val entityStorageKind: EntityStorageKind) : ExcludedFileSet {
+                    override val entityStorageKind: EntityStorageKind) : ExcludedFileSet, WorkspaceExcludeFileSet.ByCondition {
     private fun isExcluded(file: VirtualFile): Boolean {
       var current = file
       while (current != root) {
@@ -458,6 +567,52 @@ internal sealed interface ExcludedFileSet : StoredFileSet {
 
     override fun toString(): String {
       return "ExcludedFileSet.ByCondition{root=$root}"
+    }
+  }
+
+  /**
+   * Uses the same condition check as [ByCondition].
+   * The exclusion continues to apply inside nested inclusion rules.
+   */
+  class ByUnscopedCondition(override val root: VirtualFile, override val condition: WorkspaceFileSetExclusionCondition,
+                            override val entityPointer: EntityPointer<WorkspaceEntity>,
+                            override val entityStorageKind: EntityStorageKind)
+    : ExcludedFileSet, WorkspaceExcludeFileSet.ByUnscopedCondition {
+    private fun isExcluded(file: VirtualFile): Boolean {
+      var current = file
+      while (current != root) {
+        if (condition.shouldExclude(current)) {
+          return true
+        }
+        current = current.parent
+      }
+
+      return condition.shouldExclude(root)
+    }
+
+    override fun computeMasks(currentMasks: Int, project: Project, honorExclusion: Boolean, file: VirtualFile): Int {
+      val withExclusion = if (honorExclusion && isExcluded(file)) currentMasks.unsetAcceptedKinds(WorkspaceFileKindMask.ALL) else currentMasks
+      return withExclusion or StoredFileSetKindMask.IRRELEVANT_FILE_SET
+    }
+
+    override fun hasSameProperties(other: StoredFileSet): Boolean {
+      if (other !is ByUnscopedCondition) return false
+      return root == other.root &&
+             condition == other.condition &&
+             entityStorageKind == other.entityStorageKind &&
+             entityPointer.isPointerToEntityOfSameTypeAs(other.entityPointer)
+    }
+
+    override fun hashcodeOfProperties(): Int {
+      var result = root.hashCode()
+      result = 31 * result + condition.hashCode()
+      result = 31 * result + entityPointer.classHashcode()
+      result = 31 * result + entityStorageKind.hashCode()
+      return result
+    }
+
+    override fun toString(): String {
+      return "ExcludedFileSet.ByUnscopedCondition{root=$root}"
     }
   }
 }

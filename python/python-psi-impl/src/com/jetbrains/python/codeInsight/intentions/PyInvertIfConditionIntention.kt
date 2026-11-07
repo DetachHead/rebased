@@ -129,11 +129,12 @@ class PyInvertIfConditionIntention : PsiUpdateModCommandAction<PsiElement>(PsiEl
         return
       }
 
-      if (ifIsTerminated && ifStatement.parentStatementListContainer.let {
-          !it.isTerminableStatement && !it.statementList.isTerminated
-        }) {
-        invertIfStatementIncomplete(context.project, updater, context.file, ifStatement)
-        return
+      if (ifIsTerminated) {
+        val container = ifStatement.parentStatementListContainer
+        if (!container.isTerminableStatement && !container.statementList.isTerminated) {
+          invertIfStatementIncomplete(context.project, updater, context.file, ifStatement)
+          return
+        }
       }
 
       invertIfStatementFollowup(context.project, context.file, ifStatement, terminableStatement)

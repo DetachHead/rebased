@@ -265,7 +265,7 @@ public class GroovyEditingTest extends LightJavaCodeInsightFixtureTestCase {
 
   @Contract(pure = true)
   @Override
-  public final String getBasePath() {
-    return TestUtils.getTestDataPath() + "editing/";
+  public final String getTestDataPath() {
+    return TestUtils.getAbsoluteTestDataPath() + "editing/";
   }
 }

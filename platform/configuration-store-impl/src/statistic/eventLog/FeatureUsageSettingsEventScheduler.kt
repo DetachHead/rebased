@@ -15,7 +15,7 @@ import com.intellij.openapi.components.PersistentStateComponent
 import com.intellij.openapi.components.impl.stores.stateStore
 import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.logger
-import com.intellij.openapi.diagnostic.rethrowControlFlowException
+import com.intellij.diagnostic.rethrowControlFlowException
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.ex.ProjectManagerEx
 import kotlinx.coroutines.CancellationException

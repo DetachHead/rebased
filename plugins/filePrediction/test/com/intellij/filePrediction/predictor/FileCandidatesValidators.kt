@@ -2,12 +2,12 @@
 package com.intellij.filePrediction.predictor
 
 import com.intellij.internal.statistic.TestStatisticsEventsValidator
-import com.intellij.testFramework.fixtures.CodeInsightFixtureTestCase
 import com.jetbrains.fus.reporting.model.lion3.LogEvent
+import org.junit.jupiter.api.Assertions.assertTrue
 
 internal abstract class TestFileCandidatesValidator : TestStatisticsEventsValidator {
   override fun validateAll(events: List<LogEvent>) {
-    CodeInsightFixtureTestCase.assertTrue("Number of events is not 1", events.size == 1)
+    assertTrue(events.size == 1, "Number of events is not 1")
     val candidates = events
       .filter { it.event.data.containsKey("candidates") }
       .map { it.event.data["candidates"] }

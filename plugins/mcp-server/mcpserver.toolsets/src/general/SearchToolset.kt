@@ -22,22 +22,24 @@ import com.intellij.mcpserver.util.projectDirectory
 import com.intellij.mcpserver.util.relativizeIfPossible
 import com.intellij.mcpserver.util.resolveInProject
 import com.intellij.openapi.application.readAction
+import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.serviceAsync
 import com.intellij.openapi.editor.Document
 import com.intellij.openapi.fileEditor.FileDocumentManager
-import com.intellij.openapi.module.ModuleManager
 import com.intellij.openapi.progress.coroutineToIndicator
 import com.intellij.openapi.project.IndexNotReadyException
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.project.ex.ProjectManagerEx
 import com.intellij.openapi.roots.ContentIterator
-import com.intellij.openapi.roots.ModuleRootManager
 import com.intellij.openapi.roots.ProjectRootManager
 import com.intellij.openapi.util.Segment
 import com.intellij.openapi.util.getPathMatcher
 import com.intellij.openapi.util.io.FileUtilRt
-import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.openapi.vfs.VfsUtilCore
 import com.intellij.openapi.vfs.VirtualFile
+import com.intellij.openapi.vfs.VirtualFileManager
+import com.intellij.openapi.vfs.VirtualFileVisitor
+import com.intellij.openapi.vfs.newvfs.NewVirtualFile
 import com.intellij.openapi.vfs.toNioPathOrNull
 import com.intellij.platform.ide.progress.withBackgroundProgress
 import com.intellij.psi.search.FilenameIndex
@@ -55,6 +57,7 @@ import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.Serializable
 import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.annotations.ApiStatus.Internal
+import org.jetbrains.annotations.TestOnly
 import java.nio.file.FileSystems
 import java.nio.file.InvalidPathException
 import java.nio.file.Path
@@ -62,6 +65,7 @@ import java.nio.file.PathMatcher
 import java.util.regex.PatternSyntaxException
 import kotlin.io.path.isDirectory
 import kotlin.io.path.pathString
+import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
 
 @Internal
@@ -69,6 +73,34 @@ const val MAX_RESULTS_UPPER_BOUND: Int = 5000
 
 @Internal
 const val SEARCH_SCOPE_MULTIPLIER: Int = 5
+
+@Internal
+const val SEARCH_TIMEOUT_PARTIAL_RESULT_REASON: String =
+  "The search timed out after 10 s. Narrow the query or pass paths."
+
+@Service(Service.Level.PROJECT)
+private class SearchTimeoutState {
+  @Volatile
+  var timeoutOverride: Duration? = null
+}
+
+internal suspend fun searchTimeout(project: Project): Duration {
+  return project.serviceAsync<SearchTimeoutState>().timeoutOverride
+         ?: Constants.MEDIUM_TIMEOUT_MILLISECONDS_VALUE.milliseconds
+}
+
+@TestOnly
+suspend fun <T> withSearchTimeoutOverride(project: Project, timeout: Duration, action: suspend () -> T): T {
+  val state = project.serviceAsync<SearchTimeoutState>()
+  val previous = state.timeoutOverride
+  state.timeoutOverride = timeout
+  try {
+    return action()
+  }
+  finally {
+    state.timeoutOverride = previous
+  }
+}
 private const val PATHS_DESCRIPTION = "Optional list of project-relative glob patterns to filter results. " +
                                       "Supports '!' excludes. Trailing '/' expands to '**'. " +
                                       "Patterns without '/' are treated as '**/pattern'. Empty strings are ignored."
@@ -159,7 +191,7 @@ class SearchToolset : McpToolset {
         mcpFail("search_symbol is not supported by this IDE version")
       }
     }
-    return result.copy(partialResultReason = partialResultReason)
+    return result.copy(partialResultReason = partialResultReason ?: result.partialResultReason)
   }
 
   @McpToolHints(readOnlyHint = TRUE, openWorldHint = FALSE)
@@ -222,7 +254,7 @@ suspend fun searchInFiles(
 
   val usages = ArrayList<UsageInfo>(minOf(effectiveLimit, 256))
   val usageLock = Any()
-  val timedOut = withTimeoutOrNull(Constants.MEDIUM_TIMEOUT_MILLISECONDS_VALUE.milliseconds) {
+  val timedOut = withTimeoutOrNull(searchTimeout(project)) {
     val processor = Processor<UsageInfo> { usageInfo ->
       val file = usageInfo.virtualFile ?: return@Processor true
       val relativePath = relativizeInProject(projectDirectories, projectDir, file) ?: return@Processor true
@@ -266,7 +298,11 @@ suspend fun searchInFiles(
 
   val items = mapUsagesToItems(usages, projectDir)
   val reachedLimit = usages.size >= effectiveLimit
-  return SearchResult(items = items, more = timedOut || reachedLimit)
+  return SearchResult(
+    items = items,
+    more = timedOut || reachedLimit,
+    partialResultReason = if (timedOut) SEARCH_TIMEOUT_PARTIAL_RESULT_REASON else null,
+  )
 }
 
 /**
@@ -353,7 +389,7 @@ suspend fun searchFiles(
     return true
   }
 
-  val timedOut = withTimeoutOrNull(Constants.MEDIUM_TIMEOUT_MILLISECONDS_VALUE.milliseconds) {
+  val timedOut = withTimeoutOrNull(searchTimeout(project)) {
     withBackgroundProgress(
       project,
       McpServerBundle.message("progress.title.searching.for.files.by.glob.pattern", q),
@@ -376,7 +412,8 @@ suspend fun searchFiles(
           false
         }
 
-        if (usedIndex) return@withBackgroundProgress
+        // An empty index pass is not proof of absence; fall through to content iteration.
+        if (usedIndex && results.isNotEmpty()) return@withBackgroundProgress
       }
 
       val contentIterator = ContentIterator { file ->
@@ -391,19 +428,27 @@ suspend fun searchFiles(
       }
 
       if (includeExcluded && !reachedLimit) {
+        // Excluded roots are a read-only disk probe and must leave no trace in the VFS: walking a cached root loads every
+        // visited file into the persistent VFS (records plus a watch root per symlink) and that growth is never undone.
+        // Build outputs (Bazel, pnpm) are huge symlink forests, so walk a cache-avoiding root and do not descend into symlinks.
         val excludedRoots = collectExcludedRoots(project)
         for (excludedRoot in excludedRoots) {
           val rootToScan = resolveExcludedSearchRoot(searchRoot, excludedRoot) ?: continue
-          val completed = VfsUtilCore.iterateChildrenRecursively(rootToScan, null, ContentIterator { file ->
+          val transientRoot = (rootToScan as? NewVirtualFile)?.asCacheAvoiding() ?: rootToScan
+          val completed = VfsUtilCore.iterateChildrenRecursively(transientRoot, null, ContentIterator { file ->
             processCandidate(file)
-          })
+          }, VirtualFileVisitor.NO_FOLLOW_SYMLINKS)
           if (!completed || reachedLimit) break
         }
       }
     }
   } == null
 
-  return SearchResult(items = results.toList(), more = timedOut || reachedLimit)
+  return SearchResult(
+    items = results.toList(),
+    more = timedOut || reachedLimit,
+    partialResultReason = if (timedOut) SEARCH_TIMEOUT_PARTIAL_RESULT_REASON else null,
+  )
 }
 
 private fun extractIndexedFileNamePattern(globPattern: String): String? {
@@ -666,19 +711,17 @@ private fun computeCommonDirectory(patterns: List<String>): Path? {
 }
 
 /**
- * Collects excluded roots declared on module content entries.
+ * Excluded roots as the platform enumerates them: module exclude folders, legacy exclude policies, and every root a
+ * `WorkspaceFileIndexContributor` registered as excluded, which is how IDEs without modules exclude their build output.
+ * Exclusion patterns and conditions have no URL and are not covered. Only roots present in the VFS are returned, without
+ * roots nested under another root; resolving a root URL records at most the root itself.
  */
 private suspend fun collectExcludedRoots(project: Project): List<VirtualFile> {
-  val moduleManager = project.serviceAsync<ModuleManager>()
-  return readAction {
-    val roots = LinkedHashSet<VirtualFile>()
-    for (module in moduleManager.modules) {
-      for (entry in ModuleRootManager.getInstance(module).contentEntries) {
-        roots.addAll(entry.excludeFolderFiles)
-      }
-    }
-    roots.toList()
-  }
+  val excludedUrls = readAction { ProjectManagerEx.getInstanceEx().getAllExcludedUrls(project) }
+  @Suppress("SplitModeApiUsage") // the module already resolves VFS files in every toolset
+  val virtualFileManager = VirtualFileManager.getInstance()
+  val roots = excludedUrls.mapNotNull { url -> virtualFileManager.findFileByUrl(url) }.distinct()
+  return roots.filter { root -> roots.none { other -> other != root && VfsUtilCore.isAncestor(other, root, true) } }
 }
 
 /**
@@ -724,7 +767,7 @@ private fun resolveSearchRoot(
   for (candidate in candidates) {
     val resolved = project.resolveInProject(candidate.pathString)
     if (!resolved.isDirectory()) continue
-    val virtualFile = LocalFileSystem.getInstance().refreshAndFindFileByNioFile(resolved)
+    val virtualFile = VirtualFileManager.getInstance().refreshAndFindFileByNioPath(resolved)
     if (virtualFile != null) return virtualFile
   }
   return null

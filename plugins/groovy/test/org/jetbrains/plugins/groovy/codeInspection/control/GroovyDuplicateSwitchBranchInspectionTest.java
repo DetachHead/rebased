@@ -15,8 +15,8 @@ public class GroovyDuplicateSwitchBranchInspectionTest extends GrHighlightingTes
   }
 
   @Override
-  public String getBasePath() {
-    return TestUtils.getTestDataPath() + "inspections/identicalSwitchBranches/";
+  public String getTestDataPath() {
+    return TestUtils.getAbsoluteTestDataPath() + "inspections/identicalSwitchBranches/";
   }
 
   @Override

@@ -31,13 +31,13 @@ spectre_test(
     runtime_deps = ["//platform/icons"],
     deps = [
         "//libraries/compose-foundation-desktop",
-        "//libraries/junit5",
+        "//libraries/junit6",
         "//libraries/kotlinx/coroutines/core",
         "//platform/jewel/foundation",
         "//platform/jewel/int-ui/int-ui-standalone:jewel-intUi-standalone",
         "//platform/jewel/ui",
         "@lib//:kotlin-stdlib",
-        "@lib//:kotlin-test",
+        "@lib//:libraries-kotlin_test-kotlin-test",
     ],
 )
 
@@ -91,9 +91,10 @@ jvm_library(
     deps = [
         # do not sort,
         "@lib//:kotlin-stdlib",
-        "@lib//:kotlin-test",
-        "//libraries/junit5",
-        "//libraries/junit5:junit5_test_lib",
+        "//libraries/kotlin/test:libraries-kotlinTest",
+        "//libraries/kotlin/test:libraries-kotlinTest_test_lib",
+        "//libraries/junit6",
+        "//libraries/junit6:junit6_test_lib",
         "//platform/jewel/int-ui/int-ui-standalone:jewel-intUi-standalone",
         "//platform/jewel/int-ui/int-ui-standalone:jewel-intUi-standalone_test_lib",
         "//platform/jewel/foundation",

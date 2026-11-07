@@ -33,8 +33,8 @@ import static org.jetbrains.plugins.groovy.GroovyProjectDescriptors.LIB_GROOVY_L
 public class ResolveCompiledTraitTest extends GroovyResolveTestCase {
 
   @Override
-  public final String getBasePath() {
-    return "resolve/";
+  public final String getTestDataPath() {
+    return TestUtils.getAbsoluteTestDataPath() + "resolve/";
   }
 
   @Override

@@ -1,7 +1,7 @@
 // Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.gradle.execution.target
 
-import com.intellij.platform.eel.annotations.NativePath
+import com.intellij.platform.util.annotations.paths.OsPath
 import com.intellij.platform.eel.provider.asEelPath
 import org.gradle.tooling.BuildAction
 import org.gradle.tooling.ResultHandler
@@ -97,7 +97,7 @@ internal abstract class AbstractTargetBuildOperation<This : AbstractTargetBuildO
     serverRunner.run(classloaderHolder, targetBuildParametersBuilder, handler)
   }
 
-  private fun Path.asNativeFile(): @NativePath File {
+  private fun Path.asNativeFile(): @OsPath File {
     val asEelPath = asEelPath()
     val toString = asEelPath.toString()
     return File(toString)

@@ -4,7 +4,6 @@ package com.intellij.diagnostic
 import com.intellij.errorreport.error.InternalEAPException
 import com.intellij.errorreport.error.UpdateAvailableException
 import com.intellij.ide.plugins.PluginManagerCore
-import com.intellij.ide.plugins.ProductLoadingStrategy
 import com.intellij.idea.AppMode
 import com.intellij.internal.statistic.DeviceIdManager
 import com.intellij.internal.statistic.utils.getPluginInfoById
@@ -12,7 +11,7 @@ import com.intellij.openapi.application.ApplicationNamesInfo
 import com.intellij.openapi.application.PathManager
 import com.intellij.openapi.application.ex.ApplicationInfoEx
 import com.intellij.openapi.diagnostic.IdeaLoggingEvent
-import com.intellij.openapi.diagnostic.UnhandledException
+import com.intellij.openapi.diagnostic.UnhandledExceptionKind
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.updateSettings.impl.UpdateSettings
 import com.intellij.openapi.util.SystemInfo
@@ -32,6 +31,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import org.jetbrains.annotations.ApiStatus
+import org.jetbrains.annotations.VisibleForTesting
 import tools.jackson.core.JsonToken
 import tools.jackson.core.ObjectReadContext
 import tools.jackson.core.json.JsonFactory
@@ -169,7 +169,7 @@ object ITNProxy {
       append(builder, "app.version.major", versionParts[0])
       append(builder, "app.version.minor", versionParts.getOrNull(1) ?: "0")
       append(builder, "app.product.code", productCode)
-      append(builder, "app.product.mode", ProductLoadingStrategy.strategy.currentModeId)
+      append(builder, "app.product.mode", PluginManagerCore.getPluginSet().initContext.productMode.id)
       append(builder, "app.build.number", buildNumber)
     }
     catch (e: Exception) {
@@ -298,11 +298,12 @@ object ITNProxy {
     TEMPLATE_SAFE.forEach { (key, value) -> append(builder, key, value) }
     TEMPLATE_APP.forEach { (key, value) -> append(builder, key, value) }
     // product mode may change in runtime. E.g. light > frontend
-    append(builder, "app.product.mode", ProductLoadingStrategy.strategy.currentModeId)
+    append(builder, "app.product.mode", PluginManagerCore.getPluginSet().initContext.productMode.id)
   }
 
   @Throws(Exception::class)
-  private fun createRequest(event: IdeaLoggingEvent, errorBean: ErrorBean?): BufferExposingByteArrayOutputStream {
+  @VisibleForTesting
+  internal fun createRequest(event: IdeaLoggingEvent, errorBean: ErrorBean?): BufferExposingByteArrayOutputStream {
     val compressed = BufferExposingByteArrayOutputStream(8192)
 
     TrackingStreamWriter(OutputStreamWriter(GZIPOutputStream(compressed), StandardCharsets.UTF_8)).use { builder ->
@@ -323,8 +324,14 @@ object ITNProxy {
 
       append(builder, "error.message", event.message?.trim { it <= ' ' } ?: "")
       append(builder, "error.stacktrace", event.throwableText)
-      (event.throwable as? UnhandledException)?.let {
-        append(builder, "error.unhandled.interactive", it.isInteractive.toString())
+      // The event carries the kind, because an entry hands over the cause and drops the wrapper. See IJPL-254578.
+      val interactiveKey = when (event.unhandledExceptionKind) {
+        UnhandledExceptionKind.INTERACTIVE -> true
+        UnhandledExceptionKind.BACKGROUND -> false
+        UnhandledExceptionKind.HANDLED -> null
+      }
+      interactiveKey?.let {
+        append(builder, "error.unhandled.interactive", "$it")
       }
       if (event.throwable is RecoveredThrowable) {
         append(builder, "error.redacted", "true")
@@ -373,11 +380,15 @@ object ITNProxy {
 
         if (errorBean.isAutoReportedByPlatform) {
           append(builder, "report.automatic", "true")
-          append(builder, "report.automatic.source", ExceptionAutoReportUtil.getAutoReportSource(event.throwable))
+          // the event may carry a sanitized copy of the throwable, so the source is taken from the original one
+          val originalThrowable = (event.data as? AbstractMessage)?.throwable ?: event.throwable
+          append(builder, "report.automatic.source", ExceptionAutoReportUtil.getAutoReportSource(originalThrowable))
           ExceptionAutoReportUtil.getAutoReportTag()?.let {
             append(builder, "report.automatic.tag", it)
           }
         }
+
+        append(builder, "jetbrainsd.version", LastKnownDaemonVersion.version.get())
       }
     }
 

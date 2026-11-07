@@ -1,6 +1,10 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
 load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
+### auto-generated section `dev intellij.json.backend` start
+content_module_jar(module = ":backend")
+### auto-generated section `dev intellij.json.backend` end
+
 ### auto-generated section `build intellij.json.backend` start
 jvm_library(
     name = "backend",
@@ -35,7 +39,6 @@ jvm_library(
         "//platform/lang-impl",
         "//platform/markdown-utils",
         "//platform/projectModel-api:projectModel",
-        "//spellchecker",
         "//libraries/guava",
         "//platform/analysis-impl",
         "//platform/platform-impl:ide-impl",
@@ -52,19 +55,20 @@ jvm_library(
         "//platform/platform-util-io:ide-util-io",
         "//platform/progress/shared:ide-progress",
         "//libraries/kotlinx/coroutines/core",
-        "//libraries/jackson/databind",
-        "//libraries/jackson/jackson",
-        "//libraries/jackson/dataformat-yaml:libraries-jackson-dataformat-yaml",
+        "//libraries/jackson3/databind",
+        "//libraries/jackson3/jackson:libraries-jackson3",
+        "//libraries/jackson3/dataformat-yaml:libraries-jackson3-dataformat-yaml",
         "//libraries/markdown",
         "//libraries/caffeine",
         "//libraries/stream",
         "//libraries/kotlinx/collections-immutable:libraries-kotlinx-collections-immutable",
         "//json",
-        "//libraries/jackson/module-kotlin:libraries-jackson-module-kotlin",
+        "//libraries/jackson3/module-kotlin:libraries-jackson3-module-kotlin",
         "//json/syntax",
         "//platform/syntax/syntax-psi:psi",
         "//platform/syntax/syntax-util:util",
         "//platform/execution",
+        "//platform/consoleView",
         "//jps/model-api:model",
         "//platform/util:util-ui",
         "//platform/util/coroutines",
@@ -72,8 +76,6 @@ jvm_library(
         "//libraries/opentelemetry",
     ],
 )
-
-content_module_jar(module = ":backend")
 
 jvm_library(
     name = "backend_test_lib",
@@ -105,7 +107,6 @@ jvm_library(
         "//platform/lang-impl:lang-impl_test_lib",
         "//platform/markdown-utils:markdown-utils_test_lib",
         "//platform/projectModel-api:projectModel_test_lib",
-        "//spellchecker:spellchecker_test_lib",
         "//xml/langInjection",
         "//xml/langInjection:langInjection_test_lib",
         "//libraries/guava:guava_test_lib",
@@ -124,19 +125,20 @@ jvm_library(
         "//platform/platform-util-io:ide-util-io_test_lib",
         "//platform/progress/shared:ide-progress_test_lib",
         "//libraries/kotlinx/coroutines/core:core_test_lib",
-        "//libraries/jackson/databind:databind_test_lib",
-        "//libraries/jackson/jackson:jackson_test_lib",
-        "//libraries/jackson/dataformat-yaml:libraries-jackson-dataformat-yaml_test_lib",
+        "//libraries/jackson3/databind:databind_test_lib",
+        "//libraries/jackson3/jackson:libraries-jackson3_test_lib",
+        "//libraries/jackson3/dataformat-yaml:libraries-jackson3-dataformat-yaml_test_lib",
         "//libraries/markdown:markdown_test_lib",
         "//libraries/caffeine:caffeine_test_lib",
         "//libraries/stream:stream_test_lib",
         "//libraries/kotlinx/collections-immutable:libraries-kotlinx-collections-immutable_test_lib",
         "//json:json_test_lib",
-        "//libraries/jackson/module-kotlin:libraries-jackson-module-kotlin_test_lib",
+        "//libraries/jackson3/module-kotlin:libraries-jackson3-module-kotlin_test_lib",
         "//json/syntax:syntax_test_lib",
         "//platform/syntax/syntax-psi:psi_test_lib",
         "//platform/syntax/syntax-util:util_test_lib",
         "//platform/execution:execution_test_lib",
+        "//platform/consoleView:consoleView_test_lib",
         "//jps/model-api:model_test_lib",
         "//platform/util:util-ui_test_lib",
         "//platform/util/coroutines:coroutines_test_lib",

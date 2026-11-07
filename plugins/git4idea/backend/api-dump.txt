@@ -1,3 +1,5 @@
+f:com.intellij.vcs.git.icons.GitIcons
+- sf:Worktree:javax.swing.Icon
 c:git4idea.DialogManager
 - s:show(com.intellij.openapi.ui.DialogWrapper):V
 c:git4idea.GitFormatException
@@ -202,6 +204,12 @@ f:git4idea.history.GitHistoryTraverserProviderKt
 - sf:getTraverser(com.intellij.openapi.project.Project):git4idea.history.GitHistoryTraverser
 a:git4idea.ignore.GitRepositoryIgnoredFilesHolder
 - a:containsFile(com.intellij.openapi.vcs.FilePath):Z
+f:git4idea.index.GitIndexStatusUtilKt
+- sf:getFileStatus(com.intellij.openapi.project.Project,com.intellij.openapi.vfs.VirtualFile,java.util.List,Z,Z,Z,Z):java.util.List
+- bs:getFileStatus$default(com.intellij.openapi.project.Project,com.intellij.openapi.vfs.VirtualFile,java.util.List,Z,Z,Z,Z,I,java.lang.Object):java.util.List
+- sf:getStatus(com.intellij.openapi.project.Project,com.intellij.openapi.vfs.VirtualFile,java.util.List,Z,Z,Z,Z):java.util.List
+- sf:getStatus(com.intellij.openapi.project.Project,com.intellij.openapi.vfs.VirtualFile,Z,Z,Z):java.util.List
+- bs:getStatus$default(com.intellij.openapi.project.Project,com.intellij.openapi.vfs.VirtualFile,java.util.List,Z,Z,Z,Z,I,java.lang.Object):java.util.List
 f:git4idea.index.GitIndexUtil
 - s:isNullHash(java.lang.String):Z
 f:git4idea.log.GitLogProvider
@@ -240,18 +248,24 @@ git4idea.remote.GitHttpAuthDataProvider
 f:git4idea.remote.hosting.GitAsyncExtensionsKt
 - sf:changesSignalFlow(git4idea.repo.GitRepository):kotlinx.coroutines.flow.Flow
 - sf:collectRemotes(git4idea.repo.GitRepositoryManager):java.util.Set
+- sf:findFirstRemoteBranchTrackedBy(git4idea.repo.GitRepoInfo,git4idea.GitStandardLocalBranch):git4idea.GitRemoteBranch
 - sf:findFirstRemoteBranchTrackedByCurrent(git4idea.repo.GitRepoInfo):git4idea.GitRemoteBranch
 - sf:gitRemotesFlow(com.intellij.openapi.project.Project):kotlinx.coroutines.flow.Flow
 - sf:infoFlow(git4idea.repo.GitRepository):kotlinx.coroutines.flow.Flow
 f:git4idea.remote.hosting.GitHostingUrlUtil
 - sf:getUriFromRemoteUrl(java.lang.String):java.net.URI
+- sf:isSshUrl(java.lang.String):Z
 - sf:removeProtocolPrefix(java.lang.String):java.lang.String
 f:git4idea.remote.hosting.GitRemoteBranchesUtil
+- f:fetchAndCheckoutInNewWorktree(git4idea.repo.GitRepository,git4idea.GitRemoteBranch,java.nio.file.Path,java.lang.String,java.lang.String,java.lang.String,kotlin.jvm.functions.Function1,kotlin.coroutines.Continuation):java.lang.Object
 - f:fetchAndCheckoutInNewWorktree(git4idea.repo.GitRepository,git4idea.remote.hosting.HostedGitRepositoryRemote,java.lang.String,java.nio.file.Path,java.lang.String,java.lang.String,java.lang.String,kotlin.jvm.functions.Function1,kotlin.coroutines.Continuation):java.lang.Object
+- bs:fetchAndCheckoutInNewWorktree$default(git4idea.remote.hosting.GitRemoteBranchesUtil,git4idea.repo.GitRepository,git4idea.GitRemoteBranch,java.nio.file.Path,java.lang.String,java.lang.String,java.lang.String,kotlin.jvm.functions.Function1,kotlin.coroutines.Continuation,I,java.lang.Object):java.lang.Object
 - bs:fetchAndCheckoutInNewWorktree$default(git4idea.remote.hosting.GitRemoteBranchesUtil,git4idea.repo.GitRepository,git4idea.remote.hosting.HostedGitRepositoryRemote,java.lang.String,java.nio.file.Path,java.lang.String,java.lang.String,java.lang.String,kotlin.jvm.functions.Function1,kotlin.coroutines.Continuation,I,java.lang.Object):java.lang.Object
+- f:getReviewWorktreesParentDir(com.intellij.openapi.project.Project):java.nio.file.Path
 - f:testRemoteBranchCheckedOut(git4idea.repo.GitRepository,git4idea.GitRemoteBranch,kotlin.coroutines.Continuation):java.lang.Object
 - f:testRemoteBranchCheckedOut(git4idea.repo.GitRepository,git4idea.remote.hosting.HostedGitRepositoryRemote,java.lang.String,kotlin.coroutines.Continuation):java.lang.Object
 f:git4idea.remote.hosting.HostedGitRepositoriesManagerKt
+- sf:findHostedRemoteBranchTrackedBy(git4idea.remote.hosting.HostedGitRepositoriesManager,git4idea.repo.GitRepository,git4idea.GitStandardLocalBranch):kotlinx.coroutines.flow.Flow
 - sf:getKnownRepositories(git4idea.remote.hosting.HostedGitRepositoriesManager):java.util.Set
 f:git4idea.remote.hosting.SingleHostedGitRepositoryConnectionManagerImpl
 - closeConnection(kotlin.coroutines.Continuation):java.lang.Object
@@ -323,6 +337,9 @@ f:git4idea.update.GitUpdateSessionKt
 - sf:getBodyForUpdateNotification(java.lang.Integer):java.lang.String
 a:git4idea.update.GitUpdater
 - p:hasRemoteChanges(git4idea.GitBranch):Z
+f:git4idea.util.EelUtils
+- sf:INSTANCE:git4idea.util.EelUtils
+- f:getEel(com.intellij.openapi.project.Project):com.intellij.platform.eel.EelApi
 f:git4idea.util.GitFileUtils
 - sf:INSTANCE:git4idea.util.GitFileUtils
 - sf:addFiles(com.intellij.openapi.project.Project,com.intellij.openapi.vfs.VirtualFile,java.util.Collection):V
@@ -364,3 +381,26 @@ f:git4idea.validators.GitRefNameValidator
 - checkInput(java.lang.String):Z
 - cleanUpBranchName(java.lang.String):java.lang.String
 - cleanUpBranchNameOnTyping(java.lang.String):java.lang.String
+git4idea.workingTrees.GitWorktreeAdditionalConfigCopier
+- sf:Companion:git4idea.workingTrees.GitWorktreeAdditionalConfigCopier$Companion
+- a:copyAdditionalConfig(git4idea.workingTrees.GitWorktreeConfigCopyContext,kotlin.coroutines.Continuation):java.lang.Object
+- a:getCheckboxText():java.lang.String
+f:git4idea.workingTrees.GitWorktreeAdditionalConfigCopier$Companion
+f:git4idea.workingTrees.GitWorktreeConfigCopyContext
+- <init>(com.intellij.openapi.project.Project,com.intellij.openapi.vfs.VirtualFile,java.nio.file.Path):V
+- f:component1():com.intellij.openapi.project.Project
+- f:component2():com.intellij.openapi.vfs.VirtualFile
+- f:component3():java.nio.file.Path
+- f:copy(com.intellij.openapi.project.Project,com.intellij.openapi.vfs.VirtualFile,java.nio.file.Path):git4idea.workingTrees.GitWorktreeConfigCopyContext
+- bs:copy$default(git4idea.workingTrees.GitWorktreeConfigCopyContext,com.intellij.openapi.project.Project,com.intellij.openapi.vfs.VirtualFile,java.nio.file.Path,I,java.lang.Object):git4idea.workingTrees.GitWorktreeConfigCopyContext
+- equals(java.lang.Object):Z
+- f:getProject():com.intellij.openapi.project.Project
+- f:getSourceRoot():com.intellij.openapi.vfs.VirtualFile
+- f:getTargetWorktreeDir():java.nio.file.Path
+- hashCode():I
+git4idea.workingTrees.dialog.GitWorktreeSettingsPanelHandle
+- a:apply(git4idea.workingTrees.GitWorktreeConfigCopyContext,kotlin.coroutines.Continuation):java.lang.Object
+git4idea.workingTrees.dialog.GitWorktreeSettingsPanelProvider
+- sf:Companion:git4idea.workingTrees.dialog.GitWorktreeSettingsPanelProvider$Companion
+- a:createPanel(com.intellij.ui.dsl.builder.Panel,com.intellij.openapi.project.Project):git4idea.workingTrees.dialog.GitWorktreeSettingsPanelHandle
+f:git4idea.workingTrees.dialog.GitWorktreeSettingsPanelProvider$Companion

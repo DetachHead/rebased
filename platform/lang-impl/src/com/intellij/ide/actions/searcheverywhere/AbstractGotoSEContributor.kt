@@ -48,6 +48,7 @@ import com.intellij.psi.SmartPointerManager
 import com.intellij.psi.SmartPsiElementPointer
 import com.intellij.psi.search.GlobalSearchScope
 import com.intellij.psi.search.SearchScope
+import com.intellij.psi.util.PsiAwareObject
 import com.intellij.util.Processor
 import com.intellij.util.containers.map2Array
 import com.intellij.util.indexing.FindSymbolParameters
@@ -321,6 +322,7 @@ abstract class AbstractGotoSEContributor @ApiStatus.Internal protected construct
       return
     }
 
+    val limit = SearchEverywhereElementsLimit.of(progressIndicator)
     val fetchRunnable = Runnable {
       if (!isDumbAware && isDumb(myProject)) {
         return@Runnable
@@ -352,10 +354,27 @@ abstract class AbstractGotoSEContributor @ApiStatus.Internal protected construct
       when (provider) {
         is ChooseByNameInScopeItemProvider -> {
           val parameters = FindSymbolParameters.wrap(pattern, scope)
-          provider.filterElementsWithWeights(viewModel, parameters, progressIndicator
-          ) { item: FoundItemDescriptor<*> ->
-            diagEmittedCount.incrementAndGet()
-            processElement(progressIndicator, consumer, model, item.item, item.weight)
+          if (limit <= 0) {
+            provider.filterElementsWithWeights(viewModel, parameters, progressIndicator
+            ) { item: FoundItemDescriptor<*> ->
+              diagEmittedCount.incrementAndGet()
+              processElement(progressIndicator, consumer, model, item.item, item.weight)
+            }
+          }
+          else {
+            // The limit goes only with the cut sink: the filters may thin a cut answer below the section limit, and then the
+            // search runs again with a bigger limit while the section takes every item. The other providers search without a limit.
+            val runs = GotoLimitedRuns(limit)
+            runs.collect { runLimit ->
+              var accepted = true
+              provider.filterElementsWithWeights(viewModel, parameters.withLimit(runLimit, runs::markCut), progressIndicator
+              ) { item: FoundItemDescriptor<*> ->
+                if (!runs.accept(item.item, item.weight)) return@filterElementsWithWeights true
+                diagEmittedCount.incrementAndGet()
+                processElement(progressIndicator, consumer, model, item.item, item.weight).also { accepted = it }
+              }
+              accepted
+            }
           }
         }
         is ChooseByNameWeightedItemProvider -> {
@@ -500,6 +519,7 @@ abstract class AbstractGotoSEContributor @ApiStatus.Internal protected construct
         is PsiElement -> element
         is DataProvider -> element.getData(CommonDataKeys.PSI_ELEMENT.name) as? PsiElement
         is PsiElementNavigationItem -> element.targetElement
+        is PsiAwareObject -> element.findElement(myProject)
         else -> null
       }
     }

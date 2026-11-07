@@ -1,15 +1,18 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+@file:Suppress("DEPRECATION") // The test is about SDK names in the SDK table.
+
 package com.intellij.python.junit5Tests.env
 
+import com.intellij.python.sdk.backend.getSdkAPI
 import com.intellij.openapi.application.edtWriteAction
 import com.intellij.openapi.projectRoots.ProjectJdkTable
 import com.intellij.openapi.roots.ModuleRootManager
 import com.intellij.openapi.roots.ModuleRootModificationUtil
 import com.intellij.openapi.roots.ProjectRootManager
 import com.intellij.python.junit5Tests.framework.env.PyEnvTestCase
-import com.intellij.python.junit5Tests.framework.env.pySdkFixture
+import com.intellij.python.junit5Tests.framework.env.pyInterpreterFixture
 import com.intellij.python.test.env.junit5.pyVenvFixture
-import com.intellij.python.junit5Tests.framework.pyModuleFixture
+import com.intellij.python.junit5Tests.framework.pyProjectFixture
 import com.intellij.testFramework.junit5.fixture.projectFixture
 import com.intellij.testFramework.junit5.fixture.tempPathFixture
 import com.jetbrains.python.sdk.renameSdk
@@ -28,19 +31,19 @@ import org.junit.jupiter.api.Test
 @PyEnvTestCase
 class PythonSdkRenameTest {
   private val projectFixture = projectFixture()
-  private val moduleAFixture = projectFixture.pyModuleFixture(tempPathFixture(), addPathToSourceRoot = true)
-  private val moduleBFixture = projectFixture.pyModuleFixture(tempPathFixture(), addPathToSourceRoot = true)
+  private val pyProjectAFixture = projectFixture.pyProjectFixture(tempPathFixture())
+  private val pyProjectBFixture = projectFixture.pyProjectFixture(tempPathFixture())
 
   // A venv registered in the project JDK table but not associated with any module; each test wires up the references it needs.
-  private val venvFixture = pySdkFixture().pyVenvFixture(where = tempPathFixture(), addToSdkTable = true)
+  private val venvFixture = projectFixture.pyInterpreterFixture().pyVenvFixture(where = tempPathFixture())
 
   // A second, independent venv used to check renaming onto an already used name.
-  private val secondVenvFixture = pySdkFixture().pyVenvFixture(where = tempPathFixture(), addToSdkTable = true)
+  private val secondVenvFixture = projectFixture.pyInterpreterFixture().pyVenvFixture(where = tempPathFixture())
 
   @Test
   fun renameUpdatesProjectSdkReference(): Unit = runBlocking {
     val project = projectFixture.get()
-    val sdk = venvFixture.get()
+    val sdk = venvFixture.get().getSdkAPI()
     val oldName = sdk.name
     val newName = "$oldName renamed"
     edtWriteAction { ProjectRootManager.getInstance(project).projectSdk = sdk }
@@ -54,8 +57,8 @@ class PythonSdkRenameTest {
   @Test
   fun renameUpdatesModuleSdkReferenceWithoutProjectSdk(): Unit = runBlocking {
     val project = projectFixture.get()
-    val module = moduleAFixture.get()
-    val sdk = venvFixture.get()
+    val module = pyProjectAFixture.get().residesOnModule
+    val sdk = venvFixture.get().getSdkAPI()
     val oldName = sdk.name
     val newName = "$oldName renamed"
     edtWriteAction { ModuleRootModificationUtil.setModuleSdk(module, sdk) }
@@ -70,8 +73,8 @@ class PythonSdkRenameTest {
   @Test
   fun renameUpdatesBothProjectAndModuleReferences(): Unit = runBlocking {
     val project = projectFixture.get()
-    val module = moduleAFixture.get()
-    val sdk = venvFixture.get()
+    val module = pyProjectAFixture.get().residesOnModule
+    val sdk = venvFixture.get().getSdkAPI()
     val oldName = sdk.name
     val newName = "$oldName renamed"
     edtWriteAction {
@@ -89,9 +92,9 @@ class PythonSdkRenameTest {
   @Test
   fun renameUpdatesAllModulesSharingTheSameSdk(): Unit = runBlocking {
     val project = projectFixture.get()
-    val moduleA = moduleAFixture.get()
-    val moduleB = moduleBFixture.get()
-    val sdk = venvFixture.get()
+    val moduleA = pyProjectAFixture.get().residesOnModule
+    val moduleB = pyProjectBFixture.get().residesOnModule
+    val sdk = venvFixture.get().getSdkAPI()
     val oldName = sdk.name
     val newName = "$oldName renamed"
     edtWriteAction {
@@ -109,8 +112,8 @@ class PythonSdkRenameTest {
   @Test
   fun renamingToAnExistingNameDoesNotCreateDuplicate(): Unit = runBlocking {
     val project = projectFixture.get()
-    val first = venvFixture.get()
-    val second = secondVenvFixture.get()
+    val first = venvFixture.get().getSdkAPI()
+    val second = secondVenvFixture.get().getSdkAPI()
     val firstName = first.name
     val secondName = second.name
 
@@ -127,7 +130,7 @@ class PythonSdkRenameTest {
   @Test
   fun renamingToTheSameNameIsANoOp(): Unit = runBlocking {
     val project = projectFixture.get()
-    val sdk = venvFixture.get()
+    val sdk = venvFixture.get().getSdkAPI()
     val name = sdk.name
 
     val result = edtWriteAction { project.renameSdk(name, name) }

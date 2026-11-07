@@ -12,8 +12,8 @@ import org.jetbrains.plugins.groovy.util.TestUtils;
  */
 public class GrIntroduceParameterInClosureTest extends LightJavaCodeInsightFixtureTestCase {
   @Override
-  protected String getBasePath() {
-    return TestUtils.getTestDataPath() + "refactoring/introduceParameterInClosure/";
+  protected String getTestDataPath() {
+    return TestUtils.getAbsoluteTestDataPath() + "refactoring/introduceParameterInClosure/";
   }
 
   private void doTest(final int replaceFieldsWithGetters,

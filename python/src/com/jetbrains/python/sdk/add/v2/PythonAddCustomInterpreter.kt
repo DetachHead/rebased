@@ -39,7 +39,7 @@ import com.jetbrains.python.sdk.add.v2.uv.EnvironmentCreatorUv
 import com.jetbrains.python.sdk.add.v2.uv.UvExistingEnvironmentSelector
 import com.jetbrains.python.sdk.add.v2.venv.EnvironmentCreatorVenv
 import com.jetbrains.python.sdk.add.v2.venv.PythonExistingEnvironmentSelector
-import com.jetbrains.python.sdk.configuration.CreateSdkInfo
+import com.jetbrains.python.sdk.configuration.CreateInterpreterInfo
 import com.jetbrains.python.sdk.configuration.CreateSdkInfoWithTool
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
@@ -57,7 +57,7 @@ internal class PythonAddCustomInterpreter<P : PathHolder>(
   val model: PythonMutableTargetAddInterpreterModel<P>,
   val module: Module?,
   private val errorSink: ErrorSink,
-  private val limitExistingEnvironments: Boolean,
+  private val context: InterpreterCreationContext,
   private val bestGuessCreateSdkInfo: Deferred<CreateSdkInfoWithTool?>,
 ) {
 
@@ -82,17 +82,20 @@ internal class PythonAddCustomInterpreter<P : PathHolder>(
     CONDA to { CondaNewEnvironmentCreator(model) },
     PIPENV to { EnvironmentCreatorPip(model, errorSink) },
     POETRY to { EnvironmentCreatorPoetry(model, module, errorSink) },
-    UV to { EnvironmentCreatorUv(model, module, errorSink) },
+    UV to { EnvironmentCreatorUv(model, module, errorSink, context) },
     HATCH to { HatchNewEnvironmentCreator(model, errorSink) },
   ).filterKeys { it.isFSSupported(model.fileSystem) }.mapValues { it.value() }
 
   private val existingInterpreterSelectors = buildMap {
     put(PYTHON) { PythonExistingEnvironmentSelector(model, module) }
     put(CONDA) { CondaExistingEnvironmentSelector(model) }
-    if (!limitExistingEnvironments) {
-      put(POETRY) { PoetryExistingEnvironmentSelector(model, module) }
-      put(UV) { UvExistingEnvironmentSelector(model, module) }
-      put(HATCH) { HatchExistingEnvironmentSelector(model) }
+    when (context) {
+      InterpreterCreationContext.NEW_PROJECT_WIZARD -> {}
+      InterpreterCreationContext.ADD_INTERPRETER -> {
+        put(POETRY) { PoetryExistingEnvironmentSelector(model, module) }
+        put(UV) { UvExistingEnvironmentSelector(model, module) }
+        put(HATCH) { HatchExistingEnvironmentSelector(model) }
+      }
     }
   }.filterKeys { it.isFSSupported(model.fileSystem) }.mapValues { it.value() }
 
@@ -165,8 +168,9 @@ internal class PythonAddCustomInterpreter<P : PathHolder>(
         }.visibleIf(_selectExisting and existingInterpreterManager.equalsTo(type))
       }
 
+      // TODO: Move to FilesystemFacade
       module?.project?.let { project ->
-        (model.fileSystem as? TargetFileSystem)?.targetEnvironmentConfiguration?.let { configuration ->
+        model.fileSystem.targetEnvironmentConfiguration?.let { configuration ->
           findPanelExtension(project, configuration)?.let { extension ->
             collapsibleGroup(message("sdk.create.custom.target.specific.properties"), indent = false) {
               extension.extendDialogPanelWithOptionalFields(this)
@@ -219,11 +223,11 @@ internal class PythonAddCustomInterpreter<P : PathHolder>(
 
   private fun selectBestTool(createSdkInfoWithTool: CreateSdkInfoWithTool) {
     val (manager, configurators) = when (createSdkInfoWithTool.createSdkInfo) {
-      is CreateSdkInfo.WillCreateEnv, is CreateSdkInfo.WillInstallTool -> {
+      is CreateInterpreterInfo.WillCreateEnv, is CreateInterpreterInfo.WillInstallTool -> {
         selectionMethod.set(PythonInterpreterSelectionMethod.CREATE_NEW)
         newInterpreterManager to newInterpreterCreators
       }
-      is CreateSdkInfo.ExistingEnv -> {
+      is CreateInterpreterInfo.ExistingEnv -> {
         selectionMethod.set(PythonInterpreterSelectionMethod.SELECT_EXISTING)
         existingInterpreterManager to existingInterpreterSelectors
       }

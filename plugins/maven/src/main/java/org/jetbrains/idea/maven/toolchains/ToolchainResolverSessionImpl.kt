@@ -2,25 +2,38 @@
 package org.jetbrains.idea.maven.toolchains
 
 import com.intellij.openapi.application.EDT
+import com.intellij.openapi.application.ModalityState
+import com.intellij.openapi.application.asContextElement
 import com.intellij.openapi.externalSystem.service.execution.ExternalSystemJdkUtil
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.projectRoots.JavaSdk
 import com.intellij.openapi.projectRoots.JdkUtil
 import com.intellij.openapi.projectRoots.ProjectJdkTable
 import com.intellij.openapi.projectRoots.Sdk
+import com.intellij.openapi.projectRoots.impl.JavaHomeFinder
 import com.intellij.openapi.projectRoots.impl.SdkConfigurationUtil
 import com.intellij.openapi.util.Key
 import com.intellij.openapi.util.getOrCreateUserData
 import com.intellij.platform.eel.fs.getPath
 import com.intellij.platform.eel.provider.asNioPath
 import com.intellij.platform.eel.provider.getEelDescriptor
+import com.intellij.util.EnvironmentUtil
+import com.intellij.util.lang.JavaVersion
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.jdom.Element
+import org.jetbrains.annotations.ApiStatus
+import org.jetbrains.annotations.TestOnly
 import org.jetbrains.idea.maven.buildtool.MavenSyncSession
+import org.jetbrains.idea.maven.buildtool.getDiscoveredJdkCacheFile
 import org.jetbrains.idea.maven.buildtool.getToolchainsFile
+import org.jetbrains.idea.maven.utils.MavenUtil.getJdkForImporter
 import org.jetbrains.idea.maven.utils.MavenJDOMUtil
+import org.jetbrains.jps.model.java.JdkVersionDetector
+import java.io.IOException
+import java.nio.file.InvalidPathException
 import java.nio.file.Path
+import java.util.TreeMap
 import kotlin.io.path.absolutePathString
 import kotlin.io.path.isRegularFile
 
@@ -28,6 +41,7 @@ import kotlin.io.path.isRegularFile
 class ToolchainResolverSession private constructor(
   private val myProject: Project,
   private val myToolchainsFile: Path,
+  private val myDiscoveredJdkCacheFile: Path,
 ) {
 
   companion object {
@@ -35,14 +49,20 @@ class ToolchainResolverSession private constructor(
       val project = syncSession.project
       return syncSession.syncContext.getOrCreateUserData(TOOLCHAIN_SESSION_KEY) {
         ToolchainResolverSession(project,
-                                 syncSession.getToolchainsFile())
+                                 syncSession.getToolchainsFile(),
+                                 syncSession.getDiscoveredJdkCacheFile())
       }
     }
 
     val TOOLCHAIN_SESSION_KEY: Key<ToolchainResolverSession> = Key.create("Sync.ToolchainResolverSession.cache")
   }
 
-  private var cached: List<ToolchainModel>? = null
+  private var cachedToolchains: List<ToolchainModel>? = null
+  private var cachedDiscoveredJdks: List<ToolchainModel>? = null
+
+  @set:TestOnly
+  @get:ApiStatus.Internal
+  var environment: () -> Map<String, String> = { EnvironmentUtil.getEnvironmentMap() }
 
   private val resolvedSdks = HashMap<ToolchainRequirement, Sdk>()
   private val unresolvedSdks = HashSet<ToolchainRequirement>()
@@ -50,28 +70,44 @@ class ToolchainResolverSession private constructor(
   fun unresolved(): List<ToolchainRequirement> = unresolvedSdks.toList()
   fun resolvedCount(): Int = resolvedSdks.size
 
-  private suspend fun allToolchains(): List<ToolchainModel> {
-    var result = cached
+  private suspend fun toolchainsFromFile(): List<ToolchainModel> {
+    var result = cachedToolchains
     if (result == null) {
-      result = doReadToolchains()
-      cached = result
+      result = readToolchains(myToolchainsFile)
+      cachedToolchains = result
     }
     return result
   }
 
-  private suspend fun findToolchain(requirement: ToolchainRequirement): ToolchainModel? {
-    val descriptors = allToolchains()
-    return descriptors.firstOrNull { it.matches(requirement) }
+  private suspend fun discoveredJdks(): List<ToolchainModel> {
+    var result = cachedDiscoveredJdks
+    if (result == null) {
+      result = readDiscoveredJdks()
+      cachedDiscoveredJdks = result
+    }
+    return result
+  }
+
+  private suspend fun findToolchains(requirement: ToolchainRequirement): List<ToolchainModel> {
+    val descriptors = if (requirement.discoverJdks) {
+      toolchainsFromFile() + discoveredJdks()
+    }
+    else {
+      toolchainsFromFile()
+    }
+    return descriptors.filter { it.matches(requirement) }
   }
 
   suspend fun descriptorToSdk(descriptor: ToolchainModel?): Sdk? {
     if (descriptor == null) return null
     if (descriptor.type != "jdk") return null
     val jdkHome = descriptor.jdkHome ?: return null
+    // Compare home paths directly. A VFS lookup can return null for an existing directory.
+    val homePath = myProject.getEelDescriptor().getPath(jdkHome).asNioPath()
     val projectJdkTable = ProjectJdkTable.getInstance()
     val sdkType = ExternalSystemJdkUtil.getJavaSdkType()
     return projectJdkTable.getSdksOfType(sdkType)
-      .firstOrNull { it.homeDirectory?.toNioPath() == Path.of(jdkHome) }
+      .firstOrNull { sdk -> sdk.homePath?.let(::pathOrNull) == homePath }
   }
 
   suspend fun installSdkFromDescriptor(descriptor: ToolchainModel): Sdk? {
@@ -79,18 +115,67 @@ class ToolchainResolverSession private constructor(
     val jdkHome = descriptor.jdkHome ?: return null
     val eelDescriptor = myProject.getEelDescriptor()
     val ideaPath = eelDescriptor.getPath(jdkHome).asNioPath()
+    if (!withContext(Dispatchers.IO) { JdkUtil.checkForJdk(ideaPath) }) return null
 
-    return withContext(Dispatchers.EDT) {
+    return withContext(Dispatchers.EDT + ModalityState.defaultModalityState().asContextElement()) {
       SdkConfigurationUtil.createAndAddSDK(ideaPath.absolutePathString(), JavaSdk.getInstance())
     }
   }
 
-  private suspend fun doReadToolchains(): List<ToolchainModel> {
-    if (!myToolchainsFile.isRegularFile()) return emptyList()
-    val toolchains = MavenJDOMUtil.read(myToolchainsFile, Charsets.UTF_8, null) ?: return emptyList()
+  private suspend fun readDiscoveredJdks(): List<ToolchainModel> {
+    val eelDescriptor = myProject.getEelDescriptor()
+    val cachedModels = readToolchains(myDiscoveredJdkCacheFile)
+    val order = defaultToolchainOrder(importerJdkHome())
+    val registeredJdks = readRegisteredJdks()
+    return withContext(Dispatchers.IO) {
+      // Maven validates the cached JDK homes during discovery. A cache entry can be stale.
+      val cachedJdks = cachedModels
+        .filter { model -> model.jdkHome?.let { JdkUtil.checkForJdk(eelDescriptor.getPath(it).asNioPath()) } == true }
+      // A registered SDK is explicit IDE configuration. It wins over a machine scan result.
+      val candidates = registeredJdks.sortedWith(order) + (cachedJdks + environmentJdks() + detectJdks()).sortedWith(order)
+      candidates.distinctBy { model -> model.jdkHome?.let(::pathOrNull) ?: model }
+    }
+  }
+
+  private fun importerJdkHome(): String? {
+    return ToolchainModel.fromSdk(getJdkForImporter(myProject))?.jdkHome
+  }
+
+  private fun environmentJdks(): List<ToolchainModel> {
+    return jdkModelsFromEnvironment(environment()) {
+      JdkVersionDetector.getInstance().detectJdkVersionInfo(it.toString())
+    }
+  }
+
+  private suspend fun readToolchains(toolchainsFile: Path): List<ToolchainModel> {
+    if (!toolchainsFile.isRegularFile()) return emptyList()
+    val toolchains = MavenJDOMUtil.read(toolchainsFile, Charsets.UTF_8, null) ?: return emptyList()
     return toolchains.children.filter { it.name == "toolchain" }
       .mapNotNull { readToolchain(it) }
 
+  }
+
+  private fun readRegisteredJdks(): List<ToolchainModel> {
+    val sdkType = ExternalSystemJdkUtil.getJavaSdkType()
+    return ProjectJdkTable.getInstance().getSdksOfType(sdkType)
+      .mapNotNull { ToolchainModel.fromSdk(it) }
+  }
+
+  private fun detectJdks(): List<ToolchainModel> {
+    return JavaHomeFinder.findJdks(myProject.getEelDescriptor(), false)
+      .mapNotNull {
+        val versionInfo = it.versionInfo() ?: return@mapNotNull null
+        val provides = HashMap<String, String>()
+        provides["version"] = versionInfo.version.toString()
+        if (versionInfo.variant != JdkVersionDetector.Variant.Unknown) {
+          provides["vendor"] = versionInfo.variant.displayName
+        }
+        ToolchainModel(
+          type = "jdk",
+          providesMap = provides,
+          configurationMap = mapOf("jdkHome" to it.path()),
+        )
+      }
   }
 
   private fun readToolchain(element: Element): ToolchainModel? {
@@ -104,6 +189,10 @@ class ToolchainResolverSession private constructor(
   suspend fun findOrInstallJdk(requirement: ToolchainRequirement?): Sdk? {
     if (requirement == null) return null
     resolvedSdks[requirement]?.let { return it }
+    findImporterJdk(requirement)?.let {
+      resolvedSdks[requirement] = it
+      return it
+    }
     if (unresolvedSdks.contains(requirement)) return null
 
     val foundSdk = doFindOrInstall(requirement)
@@ -118,13 +207,81 @@ class ToolchainResolverSession private constructor(
   }
 
   private suspend fun doFindOrInstall(requirement: ToolchainRequirement): Sdk? {
-    val descriptor = this.findToolchain(requirement)
-    val foundSdk = if (descriptor != null) {
-      descriptorToSdk(descriptor) ?: installSdkFromDescriptor(descriptor)
+    for (descriptor in findToolchains(requirement)) {
+      val foundSdk = descriptorToSdk(descriptor) ?: installSdkFromDescriptor(descriptor)
+      if (foundSdk != null) return foundSdk
     }
-    else {
-      null
+    return null
+  }
+
+  private fun findImporterJdk(requirement: ToolchainRequirement): Sdk? {
+    if (!requirement.useImporterJdkIfMatches) return null
+    val jdk = getJdkForImporter(myProject)
+    val model = ToolchainModel.fromSdk(jdk) ?: return null
+    return if (model.matches(requirement)) jdk else null
+  }
+}
+
+/**
+ * Orders discovery candidates like the default comparator of the Maven toolchains plugin: `lts,current,env,version,vendor`.
+ * The `current` JDK of a Maven build maps to the importer JDK of the sync.
+ * A custom `comparator` parameter is not supported and is ignored.
+ */
+@ApiStatus.Internal
+fun defaultToolchainOrder(currentJdkHome: String?): Comparator<ToolchainModel> {
+  return compareBy<ToolchainModel> { !isLtsVersion(it.provides["version"]) }
+    .thenBy { currentJdkHome == null || it.jdkHome != currentJdkHome }
+    .thenBy { !it.provides.containsKey("env") }
+    .thenByDescending { JavaVersion.tryParse(it.provides["version"]) ?: JavaVersion.compose(0) }
+    .thenBy { it.provides["vendor"] ?: "" }
+}
+
+private fun pathOrNull(path: String): Path? {
+  return try {
+    Path.of(path)
+  }
+  catch (_: InvalidPathException) {
+    null
+  }
+}
+
+private fun isLtsVersion(version: String?): Boolean {
+  if (version == null) return false
+  return sequenceOf("1.8", "8", "11", "17", "21", "25").any { version == it || version.startsWith("$it.") }
+}
+
+/**
+ * Builds toolchain models from `JAVA*_HOME` environment variables, as the Maven toolchains plugin discovery does.
+ * The `env` provide holds the variable names that point to the JDK home.
+ */
+@ApiStatus.Internal
+fun jdkModelsFromEnvironment(
+  env: Map<String, String>,
+  versionInfoProvider: (Path) -> JdkVersionDetector.JdkVersionInfo?,
+): List<ToolchainModel> {
+  val namesByHome = TreeMap<String, MutableList<String>>()
+  for ((name, value) in env) {
+    if (!name.startsWith("JAVA") || !name.endsWith("_HOME") || value.isBlank()) continue
+    val home = try {
+      Path.of(value.trim()).toRealPath()
     }
-    return foundSdk
+    catch (_: IOException) {
+      continue
+    }
+    catch (_: InvalidPathException) {
+      continue
+    }
+    namesByHome.computeIfAbsent(home.toString()) { ArrayList() }.add(name)
+  }
+
+  return namesByHome.mapNotNull { (home, names) ->
+    val versionInfo = versionInfoProvider(Path.of(home)) ?: return@mapNotNull null
+    val provides = HashMap<String, String>()
+    provides["version"] = versionInfo.version.toString()
+    if (versionInfo.variant != JdkVersionDetector.Variant.Unknown) {
+      provides["vendor"] = versionInfo.variant.displayName
+    }
+    provides["env"] = names.sorted().joinToString(",")
+    ToolchainModel(type = "jdk", providesMap = provides, configurationMap = mapOf("jdkHome" to home))
   }
 }

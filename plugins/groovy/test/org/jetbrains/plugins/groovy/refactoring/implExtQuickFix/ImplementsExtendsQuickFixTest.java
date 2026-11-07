@@ -57,7 +57,7 @@ public class ImplementsExtendsQuickFixTest extends LightJavaCodeInsightFixtureTe
   }
 
   @Override
-  public final String getBasePath() {
-    return TestUtils.getTestDataPath() + "groovy/extendsImplementsFix/";
+  public final String getTestDataPath() {
+    return TestUtils.getAbsoluteTestDataPath() + "groovy/extendsImplementsFix/";
   }
 }

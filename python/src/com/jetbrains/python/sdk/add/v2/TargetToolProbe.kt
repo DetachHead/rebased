@@ -8,16 +8,17 @@ import com.intellij.python.community.execService.ExecOptions
 import com.intellij.python.community.execService.ExecService
 import com.intellij.python.community.execService.execGetStdout
 import com.intellij.python.community.helpersLocator.PythonHelpersLocator
-import com.intellij.python.pytools.ToolCommandSpec
-import com.intellij.python.pytools.ToolSearchPath
+import com.intellij.python.pytools.backend.ToolCommandSpec
+import com.intellij.python.pytools.backend.ToolSearchPath
 import com.jetbrains.python.PyBundle
 import com.jetbrains.python.errorProcessing.PyResult
 import com.jetbrains.python.sdk.ToolProbeResult
-import java.nio.file.Path
-import kotlin.time.Duration.Companion.minutes
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
+import java.nio.file.Path
+import kotlin.time.Duration.Companion.minutes
 
 private const val TOOL_VERSION_PROBE_HELPER = "tool_version_probe.sh"
 private const val PYTHON_PATH_OPTION = "--python"
@@ -26,7 +27,11 @@ private const val SEARCH_PATH_KIND_ABSOLUTE = "absolute"
 private const val SEARCH_PATH_KIND_ENV = "env"
 private const val SEARCH_PATH_KIND_HOME = "home"
 
-private val TOOL_PROBE_JSON = Json { ignoreUnknownKeys = true }
+private val TOOL_PROBE_JSON = Json {
+  ignoreUnknownKeys = true
+  // The helper writes the TargetPythonProbe subtype in this key.
+  classDiscriminator = "status"
+}
 
 internal suspend fun TargetFileSystem.probeTargetTools(
   toolSpecs: List<ToolCommandSpec>,
@@ -37,13 +42,23 @@ internal suspend fun TargetFileSystem.probeTargetTools(
     return PyResult.localizedError(PyBundle.message("python.sdk.target.tool.probe.windows.unsupported"))
   }
 
-  val helper = PythonHelpersLocator.findPathInHelpersPossibleNull(TOOL_VERSION_PROBE_HELPER)
-               ?: return PyResult.localizedError(PyBundle.message("python.sdk.target.tool.probe.helper.missing", TOOL_VERSION_PROBE_HELPER))
+  val helper = PythonHelpersLocator.findPathInHelpers(TOOL_VERSION_PROBE_HELPER)
   val output = ExecService().execGetStdout(
     getBinaryToExec(PathHolder.Target("/bin/sh")),
     prepareArgs(helper, toolSpecs, pythonPath, workingDir),
     ExecOptions(timeout = 2.minutes),
   ).getOr { return it }
+  return parseTargetProbeOutput(output, toolSpecs, pythonPath)
+}
+
+/**
+ * Parses the stdout of [TOOL_VERSION_PROBE_HELPER]. [toolSpecs] and [pythonPath] must be the same as in the helper call.
+ */
+internal fun parseTargetProbeOutput(
+  output: String,
+  toolSpecs: List<ToolCommandSpec>,
+  pythonPath: PathHolder.Target?,
+): PyResult<TargetProbeSnapshot> {
   val serializedSnapshot = try {
     TOOL_PROBE_JSON.decodeFromString<SerializedTargetProbeSnapshot>(output)
   }
@@ -51,21 +66,23 @@ internal suspend fun TargetFileSystem.probeTargetTools(
     return PyResult.localizedError(PyBundle.message("python.sdk.target.tool.probe.output.invalid"))
   }
 
-  val pythonProbe = serializedSnapshot.python?.let { serializedProbe ->
-    serializedProbe.toTargetPythonProbe()
-    ?: return PyResult.localizedError(PyBundle.message("python.sdk.target.tool.probe.output.invalid"))
+  // The helper writes "python":null only when pythonPath is null.
+  val serializedPython = serializedSnapshot.python
+  val pythonProbe = when {
+    pythonPath == null && serializedPython == null -> null
+    pythonPath != null && serializedPython != null -> TargetPythonProbeResult(pythonPath, serializedPython)
+    else -> error("The helper Python probe does not match the requested Python path: ${pythonPath?.toStringForUI()}")
   }
   val environments = serializedSnapshot.environments.map { environment ->
-    val path = environment.path.takeIf { it.isNotBlank() }
-               ?: return PyResult.localizedError(PyBundle.message("python.sdk.target.tool.probe.output.invalid"))
-    val python = environment.python.toTargetPythonProbe() as? TargetPythonProbe.Executable
-                 ?: return PyResult.localizedError(PyBundle.message("python.sdk.target.tool.probe.output.invalid"))
-    TargetEnvironmentProbe(PathHolder.Target(path), python)
+    // The helper always writes "<environment>/bin/python" here.
+    check(environment.path.isNotBlank()) { "The helper wrote an environment with a blank path" }
+    TargetEnvironmentProbe(PathHolder.Target(environment.path), environment.python)
   }
   val tools = toolSpecs.mapNotNull { toolSpec ->
     val tool = serializedSnapshot.tools[toolSpec.toolName] ?: return@mapNotNull null
-    val path = tool.path.takeIf { it.isNotBlank() } ?: return@mapNotNull null
-    toolSpec to ToolProbeResult(PathHolder.Target(path), tool.versionOutput)
+    // The helper writes a tool only when it found the tool.
+    check(tool.path.isNotBlank()) { "The helper wrote the tool ${toolSpec.toolName} with a blank path" }
+    toolSpec to ToolProbeResult(PathHolder.Target(tool.path), tool.versionOutput)
   }.toMap()
   return PyResult.success(TargetProbeSnapshot(serializedSnapshot.home, serializedSnapshot.shell, pythonProbe, environments, tools))
 }
@@ -121,7 +138,7 @@ private fun TargetFileSystem.encodeToolProbeArgs(
 private data class SerializedTargetProbeSnapshot(
   val shell: String,
   val home: String,
-  val python: SerializedTargetPythonProbe? = null,
+  val python: TargetPythonProbe? = null,
   val environments: List<SerializedTargetEnvironmentProbe> = emptyList(),
   val tools: Map<String, TargetToolProbe> = emptyMap(),
 )
@@ -129,21 +146,9 @@ private data class SerializedTargetProbeSnapshot(
 @Serializable
 private data class SerializedTargetEnvironmentProbe(
   val path: FullPathOnTarget,
-  val python: SerializedTargetPythonProbe,
+  // The helper writes an environment only when its Python runs.
+  val python: TargetPythonProbe.Executable,
 )
-
-@Serializable
-private data class SerializedTargetPythonProbe(
-  val isExecutable: Boolean,
-  val freeThreaded: Boolean? = null,
-  val versionOutput: String? = null,
-) {
-  fun toTargetPythonProbe(): TargetPythonProbe? = when {
-    !isExecutable && freeThreaded == null && versionOutput == null -> TargetPythonProbe.NotExecutable
-    isExecutable && freeThreaded != null && versionOutput != null -> TargetPythonProbe.Executable(freeThreaded, versionOutput)
-    else -> null
-  }
-}
 
 @Serializable
 private data class TargetToolProbe(
@@ -151,19 +156,37 @@ private data class TargetToolProbe(
   val versionOutput: String?,
 )
 
+/**
+ * Also the helper output format. The serial names are the `status` values that the helper writes.
+ */
+@Serializable
 internal sealed interface TargetPythonProbe {
+  /**
+   * The helper cannot run the Python.
+   */
+  @Serializable
+  @SerialName("notExecutable")
   data object NotExecutable : TargetPythonProbe
 
+  @Serializable
+  @SerialName("executable")
   data class Executable(
     val freeThreaded: Boolean,
     val versionOutput: String,
   ) : TargetPythonProbe
 }
 
+internal data class TargetPythonProbeResult(
+  val path: PathHolder.Target,
+  val probe: TargetPythonProbe,
+) {
+  override fun toString(): String = "TargetPythonProbeResult(path=${path.toStringForUI()}, probe=$probe)"
+}
+
 internal data class TargetProbeSnapshot(
   val home: String,
   val shell: String,
-  val python: TargetPythonProbe?,
+  val python: TargetPythonProbeResult?,
   val environments: List<TargetEnvironmentProbe>,
   val tools: Map<ToolCommandSpec, ToolProbeResult<PathHolder.Target>>,
 )
@@ -171,4 +194,6 @@ internal data class TargetProbeSnapshot(
 internal data class TargetEnvironmentProbe(
   val path: PathHolder.Target,
   val python: TargetPythonProbe.Executable,
-)
+) {
+  override fun toString(): String = "TargetEnvironmentProbe(path=${path.toStringForUI()}, python=$python)"
+}

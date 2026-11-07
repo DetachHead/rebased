@@ -3,23 +3,25 @@ package org.jetbrains.plugins.gitlab.mergerequest.ui.details.model
 
 import com.intellij.collaboration.async.childScope
 import com.intellij.collaboration.async.mapState
-import com.intellij.collaboration.async.modelFlow
 import com.intellij.collaboration.async.withInitial
 import com.intellij.collaboration.ui.codereview.details.model.CodeReviewBranches
 import com.intellij.collaboration.ui.codereview.details.model.CodeReviewBranchesViewModel
 import com.intellij.dvcs.DvcsUtil
-import com.intellij.openapi.diagnostic.thisLogger
 import git4idea.remote.GitRemoteUrlCoordinates
 import git4idea.remote.hosting.GitRemoteBranchesUtil
 import git4idea.remote.hosting.changesSignalFlow
+import git4idea.workingTrees.GitWorkingTreesService
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-import org.jetbrains.plugins.gitlab.api.GitLabServerPath
+import org.jetbrains.plugins.gitlab.api.GitLabProjectCoordinates
+import org.jetbrains.plugins.gitlab.authentication.accounts.GitLabAccount
 import org.jetbrains.plugins.gitlab.mergerequest.data.GitLabMergeRequest
 import org.jetbrains.plugins.gitlab.mergerequest.data.GitLabMergeRequestFullDetails
 import org.jetbrains.plugins.gitlab.mergerequest.data.getSourceRemoteDescriptor
@@ -30,8 +32,8 @@ import org.jetbrains.plugins.gitlab.util.GitLabStatistics
 internal class GitLabMergeRequestBranchesViewModel(
   parentCs: CoroutineScope,
   private val mergeRequest: GitLabMergeRequest,
-  private val serverPath: GitLabServerPath,
   private val gitRemote: GitRemoteUrlCoordinates,
+  private val preferredProjectAndAccount: Pair<GitLabProjectCoordinates, GitLabAccount>,
 ) : CodeReviewBranchesViewModel {
 
   private val cs: CoroutineScope = parentCs.childScope(this::class)
@@ -48,9 +50,9 @@ internal class GitLabMergeRequestBranchesViewModel(
     return "$sourceProjectOwner:${details.sourceBranch}"
   }
 
-  override val isCheckedOut: SharedFlow<Boolean> = gitRemote.repository.changesSignalFlow().withInitial(Unit)
+  override val isCheckedOut: StateFlow<Boolean> = gitRemote.repository.changesSignalFlow().withInitial(Unit)
     .combine(mergeRequest.details) { _, details ->
-      val sourceRemote = details.getSourceRemoteDescriptor(serverPath)
+      val sourceRemote = details.getSourceRemoteDescriptor(gitRemote)
       if (sourceRemote != null) {
         GitRemoteBranchesUtil.testRemoteBranchCheckedOut(gitRemote.repository, sourceRemote, details.sourceBranch)
       }
@@ -58,7 +60,7 @@ internal class GitLabMergeRequestBranchesViewModel(
         val specialRef = details.getSpecialRemoteBranchForHead(gitRemote.remote)
         GitRemoteBranchesUtil.testRemoteBranchCheckedOut(gitRemote.repository, specialRef)
       }
-    }.modelFlow(cs, thisLogger())
+    }.stateIn(cs, SharingStarted.Eagerly, false)
 
   private val _showBranchesRequests = MutableSharedFlow<CodeReviewBranches>()
   override val showBranchesRequests: SharedFlow<CodeReviewBranches> = _showBranchesRequests
@@ -66,18 +68,32 @@ internal class GitLabMergeRequestBranchesViewModel(
   override fun fetchAndCheckoutRemoteBranch() {
     cs.launch {
       val details = mergeRequest.details.first()
-      GitLabMergeRequestBranchUtil.fetchAndCheckoutBranch(gitRemote.repository, serverPath, details)
+      GitLabMergeRequestBranchUtil.fetchAndCheckoutBranch(gitRemote, details)
+      GitLabStatistics.logMrActionExecuted(gitRemote.repository.project, GitLabStatistics.MergeRequestAction.BRANCH_CHECKOUT)
     }
-    GitLabStatistics.logMrActionExecuted(gitRemote.repository.project, GitLabStatistics.MergeRequestAction.BRANCH_CHECKOUT)
+  }
+
+  override val canCheckoutInNewWorktree: Boolean
+    // A new worktree can't be created for a branch that is already checked out in the current one.
+    get() = GitWorkingTreesService.isWorktreeCreationSupported(gitRemote.repository) && !isCheckedOut.value
+
+  override fun checkoutInNewWorktree() {
+    cs.launch {
+      val details = mergeRequest.details.first()
+      GitLabMergeRequestBranchUtil.fetchAndCheckoutBranchInNewWorktree(gitRemote,
+                                                                       details,
+                                                                       preferredProjectAndAccount)
+      GitLabStatistics.logMrActionExecuted(gitRemote.repository.project, GitLabStatistics.MergeRequestAction.BRANCH_CHECKOUT)
+    }
   }
 
   override val canShowInLog: Boolean = true
   override fun fetchAndShowInLog() {
     cs.launch {
       val details = mergeRequest.details.first()
-      GitLabMergeRequestBranchUtil.fetchAndShowRemoteBranchInLog(gitRemote.repository, serverPath, details)
+      GitLabMergeRequestBranchUtil.fetchAndShowRemoteBranchInLog(gitRemote, details)
+      GitLabStatistics.logMrActionExecuted(gitRemote.repository.project, GitLabStatistics.MergeRequestAction.SHOW_BRANCH_IN_LOG)
     }
-    GitLabStatistics.logMrActionExecuted(gitRemote.repository.project, GitLabStatistics.MergeRequestAction.SHOW_BRANCH_IN_LOG)
   }
 
   override fun showBranches() {

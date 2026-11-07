@@ -18,8 +18,8 @@ public class GrCreatePropertyFromJavaUsageTest extends GrHighlightingTestBase {
   private static final String CREATE_RO_PROPERTY = "Create read-only property";
 
   @Override
-  public final String getBasePath() {
-    return TestUtils.getTestDataPath() + "fixes/createPropertyFromJava/" + getTestName(true) + "/";
+  public final String getTestDataPath() {
+    return TestUtils.getAbsoluteTestDataPath() + "fixes/createPropertyFromJava/" + getTestName(true) + "/";
   }
 
   @Override

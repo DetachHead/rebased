@@ -17,6 +17,8 @@
   <vendor>JetBrains</vendor>
   <content namespace="jetbrains">
     <module name="intellij.junit.properties"/>
+    <module name="intellij.junit.vcs"/>
+    <module name="intellij.junit.dashboard"/>
   </content>
   <content>
     <module name="intellij.libraries.hamcrest" loading="embedded"/>
@@ -34,6 +36,8 @@
     <module name="intellij.libraries.fastutil"/>
     <module name="intellij.libraries.kotlinx.collections.immutable"/>
     <module name="intellij.platform.analysis"/>
+    <module name="intellij.platform.concurrency"/>
+    <module name="intellij.platform.consoleView"/>
     <module name="intellij.platform.core"/>
     <module name="intellij.platform.core.impl"/>
     <module name="intellij.platform.core.ui"/>
@@ -52,7 +56,6 @@
     <module name="intellij.platform.statistics"/>
     <module name="intellij.platform.testRunner"/>
     <module name="intellij.platform.util.ui"/>
-    <module name="intellij.platform.vcs"/>
     <module name="intellij.java"/>
     <module name="intellij.java.compiler"/>
     <module name="intellij.java.execution"/>
@@ -116,9 +119,6 @@
     <testDiscoveryProducer implementation="com.intellij.execution.testDiscovery.IntellijTestDiscoveryProducer"/>
     <implicitUsageProvider implementation="com.intellij.execution.junit.codeInspection.deadCode.JUnit5ImplicitUsageProvider"/>
     <predefinedMigrationMapProvider implementation="com.intellij.execution.junit2.refactoring.JUnit5Migration"/>
-
-    <runDashboardCustomizer implementation="com.intellij.execution.junit.JUnitRunDashboardCustomizer"
-                            order="before commonJavaCustomizer"/>
 
     <dependencySupport kind="java" coordinate="junit:junit" displayName="JUnit"/>
     <gotoRelatedProvider implementation="com.intellij.execution.junit.JUnitParameterizedFieldSourceGotoRelatedProvider"/>
@@ -204,6 +204,9 @@
     <registryKey key="junit4.accept.inner.classes"
                  defaultValue="true"
                  description="If false, inner classes won't be included in search for tests in package"/>
+    <registryKey key="junit.choose.test.parameter"
+                 defaultValue="false"
+                 description="If true, running a parameterized test from the editor offers to run a single parameter of it"/>
     <registryKey key="idea.test.graceful.shutdown.timeout.seconds"
                  defaultValue="600"
                  description="Timeout in seconds for the test runner to terminate gracefully after receiving a shutdown signal. A negative value disables the timeout, allowing unlimited wait."/>

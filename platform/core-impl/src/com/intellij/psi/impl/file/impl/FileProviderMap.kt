@@ -10,8 +10,6 @@ import com.intellij.openapi.progress.ProgressManager
 import com.intellij.openapi.util.Key
 import com.intellij.psi.FileViewProvider
 import com.intellij.util.containers.ContainerUtil
-import org.jetbrains.annotations.ApiStatus
-import org.jetbrains.annotations.VisibleForTesting
 import java.lang.ref.WeakReference
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.contracts.ExperimentalContracts
@@ -25,7 +23,8 @@ import kotlin.contracts.contract
  * The map handles [anyContext] as a special case:
  * - The map can be empty.
  * - If the map contains only one entry, it can have as a key either a specific context or [anyContext].
- * - If the map contains only [anyContext] entry, and it receives a request for some specific context, the provider of [anyContext] is reassigned to the requested context, and it is returned.
+ * - If the map contains only [anyContext] entry, and [cacheOrGet] receives a request for some specific context, the provider of [anyContext] is reassigned to the requested context, and it is returned.
+ * - [get] does not reassign. It returns `null` for a specific context while the map contains only [anyContext] entry.
  * - If the map contains several view providers, all of them are guaranteed to be assigned to some specific contexts ([anyContext] is not allowed to be stored in the map)
  * - If this map contains several entries or a single entry assigned to non-[anyContext], and it receives a request for [anyContext], one of the existing providers is returned.
  *   The returned provider is guaranteed to be the same for subsequent requests until it gets collected by GC.
@@ -44,6 +43,9 @@ internal sealed interface FileProviderMap {
 
   /**
    * Removes the view provider for the given [context] if it is equal to [provider].
+   *
+   * This method does not resolve [anyContext]. It removes an entry only if [context] is the actual key of the entry.
+   * So it returns false for [anyContext] when [get] still returns [provider] for [anyContext].
    *
    * @return true if the provider was removed.
    */
@@ -113,22 +115,22 @@ private class FileProviderMapImpl : FileProviderMap, AtomicReference<ContextMap<
   }
 
   /**
-   * [map] has a designated value for [anyContext] that is called [ContextMap.defaultValue].
+   * [snapshot] has a designated value for [anyContext] that is called [ContextMap.defaultValue].
    *
    * We try to use it if it's not collected.
    * Otherwise, we process the GC queue and try again.
    */
   private fun findAnyContext(
-    map: ContextMap<FileViewProvider>,
+    snapshot: ContextMap<FileViewProvider>,
   ): FileViewProvider? {
-    if (map.size() == 0) {
+    if (snapshot.size() == 0) {
       return null
     }
 
     // The map is not empty, and we are asking for ANY view provider
-    // In this case, we can return a view provider of a real context by calling `map.defaultValue`.
+    // In this case, we can return a view provider of a real context by calling `snapshot.defaultValue`.
 
-    val defaultValue = map.defaultValue()
+    val defaultValue = snapshot.defaultValue()
     if (defaultValue != null) {
       log.trace { "anyContext found for [$this]" }
       return defaultValue
@@ -137,22 +139,30 @@ private class FileProviderMapImpl : FileProviderMap, AtomicReference<ContextMap<
     // There was a designated default context, but its provider was collected.
     // Let's try to find another one.
 
-    var cancellationCounter = 0
-    while (this.map.size() > 0) {
-      // evicting collected items and assigning the new default context
-      update {
-        map.processQueue()
+    var attemptCounter = 0
+    while (true) {
+      // one read of the map per round, so that the size and the default value come from the same state
+      val currentMap = map
+      if (currentMap.size() == 0) {
+        break
       }
-      this.map.defaultValue()?.let {
+      currentMap.defaultValue()?.let {
         log.trace { "anyContext found for [$this] after GC queue processing." }
         return it
       }
+
+      // Evict the collected items and assign the new default context.
+      // The block must use its own argument. A stale snapshot would drop a concurrently added entry.
+      update { it.processQueue() }
+
       // Damn it. Another view provider was collected too! Let's try one more time.
       log.trace { "anyContext was GCed for [$this]. Trying again" }
-      cancellationCounter++
-      if (cancellationCounter % 1000 == 0) {
-        log.error("Can't find anyContext by ${cancellationCounter} attempts. $this")
+      attemptCounter++
+      if (attemptCounter >= MAX_ANY_CONTEXT_ATTEMPTS) {
+        // Another thread keeps this map busy. Report a miss, because the caller can build a new provider.
         ProgressManager.checkCanceled()
+        log.error("Can't find anyContext by $attemptCounter attempts. $this")
+        return null
       }
     }
 
@@ -337,22 +347,28 @@ private fun installContext(viewProvider: FileViewProvider, context: CodeInsightC
  * It stays the same during the whole life of a given [ContextMap]. Though it can be collected by GC.
  * To reassign the default context, [processQueue] should be called which will return a new instance of [ContextMap] with a new default context.
  */
-@ApiStatus.Internal
-@VisibleForTesting
-interface ContextMap<V : Any> {
+internal interface ContextMap<V : Any> {
   operator fun get(key: CodeInsightContext): V?
+
+  /** Returns a map where [key] holds [value]. An existing value of [key] is replaced. */
   fun add(key: CodeInsightContext, value: V): ContextMap<V>
+
   fun remove(key: CodeInsightContext): ContextMap<V>
+
+  /** Returns the entries whose value is still alive. */
   fun entries(): Collection<Map.Entry<CodeInsightContext, V>>
+
+  /**
+   * Returns the number of entries, the collected values included.
+   * So this is an upper bound of the number of live values. [entries] gives the live ones.
+   */
   fun size(): Int
   fun defaultValue(): V? // can be null if the value was collected
   fun processQueue(): ContextMap<V>
 }
 
 @Suppress("UNCHECKED_CAST")
-@ApiStatus.Internal
-@VisibleForTesting
-fun <V : Any> emptyContextMap(): ContextMap<V> = EmptyMap as ContextMap<V>
+internal fun <V : Any> emptyContextMap(): ContextMap<V> = EmptyMap as ContextMap<V>
 
 private object EmptyMap : ContextMap<Any> {
   override fun get(key: CodeInsightContext): Any? = null
@@ -432,6 +448,8 @@ private class ManyItemMap<V : Any>(
     var newMap: MutableMap<CodeInsightContext, V>? = null
 
     for (k in map.keys) {
+      if (k == key) continue // the new value replaces the old one
+
       val v = map[k] ?: continue
 
       if (newMap == null) {
@@ -442,7 +460,7 @@ private class ManyItemMap<V : Any>(
     }
 
     if (newMap == null) {
-      // we have only one (k, v) pair
+      // we have only the new (key, value) pair
       return OneItemMap(key, value)
     }
 
@@ -550,6 +568,9 @@ private class EntryImpl<V : Any>(
 ) : Map.Entry<CodeInsightContext, V>
 
 private val log = com.intellij.openapi.diagnostic.logger<FileProviderMap>()
+
+/** How many times [FileProviderMap.get] retries to find a provider for [anyContext] before it reports a miss. */
+private const val MAX_ANY_CONTEXT_ATTEMPTS = 1000
 
 private val strongLinkToFileProviderMap = Key.create<FileProviderMap>("strongLinkToFileProviderMap")
 

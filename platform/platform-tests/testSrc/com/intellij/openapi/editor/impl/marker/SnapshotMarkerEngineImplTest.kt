@@ -1,9 +1,10 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.editor.impl.marker
 
-import com.intellij.openapi.editor.ex.DocumentNewOps
+import com.intellij.openapi.editor.elf.Elf
+import com.intellij.openapi.editor.ex.DocumentOp
 import com.intellij.openapi.editor.ex.DocumentSnapshot
-import com.intellij.openapi.editor.ex.DocumentTextPatch
+import com.intellij.openapi.editor.ex.DocumentPatch
 import com.intellij.openapi.editor.ex.RangeMarkerEx
 import com.intellij.openapi.editor.impl.DocumentImpl
 import com.intellij.openapi.util.Key
@@ -17,11 +18,13 @@ import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import java.lang.ref.Reference
 import java.lang.ref.WeakReference
 import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.CountDownLatch
 import java.util.function.LongConsumer
 import kotlin.concurrent.thread
+import kotlin.random.Random
 
 @UsePMarkerImplementation
 class SnapshotMarkerEngineImplTest {
@@ -31,15 +34,15 @@ class SnapshotMarkerEngineImplTest {
 
     val marker = document.createRangeMarker(1, 3, true)
 
-    assertTrue(marker is PMarker)
+    assertTrue(marker is SnapshotMarker)
   }
 
   @Test
   fun `clean snapshot merge keeps markers created in both branches`() {
     val fixture = Fixture("abcdef")
     val initialSnapshot = fixture.initialSnapshot
-    val primary = initialSnapshot.applyOp(DocumentNewOps.getInstance().createModStampOp(1, true))
-    val metadata = initialSnapshot.applyOp(DocumentNewOps.getInstance().createModStampOp(2, true))
+    val primary = fixture.applyOp(initialSnapshot, DocumentOp.modStampOp(1, true))
+    val metadata = fixture.applyOp(initialSnapshot, DocumentOp.modStampOp(2, true))
     val primaryMarker = SnapshotMarkerEngineImpl.createRangeMarker(
       document = fixture.document,
       snapshot = primary,
@@ -55,7 +58,7 @@ class SnapshotMarkerEngineImplTest {
       spec = nonGreedySpec(),
     )
 
-    val merged = SnapshotMarkerEngineImpl.mergeMarkerRoots(primary, metadata)
+    val merged = fixture.mergeMarkerRoots(primary, metadata)
 
     assertSame(metadata.text(), merged.text())
     assertEquals(metadata.modState().stamp(), merged.modState().stamp())
@@ -162,8 +165,8 @@ class SnapshotMarkerEngineImplTest {
     )
     val existingChild = fixture.edit(initialSnapshot, startOffset = 0, endOffset = 0, newFragment = "X")
 
-    assertTrue(SnapshotMarkerEngineImpl.removeRangeMarker(initialSnapshot, marker))
-    assertFalse(SnapshotMarkerEngineImpl.removeRangeMarker(initialSnapshot, marker))
+    assertTrue(SnapshotMarkerEngineImpl.removeRangeMarker(marker))
+    assertFalse(SnapshotMarkerEngineImpl.removeRangeMarker(marker))
 
     val futureChild = fixture.edit(initialSnapshot, startOffset = 0, endOffset = 0, newFragment = "YY")
 
@@ -300,14 +303,16 @@ class SnapshotMarkerEngineImplTest {
       markerStart,
       markerStart + 3,
       nonGreedySpec(),
-    )
+    ) as SnapshotRangeMarkerImpl
 
     document.replaceString(0, oldText.length, newText)
     val replacedSnapshot = document.core.snapshot()
     val expectedStart = newText.indexOf("target") + 1
 
     assertRange(persistentMarker, replacedSnapshot, expectedStart, expectedStart + 3)
-    assertTrue(ordinaryMarker.resolve(replacedSnapshot) is PMarkerResolution.Invalid)
+    assertTrue(
+      SnapshotMarkerEngineImpl.resolveRangeMarker(ordinaryMarker, rootFor(ordinaryMarker, replacedSnapshot)) is PMarkerResolution.Invalid
+    )
   }
 
   @Test
@@ -330,7 +335,7 @@ class SnapshotMarkerEngineImplTest {
       markerStart,
       markerStart + 3,
       nonGreedySpec(),
-    )
+    ) as SnapshotRangeMarkerImpl
     val replacementStart = oldText.indexOf("old-a")
     val replacementEnd = oldText.indexOf('y')
 
@@ -339,7 +344,9 @@ class SnapshotMarkerEngineImplTest {
     val expectedStart = document.text.indexOf("target") + 1
 
     assertRange(persistentMarker, replacedSnapshot, expectedStart, expectedStart + 3)
-    assertTrue(ordinaryMarker.resolve(replacedSnapshot) is PMarkerResolution.Invalid)
+    assertTrue(
+      SnapshotMarkerEngineImpl.resolveRangeMarker(ordinaryMarker, rootFor(ordinaryMarker, replacedSnapshot)) is PMarkerResolution.Invalid
+    )
   }
 
   @Test
@@ -355,13 +362,16 @@ class SnapshotMarkerEngineImplTest {
       markerStart,
       markerStart + 3,
       persistentSpec(),
-    )
+    ) as SnapshotRangeMarkerImpl
     val replacementStart = oldText.indexOf("old-a")
     val replacementEnd = oldText.indexOf("stable2")
 
     document.replaceString(replacementStart, replacementEnd, replacement)
 
-    assertTrue(persistentMarker.resolve(document.core.snapshot()) is PMarkerResolution.Invalid)
+    val snapshot = document.core.snapshot()
+    assertTrue(
+      SnapshotMarkerEngineImpl.resolveRangeMarker(persistentMarker, rootFor(persistentMarker, snapshot)) is PMarkerResolution.Invalid
+    )
   }
 
   @Test
@@ -451,9 +461,10 @@ class SnapshotMarkerEngineImplTest {
     val child = fixture.edit(initialSnapshot, startOffset = 1, endOffset = 5, newFragment = "")
 
     assertRange(marker, initialSnapshot, startOffset = 2, endOffset = 4)
-    val invalid = SnapshotMarkerEngineImpl.resolveRangeMarker(marker, child) as PMarkerResolution.Invalid
+    val storedMarker = marker as SnapshotRangeMarkerImpl
+    val invalid = SnapshotMarkerEngineImpl.resolveRangeMarker(storedMarker, rootFor(storedMarker, child)) as PMarkerResolution.Invalid
     assertEquals(TextRange(2, 4), invalid)
-    assertTrue(SnapshotMarkerEngineImpl.removeRangeMarker(child, marker))
+    assertTrue(SnapshotMarkerEngineImpl.removeRangeMarker(marker))
     assertDisposed(marker, child, startOffset = 2, endOffset = 4)
   }
 
@@ -466,18 +477,19 @@ class SnapshotMarkerEngineImplTest {
       startOffset = 2,
       endOffset = 4,
       spec = nonGreedySpec()
-    )
+    ) as SnapshotRangeMarkerImpl
 
-    assertEquals(1, countOverlappingMarkers(fixture.initialSnapshot, startOffset = 0, endOffset = 6))
+    assertEquals(1, countOverlappingMarkers(fixture.rootStore, fixture.initialSnapshot, startOffset = 0, endOffset = 6))
 
     marker.dispose()
 
-    val resolution = marker.resolve(fixture.initialSnapshot) as PMarkerResolution.Invalid
+    val resolution =
+      SnapshotMarkerEngineImpl.resolveRangeMarker(marker, rootFor(marker, fixture.initialSnapshot)) as PMarkerResolution.Invalid
     assertEquals("Marker is disposed", resolution.reason)
     assertEquals(TextRange(2, 4), resolution)
     assertFalse(marker.isValid)
     assertEquals(TextRange(2, 4), marker.textRange)
-    assertEquals(0, countOverlappingMarkers(fixture.initialSnapshot, startOffset = 0, endOffset = 6))
+    assertEquals(0, countOverlappingMarkers(fixture.rootStore, fixture.initialSnapshot, startOffset = 0, endOffset = 6))
   }
 
   @Test
@@ -489,13 +501,14 @@ class SnapshotMarkerEngineImplTest {
       startOffset = 2,
       endOffset = 4,
       spec = nonGreedySpec()
-    )
+    ) as SnapshotRangeMarkerImpl
     assertTrue(fixture.document.removeRangeMarker(marker))
 
-    val resolution = marker.resolve(fixture.initialSnapshot) as PMarkerResolution.Invalid
+    val resolution =
+      SnapshotMarkerEngineImpl.resolveRangeMarker(marker, rootFor(marker, fixture.initialSnapshot)) as PMarkerResolution.Invalid
     assertEquals("Marker is disposed", resolution.reason)
     assertFalse(marker.isValid)
-    assertEquals(0, countOverlappingMarkers(fixture.initialSnapshot, startOffset = 0, endOffset = 6))
+    assertEquals(0, countOverlappingMarkers(fixture.rootStore, fixture.initialSnapshot, startOffset = 0, endOffset = 6))
     assertFalse(fixture.document.removeRangeMarker(marker))
   }
 
@@ -515,6 +528,7 @@ class SnapshotMarkerEngineImplTest {
     var processedMarker: RangeMarkerEx? = null
     assertTrue(
       SnapshotMarkerEngineImpl.processRangeMarkersOverlappingWith(
+        fixture.rootStore,
         fixture.initialSnapshot,
         startOffset = 0,
         endOffset = 6,
@@ -543,6 +557,7 @@ class SnapshotMarkerEngineImplTest {
     var processedMarker: RangeMarkerEx? = null
     assertTrue(
       SnapshotMarkerEngineImpl.processRangeMarkersOverlappingWith(
+        fixture.rootStore,
         fixture.initialSnapshot,
         startOffset = 0,
         endOffset = 6,
@@ -556,6 +571,7 @@ class SnapshotMarkerEngineImplTest {
 
     assertTrue(
       SnapshotMarkerEngineImpl.processRangeMarkersOverlappingWith(
+        fixture.rootStore,
         fixture.initialSnapshot,
         startOffset = 0,
         endOffset = 6,
@@ -576,8 +592,29 @@ class SnapshotMarkerEngineImplTest {
 
     gcMarkerAndWaitForProcessQueues(weakMarker)
 
-    assertEquals(0, countOverlappingMarkers(fixture.initialSnapshot, startOffset = 0, endOffset = 6))
+    assertEquals(0, countOverlappingMarkers(fixture.rootStore, fixture.initialSnapshot, startOffset = 0, endOffset = 6))
     assertFalse(currentRootContains(fixture, weakMarker.markerId))
+  }
+
+  @Test
+  fun `queue processing reports an earlier successful purge`() {
+    val document = DocumentImpl("abcdef", true)
+    val snapshot = document.core.snapshot()
+    val firstMarker = document.createRangeMarker(1, 2) as SnapshotMarker
+    val secondMarker = document.createRangeMarker(3, 4) as SnapshotMarker
+    val rootStore = document.rangeMarkers.rootStore()
+    val markerReferences = rootStore.root(snapshot)!!
+      .overlappingIterator(0, document.textLength, 0)
+      .asSequence()
+      .associate { it.markerId to (it.markerReference as Reference<*>) }
+    assertTrue(rootStore.purge(snapshot, secondMarker.id))
+
+    // Manual enqueue uses reverse order. The successful purge runs first.
+    assertTrue(markerReferences.getValue(secondMarker.id).enqueue())
+    assertTrue(markerReferences.getValue(firstMarker.id).enqueue())
+
+    assertTrue(SnapshotMarkerEngineImpl.processQueue())
+    assertFalse(rootStore.containsMarkerId(snapshot, firstMarker.id))
   }
 
   @Test
@@ -595,7 +632,10 @@ class SnapshotMarkerEngineImplTest {
     val document = DocumentImpl("abcdef", true)
     val strongMarker = createInvalidStrongMarker(document, startOffset = 2, endOffset = 4)
 
-    GCUtil.tryGcSoftlyReachableObjects { strongMarker.reference.get() == null }
+    GCUtil.tryGcSoftlyReachableObjects {
+      document.rangeMarkers.rootStore().processQueue()
+      strongMarker.reference.get() == null
+    }
 
     assertNull(strongMarker.reference.get())
   }
@@ -606,7 +646,7 @@ class SnapshotMarkerEngineImplTest {
     val parent = document.core.snapshot()
     val strongMarker = createStrongMarker(document, startOffset = 2, endOffset = 4)
 
-    parent.applyOp(textPatch(1, 5, ""))
+    document.snapshotMarkerStores.applyPatch(parent, textPatch(1, 5, ""))
     GCUtil.tryGcSoftlyReachableObjects()
 
     assertNotNull(strongMarker.reference.get())
@@ -617,13 +657,14 @@ class SnapshotMarkerEngineImplTest {
     val document = DocumentImpl("abcdef", true)
     val parent = document.core.snapshot()
     val strongMarker = createStrongMarker(document, startOffset = 2, endOffset = 4)
-    val child = parent.applyOp(textPatch(0, 0, "X"))
+    val rootStore = document.rangeMarkers.rootStore()
+    val child = document.snapshotMarkerStores.applyPatch(parent, textPatch(0, 0, "X"))
 
     disposeMarker(strongMarker)
     GCUtil.tryGcSoftlyReachableObjects()
 
     assertNotNull(strongMarker.reference.get())
-    assertTrue(SnapshotMarkerEngineImpl.containsMarkerId(child, strongMarker.markerId))
+    assertTrue(rootStore.containsMarkerId(child, strongMarker.markerId))
   }
 
   @Test
@@ -644,7 +685,7 @@ class SnapshotMarkerEngineImplTest {
     assertTrue(currentRootContains(fixture, weakMarker.markerId))
 
     gcMarkerAndWaitForProcessQueues(weakMarker)
-    assertEquals(0, countOverlappingMarkers(fixture.document.core.snapshot(), startOffset = 0, endOffset = 2))
+    assertEquals(0, countOverlappingMarkers(fixture.rootStore, fixture.document.core.snapshot(), startOffset = 0, endOffset = 2))
 
     assertFalse(currentRootContains(fixture, weakMarker.markerId))
   }
@@ -760,12 +801,68 @@ class SnapshotMarkerEngineImplTest {
   }
 
   @Test
+  fun `root aggregates survive random marker and text operations`() {
+    val seed = 0x5EED
+    val random = Random(seed)
+    val maxMeasure = 10
+    val maxCharsPerOperation = 10
+    val document = DocumentImpl("abcdefghij", true)
+    val rootStore = document.rangeMarkers.rootStore()
+    var markerIds = mutableListOf<Long>()
+    var nextMarkerId = 1L
+    rootStore.rootReference(document.core.snapshot())
+
+    repeat(10_000) { iteration ->
+      when (random.nextInt(6)) {
+        0 -> {
+          val markerId = nextMarkerId++
+          val offset = random.nextInt(document.textLength + 1)
+          val measure = random.nextInt(maxMeasure)
+          val spec = nonGreedySpec().withStickyToRight(random.nextBoolean())
+          rootStore.updateRoot(document.core.snapshot()) {
+            it.insert(markerId, offset, offset, spec, flavorFlags = 0, measure = measure)
+          }
+        }
+        1 -> if (markerIds.isNotEmpty()) {
+          val markerId = markerIds.removeAt(random.nextInt(markerIds.size))
+          rootStore.updateRoot(document.core.snapshot()) { it.remove(markerId) }
+        }
+        2 -> if (markerIds.isNotEmpty()) {
+          val markerId = markerIds[random.nextInt(markerIds.size)]
+          val measure = random.nextInt(maxMeasure)
+          rootStore.updateRoot(document.core.snapshot()) { it.updateMeasure(markerId, measure) }
+        }
+        3 -> {
+          val offset = random.nextInt(document.textLength + 1)
+          document.insertString(offset, " ".repeat(random.nextInt(maxCharsPerOperation + 1)))
+        }
+        4 -> if (document.textLength > 0) {
+          val startOffset = random.nextInt(document.textLength)
+          val endOffset = minOf(document.textLength, startOffset + 1 + random.nextInt(maxCharsPerOperation))
+          document.deleteString(startOffset, endOffset)
+        }
+        else -> if (document.textLength > 0) {
+          val startOffset = random.nextInt(document.textLength)
+          val endOffset = minOf(document.textLength, startOffset + 1 + random.nextInt(maxCharsPerOperation))
+          val targetOffset = random.nextInt(document.textLength + 1)
+          if (targetOffset !in startOffset..endOffset) {
+            document.moveText(startOffset, endOffset, targetOffset)
+          }
+        }
+      }
+
+      val root = rootStore.rootReference(document.core.snapshot()).get()
+      markerIds = assertPrefixAggregates(root, document.textLength, "Seed $seed, iteration $iteration")
+    }
+  }
+
+  @Test
   fun `marker spec delegates transformation to its policy`() {
-    var receivedPatch: DocumentTextPatch? = null
+    var receivedPatch: DocumentPatch? = null
     val invalidatedMarkerIds = ArrayList<Long>()
-    val policy = MarkerPolicy { _, patch, _, _ ->
+    val policy = MarkerPolicy { entry, patch, _, _ ->
       receivedPatch = patch
-      MarkerTransformResult.Invalid("Invalidated by test marker policy")
+      MarkerTransformResult(entry, "Invalidated by test marker policy")
     }
     val root = PMarkerRootImpl.empty().insert(
       markerId = 1,
@@ -775,7 +872,7 @@ class SnapshotMarkerEngineImplTest {
       flavorFlags = 0,
       markerReference = null)
 
-    val patch = DocumentTextPatch.complex(
+    val patch = DocumentPatch.complex(
       startOffset = 2,
       endOffset = 2,
       newFragment = "x",
@@ -791,6 +888,32 @@ class SnapshotMarkerEngineImplTest {
     assertEquals("Invalidated by test marker policy", invalid.reason)
     assertEquals(listOf(1L), invalidatedMarkerIds)
     assertSame(patch, receivedPatch)
+  }
+
+  @Test
+  fun `root reports only affected valid markers`() {
+    val invalidatedMarkerIds = ArrayList<Long>()
+    val affectedMarkerIds = ArrayList<Long>()
+    val invalidatingPolicy = MarkerPolicy { entry, _, _, _ ->
+      MarkerTransformResult(entry, "Invalidated by test marker policy")
+    }
+    val root = PMarkerRootImpl.empty()
+      .insert(1, 0, 1, nonGreedySpec(), flavorFlags = 0)
+      .insert(2, 1, 6, nonGreedySpec(), flavorFlags = 0)
+      .insert(3, 3, 5, nonGreedySpec(), flavorFlags = 0)
+      .insert(4, 7, 9, nonGreedySpec(), flavorFlags = 0)
+      .insert(5, 3, 4, nonGreedySpec().copy(policy = invalidatingPolicy), flavorFlags = 0)
+
+    applyPatch(
+      root,
+      "abcdefghij",
+      textPatch(startOffset = 3, endOffset = 4, newFragment = ""),
+      LongConsumer(invalidatedMarkerIds::add),
+      LongConsumer(affectedMarkerIds::add),
+    )
+
+    assertEquals(listOf(5L), invalidatedMarkerIds)
+    assertEquals(listOf(2L, 3L), affectedMarkerIds.sorted())
   }
 
   @Test
@@ -844,6 +967,21 @@ class SnapshotMarkerEngineImplTest {
   }
 
   @Test
+  fun `root overlapping iterator reports non-strict overlaps`() {
+    val flavor: Byte = 1
+    val otherFlavor: Byte = 2
+    val root = PMarkerRootImpl.empty()
+      .insert(1, 0, 0, nonGreedySpec(), flavor)
+      .insert(2, 0, 2, nonGreedySpec(), flavor)
+      .insert(3, 2, 4, nonGreedySpec(), flavor)
+      .insert(4, 2, 2, nonGreedySpec(), otherFlavor)
+      .insert(5, 3, 3, nonGreedySpec(), flavor)
+
+    assertEquals(listOf(1L, 2L), overlappingMarkerIds(root, flavor.toInt(), startOffset = 0, endOffset = 0))
+    assertEquals(listOf(2L, 3L), overlappingMarkerIds(root, flavor.toInt(), startOffset = 2, endOffset = 2))
+  }
+
+  @Test
   fun `root overlapping iterator respects flavors and lazy shifts`() {
     val firstFlavor: Byte = 1
     val secondFlavor: Byte = 2
@@ -856,8 +994,8 @@ class SnapshotMarkerEngineImplTest {
     val entries = edited.overlappingIterator(3, 9, firstFlavor.toInt()).asSequence().toList()
 
     assertEquals(listOf(1L, 3L), entries.map { it.markerId })
-    assertEquals(listOf(2, 8), entries.map { it.startOffset })
-    assertEquals(listOf(4, 10), entries.map { it.endOffset })
+    assertEquals(listOf(2, 8), entries.map { it.nodeStart })
+    assertEquals(listOf(4, 10), entries.map { it.nodeEnd })
   }
 
   @Test
@@ -875,7 +1013,7 @@ class SnapshotMarkerEngineImplTest {
     val threads = List(4) {
       thread(start = true) {
         start.await()
-        results.add(SnapshotMarkerEngineImpl.removeRangeMarker(fixture.initialSnapshot, marker))
+        results.add(SnapshotMarkerEngineImpl.removeRangeMarker(marker))
       }
     }
 
@@ -946,41 +1084,54 @@ class SnapshotMarkerEngineImplTest {
       startOffset = 2,
       endOffset = 4,
       spec = nonGreedySpec()
-    )
+    ) as SnapshotRangeMarkerImpl
     fixture.document.insertString(0, "XX")
     val child = fixture.editWithNaturalModSequence(fixture.initialSnapshot, startOffset = 0, endOffset = 0, newFragment = "XX")
 
     assertSame(fixture.document, marker.document)
-    assertEquals(2, marker.getStartOffset(fixture.initialSnapshot))
-    assertEquals(4, marker.getEndOffset(fixture.initialSnapshot))
+    val initialResolution = SnapshotMarkerEngineImpl.resolveRangeMarker(marker, rootFor(marker, fixture.initialSnapshot))
+    assertEquals(2, initialResolution.startOffset)
+    assertEquals(4, initialResolution.endOffset)
 
-    assertEquals(4, marker.getStartOffset(child))
-    assertEquals(6, marker.getEndOffset(child))
+    val childResolution = SnapshotMarkerEngineImpl.resolveRangeMarker(marker, rootFor(marker, child))
+    assertEquals(4, childResolution.startOffset)
+    assertEquals(6, childResolution.endOffset)
   }
 
-  private fun assertRange(marker: PMarker, snapshot: DocumentSnapshot, startOffset: Int, endOffset: Int) {
-    assertEquals(startOffset, marker.getStartOffset(snapshot))
-    assertEquals(endOffset, marker.getEndOffset(snapshot))
+  private fun assertRange(marker: SnapshotMarker, snapshot: DocumentSnapshot, startOffset: Int, endOffset: Int) {
+    val storedMarker = marker as SnapshotRangeMarkerImpl
+    val resolution = SnapshotMarkerEngineImpl.resolveRangeMarker(storedMarker, rootFor(storedMarker, snapshot))
+    assertEquals(startOffset, resolution.startOffset)
+    assertEquals(endOffset, resolution.endOffset)
   }
 
-  private fun assertAbsent(marker: PMarker, snapshot: DocumentSnapshot, startOffset: Int, endOffset: Int) {
-    val resolution = SnapshotMarkerEngineImpl.resolveRangeMarker(marker, snapshot) as PMarkerResolution.Absent
+  private fun assertAbsent(marker: SnapshotMarker, snapshot: DocumentSnapshot, startOffset: Int, endOffset: Int) {
+    val storedMarker = marker as SnapshotRangeMarkerImpl
+    val resolution = SnapshotMarkerEngineImpl.resolveRangeMarker(storedMarker, rootFor(storedMarker, snapshot)) as PMarkerResolution.Absent
     assertEquals(TextRange(startOffset, endOffset), resolution)
   }
 
-  private fun assertDisposed(marker: PMarker, snapshot: DocumentSnapshot, startOffset: Int, endOffset: Int) {
-    val resolution = marker.resolve(snapshot) as PMarkerResolution.Invalid
-    assertEquals("Marker is disposed", resolution.reason)
+  private fun assertDisposed(marker: SnapshotMarker, snapshot: DocumentSnapshot, startOffset: Int, endOffset: Int) {
+    val storedMarker = marker as SnapshotRangeMarkerImpl
+    val resolution = SnapshotMarkerEngineImpl.resolveRangeMarker(storedMarker, rootFor(storedMarker, snapshot))
+    assertEquals("Marker is disposed", (resolution as PMarkerResolution.Invalid).reason)
     assertEquals(TextRange(startOffset, endOffset), resolution)
+  }
+
+  private fun rootFor(marker: SnapshotRangeMarkerImpl, snapshot: DocumentSnapshot): PMarkerRoot {
+    val document = marker.document as DocumentImpl
+    return document.rangeMarkers.rootStore().rootReference(snapshot).get()
   }
 
   private fun countOverlappingMarkers(
+    rootStore: SnapshotMarkerRootStore,
     snapshot: DocumentSnapshot,
     startOffset: Int,
     endOffset: Int,
   ): Int {
     var count = 0
     SnapshotMarkerEngineImpl.processRangeMarkersOverlappingWith(
+      rootStore,
       snapshot,
       startOffset,
       endOffset,
@@ -1010,8 +1161,33 @@ class SnapshotMarkerEngineImplTest {
     return result
   }
 
+  private fun overlappingMarkerIds(
+    root: PMarkerRoot,
+    tastePreference: Int,
+    startOffset: Int,
+    endOffset: Int,
+  ): List<Long> = root.overlappingIterator(startOffset, endOffset, tastePreference).asSequence().map { it.markerId }.toList()
+
+  private fun assertPrefixAggregates(root: PMarkerRoot, textLength: Int, failureMessage: String): MutableList<Long> {
+    val entries = root.overlappingIterator(0, textLength, tastePreference = 0).asSequence().toList()
+    var expectedSum = 0
+    var index = 0
+
+    while (index < entries.size) {
+      val offset = entries[index].nodeStart
+      assertEquals(expectedSum, root.getPrefixAggregate(offset - 1), failureMessage)
+      while (index < entries.size && entries[index].nodeStart == offset) {
+        expectedSum += entries[index].measure
+        index++
+      }
+      assertEquals(expectedSum, root.getPrefixAggregate(offset), failureMessage)
+    }
+    assertEquals(expectedSum, root.getPrefixAggregate(textLength + 1), failureMessage)
+    return entries.mapTo(mutableListOf()) { it.markerId }
+  }
+
   private fun currentRootContains(fixture: Fixture, markerId: Long): Boolean =
-    SnapshotMarkerEngineImpl.containsMarkerId(fixture.document.core.snapshot(), markerId)
+    fixture.rootStore.containsMarkerId(fixture.document.core.snapshot(), markerId)
 
   private fun createWeakMarker(fixture: Fixture, startOffset: Int, endOffset: Int): WeakMarker {
     val marker = SnapshotMarkerEngineImpl.createRangeMarker(
@@ -1096,8 +1272,8 @@ class SnapshotMarkerEngineImplTest {
 
   private fun persistentSpec(): MarkerSpec = nonGreedySpec().copy(policy = PersistentMarkerPolicy)
 
-  private fun textPatch(startOffset: Int, endOffset: Int, newFragment: String): DocumentTextPatch {
-    return DocumentTextPatch.simple(
+  private fun textPatch(startOffset: Int, endOffset: Int, newFragment: String): DocumentPatch {
+    return DocumentPatch.simple(
       startOffset = startOffset,
       endOffset = endOffset,
       newFragment = newFragment,
@@ -1109,27 +1285,35 @@ class SnapshotMarkerEngineImplTest {
   private fun applyPatch(
     root: PMarkerRoot,
     before: String,
-    patch: DocumentTextPatch,
+    patch: DocumentPatch,
     invalidatedMarkerConsumer: LongConsumer = PMarkerRoot.EMPTY_LONG_CONSUMER,
+    affectedMarkerConsumer: LongConsumer = PMarkerRoot.EMPTY_LONG_CONSUMER,
   ): PMarkerRoot {
     val beforeText = DocumentImpl(before, true).core.snapshot().text()
-    val afterText = beforeText.applyOp(patch)
-    return root.applyPatch(patch, beforeText, afterText, invalidatedMarkerConsumer)
+    val afterText = patch.ops().fold(beforeText) { text, op -> text.applyOp(op) }
+    return root.applyPatch(patch, beforeText, afterText, invalidatedMarkerConsumer, affectedMarkerConsumer)
   }
 
   private class Fixture(initialText: String) {
     val document = DocumentImpl(initialText, true)
     val initialSnapshot: DocumentSnapshot = document.core.snapshot()
+    val rootStore: SnapshotMarkerRootStore = document.rangeMarkers.rootStore()
 
-    private val newOps = DocumentNewOps.getInstance()
+    private val markerStores: SnapshotMarkerStores = document.snapshotMarkerStores
+
     private var nextModSequence = initialSnapshot.modState().sequence() + 1
     private var nextModStamp = initialSnapshot.modState().stamp() + 1
+
+    fun applyOp(parent: DocumentSnapshot, op: DocumentOp): DocumentSnapshot = markerStores.applyOp(parent, op)
+
+    fun mergeMarkerRoots(markerSnapshot: DocumentSnapshot, metadataSnapshot: DocumentSnapshot): DocumentSnapshot =
+      markerStores.mergeMarkerRoots(markerSnapshot, metadataSnapshot)
 
     fun editWithNaturalModSequence(
       parent: DocumentSnapshot,
       startOffset: Int,
       endOffset: Int,
-      newFragment: String
+      newFragment: String,
     ): DocumentSnapshot {
       require(startOffset in 0..endOffset)
       require(endOffset <= parent.text().length())
@@ -1141,14 +1325,14 @@ class SnapshotMarkerEngineImplTest {
       require(startOffset in 0..endOffset)
       require(endOffset <= parent.text().length())
 
-      val targetModSequence = maxOf(nextModSequence, parent.modState().sequence() + 1)
       var newModStamp = nextModStamp++
 
       var child = applyTextEdit(parent, startOffset, endOffset, newFragment, newModStamp)
+      val targetModSequence = maxOf(nextModSequence, child.modState().sequence())
 
       while (child.modState().sequence() < targetModSequence) {
         newModStamp = nextModStamp++
-        child = child.applyOp(newOps.createModStampOp(newModStamp, true))
+        child = markerStores.applyOp(child, DocumentOp.modStampOp(newModStamp, true))
       }
 
       check(child.modState().sequence() == targetModSequence) {
@@ -1166,8 +1350,9 @@ class SnapshotMarkerEngineImplTest {
       newFragment: String,
       newModStamp: Long,
     ): DocumentSnapshot {
-      return parent.applyOp(
-        DocumentTextPatch.simple(
+      return markerStores.applyPatch(
+        parent,
+        DocumentPatch.simple(
           startOffset = startOffset,
           endOffset = endOffset,
           newFragment = newFragment,
@@ -1176,5 +1361,15 @@ class SnapshotMarkerEngineImplTest {
         )
       )
     }
+  }
+
+  @Test
+  fun `test document views share snapshot marker root store`() {
+    val document = DocumentImpl("abc")
+    val elfDocument = Elf.getElf().getElfDocument(document) as DocumentImpl
+    val realDocument = Elf.getElf().getRealDocument(document) as DocumentImpl
+
+    assertSame(document.rangeMarkers.rootStore(), elfDocument.rangeMarkers.rootStore())
+    assertSame(document.rangeMarkers.rootStore(), realDocument.rangeMarkers.rootStore())
   }
 }

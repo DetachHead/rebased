@@ -1,0 +1,127 @@
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+@file:Suppress("ReplacePutWithAssignment")
+
+package com.intellij.platform.buildScripts.devLaunch
+
+import com.intellij.openapi.util.SystemInfoRt
+import com.intellij.platform.buildData.productInfo.CustomCommandLaunchData
+import com.intellij.platform.buildData.productInfo.ProductInfoData
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.decodeFromStream
+import org.jetbrains.annotations.ApiStatus
+import java.nio.file.Files
+import java.nio.file.Path
+import java.util.Properties
+import kotlin.io.path.inputStream
+import kotlin.io.path.readLines
+
+private const val PRODUCT_INFO_FILE_NAME = "product-info.json"
+
+private val productInfoJson = Json { ignoreUnknownKeys = true }
+
+/**
+ * Returns system properties which should be set for the IDE process.
+ * This function should be used only if the IDE is started in the same process.
+ * It's better to start the IDE in a separate process and use [readVmOptions] to pass all necessary VM options to it.
+ */
+@ApiStatus.Internal
+fun getIdeSystemProperties(runDir: Path): Map<String, String> {
+  val result = LinkedHashMap<String, String>()
+
+  val properties = Properties()
+  // we need this only because PathManager take idea.properties to the sources if 'idea.use.dev.build.server' is set to 'true'
+  Files.newInputStream(runDir.resolve("bin/idea.properties")).use { properties.load(it) }
+  for ((key, value) in properties) {
+    result.put(key.toString(), value.toString())
+  }
+
+  readVmOptions(runDir).asSequence()
+    .filter { it.startsWith("-D") }
+    .map { it.removePrefix("-D") }
+    .associateByTo(result, { it.substringBefore('=') }, { it.substringAfter('=', "") })
+
+  return result
+}
+
+@ApiStatus.Internal
+fun readVmOptions(runDir: Path): List<String> {
+  val result = ArrayList<String>()
+
+  val binDir = runDir.resolve("bin")
+  val vmOptionsFile = Files.newDirectoryStream(binDir, "*.vmoptions").use { it.singleOrNull() }
+  requireNotNull(vmOptionsFile) {
+    "No single *.vmoptions file in $binDir (${Files.newDirectoryStream(binDir).use { it.asSequence().map(Path::getFileName).joinToString() }})"
+  }
+  result.addAll(vmOptionsFile.readLines())
+  result.add("-Djb.vmOptionsFile=${vmOptionsFile}")
+
+  readProductInfo(runDir).launch.firstOrNull()?.additionalJvmArguments?.mapTo(result) { resolveIdeHomeMacro(it, runDir) }
+
+  return result
+}
+
+/**
+ * Returns the product-info.json `customCommands` entry which handles [command],
+ * or `null` if the build doesn't declare such a command.
+ */
+@ApiStatus.Internal
+fun readCustomCommand(runDir: Path, command: String): CustomCommandLaunchData? {
+  // multi-architecture builds are not generated for dev builds
+  return readProductInfo(runDir).launch.single().customCommands.find { command in it.commands }
+}
+
+/**
+ * [CustomCommandLaunchData.additionalJvmArguments] with the `IDE_HOME` macro resolved against [runDir].
+ */
+@ApiStatus.Internal
+fun CustomCommandLaunchData.resolveAdditionalJvmArguments(runDir: Path): List<String> =
+  additionalJvmArguments.map { resolveIdeHomeMacro(it, runDir) }
+
+/**
+ * The system properties of the `-D` arguments in [jvmArguments], the JVM arguments of a custom command with the macros resolved.
+ * A property without `=` has an empty value. A value that still holds a `$` macro fails.
+ */
+@ApiStatus.Internal
+fun customCommandSystemProperties(jvmArguments: List<String>): Map<String, String> {
+  val result = LinkedHashMap<String, String>()
+  for (argument in jvmArguments) {
+    if (!argument.startsWith("-D")) {
+      continue
+    }
+    val property = argument.removePrefix("-D")
+    val value = property.substringAfter('=', "")
+    check('$' !in value) { "Unsubstituted macro in JVM argument: $property" }
+    result.put(property.substringBefore('='), value)
+  }
+  return result
+}
+
+/**
+ * The main class and the system properties of the custom command that handles [command] in the distribution at [runDir].
+ * `PreBuiltDevMain` calls it through reflection, so the result is a JDK type.
+ */
+@ApiStatus.Internal
+@Suppress("unused")
+fun readCustomCommandLaunch(runDir: Path, command: String): Map.Entry<String, Map<String, String>> {
+  val launch = readCustomCommand(runDir, command) ?: error("No custom command found for $command")
+  val mainClass = checkNotNull(launch.mainClass) { "The custom command '$command' names no main class" }
+  return java.util.AbstractMap.SimpleImmutableEntry(mainClass, customCommandSystemProperties(launch.resolveAdditionalJvmArguments(runDir)))
+}
+
+private fun readProductInfo(runDir: Path): ProductInfoData {
+  return runDir.resolve("bin").resolve(PRODUCT_INFO_FILE_NAME).inputStream().buffered().use {
+    productInfoJson.decodeFromStream(ProductInfoData.serializer(), it)
+  }
+}
+
+/**
+ * Substitutes the OS-specific `IDE_HOME` macro used in product-info.json JVM arguments with [runDir].
+ */
+private fun resolveIdeHomeMacro(jvmArgument: String, runDir: Path): String {
+  val macroName = when {
+    SystemInfoRt.isWindows -> "%IDE_HOME%"
+    SystemInfoRt.isMac -> $$"$APP_PACKAGE/Contents"
+    else -> $$"$IDE_HOME"
+  }
+  return jvmArgument.replace(macroName, runDir.toString())
+}

@@ -10,6 +10,7 @@ import com.intellij.openapi.actionSystem.PlatformCoreDataKeys
 import com.intellij.openapi.components.service
 import com.intellij.psi.PsiFileSystemItem
 import com.intellij.python.pyproject.icons.PythonPyprojectIcons
+import com.intellij.python.pyproject.model.evolution.EvoPyProjectModel
 import com.intellij.python.pyproject.model.internal.PyProjectScopeService
 import com.intellij.util.concurrency.annotations.RequiresBackgroundThread
 import com.intellij.util.concurrency.annotations.RequiresEdt
@@ -17,7 +18,6 @@ import com.intellij.util.concurrency.annotations.RequiresReadLock
 import com.jetbrains.python.Result
 import com.jetbrains.python.errorProcessing.ErrorSink
 import com.jetbrains.python.errorProcessing.PyErrorDetail
-import com.jetbrains.python.sdk.pythonSdk
 import kotlinx.coroutines.launch
 import org.jetbrains.annotations.VisibleForTesting
 
@@ -25,6 +25,9 @@ import org.jetbrains.annotations.VisibleForTesting
  * Action for both create new pyproject and convert existing. It is called when user clicks on the directory.
  * in [forNewProject] in shows [AddPyProjectDialog] to ask user for a project name, and creates subproject.
  * Otherwise, it just creates project directly in the directory used clicked on.
+ *
+ * The action is hidden until the first [com.intellij.python.pyproject.model.evolution.EvoPyProjectModel] snapshot is
+ * ready, because the tool it offers comes from the interpreter the snapshot holds.
  */
 internal abstract class PyProjectActionImpl protected constructor(private val forNewProject: Boolean) : AnAction() {
   init {
@@ -32,8 +35,8 @@ internal abstract class PyProjectActionImpl protected constructor(private val fo
     templatePresentation.icon = PythonPyprojectIcons.Model.PyProjectModule
   }
 
-  @RequiresReadLock
-  @RequiresEdt
+  @RequiresReadLock(generateAssertion = false /* IJPL-115548 */)
+  @RequiresEdt(generateAssertion = false /* IJPL-115548 */)
   override fun actionPerformed(e: AnActionEvent) {
     val project = e.project ?: return
     val presenter = e.projectCreationPresenter(forNewProject) ?: return
@@ -49,8 +52,8 @@ internal abstract class PyProjectActionImpl protected constructor(private val fo
 
   override fun getActionUpdateThread(): ActionUpdateThread = ActionUpdateThread.BGT
 
-  @RequiresBackgroundThread
-  @RequiresReadLock
+  @RequiresBackgroundThread(generateAssertion = false /* IJPL-115548 */)
+  @RequiresReadLock(generateAssertion = false /* IJPL-115548 */)
   override fun update(e: AnActionEvent) {
     val projectCreationModel = e.projectCreationPresenter(forNewProject)
     e.presentation.isEnabledAndVisible = projectCreationModel != null
@@ -60,7 +63,7 @@ internal abstract class PyProjectActionImpl protected constructor(private val fo
   }
 }
 
-@RequiresReadLock
+@RequiresReadLock(generateAssertion = false /* IJPL-115548 */)
 @VisibleForTesting
 internal fun AnActionEvent.projectCreationPresenter(forNewProject: Boolean): PyProjectPresenter? {
   if (project == null) {
@@ -70,8 +73,10 @@ internal fun AnActionEvent.projectCreationPresenter(forNewProject: Boolean): PyP
                ?: CommonDataKeys.VIRTUAL_FILE.getData(dataContext))
               ?: return null
 
-  @Suppress("UsagesOfObsoleteApi") // action doesn't support suspend API
-  val sdk = LangDataKeys.MODULE.getData(dataContext)?.pythonSdk ?: return null
-  return PyProjectPresenter.create(where = vPath, sdk = sdk, forNewProject = forNewProject)
+  val module = LangDataKeys.MODULE.getData(dataContext) ?: return null
+  // The action's update cannot suspend, so it peeks at the snapshot. Before the first one, the action stays hidden.
+  val snapshot = EvoPyProjectModel.getInstance(module.project).snapshotOrNull() ?: return null
+  val interpreter = snapshot.evoPyProjects.firstOrNull { it.pyProject.residesOnModule == module }?.interpreter ?: return null
+  return PyProjectPresenter.create(where = vPath, interpreter = interpreter, forNewProject = forNewProject)
 }
 

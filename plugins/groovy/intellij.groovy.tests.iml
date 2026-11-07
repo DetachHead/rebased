@@ -55,6 +55,7 @@
     <orderEntry type="module" module-name="intellij.platform.jps.build" scope="TEST" />
     <orderEntry type="module" module-name="intellij.spellchecker" scope="TEST" />
     <orderEntry type="module" module-name="intellij.grazie.core" scope="TEST" />
+    <orderEntry type="module" module-name="intellij.grazie" scope="TEST" />
     <orderEntry type="module" module-name="intellij.junit" scope="TEST" />
     <orderEntry type="module" module-name="intellij.junit.rt" scope="TEST" />
     <orderEntry type="module" module-name="intellij.java.indexing" scope="TEST" />
@@ -77,8 +78,9 @@
     <orderEntry type="module" module-name="intellij.platform.util.ex" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.buildScripts.downloader" scope="TEST" />
     <orderEntry type="module" module-name="intellij.libraries.assertj.core" scope="TEST" />
-    <orderEntry type="module" module-name="intellij.libraries.junit5.jupiter" scope="TEST" />
+    <orderEntry type="module" module-name="intellij.libraries.junit6.jupiter" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.testFramework" scope="TEST" />
+    <orderEntry type="module" module-name="intellij.platform.bazel.runfiles" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.workspace.jps" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.backend.workspace" scope="TEST" />
     <orderEntry type="module" module-name="intellij.tools.ide.metrics.benchmark" scope="TEST" />
@@ -89,13 +91,16 @@
     <orderEntry type="module" module-name="intellij.java.frontback.psi" scope="TEST" />
     <orderEntry type="module" module-name="intellij.libraries.kotlinx.collections.immutable" scope="TEST" />
     <orderEntry type="module" module-name="intellij.groovy" scope="TEST" />
+    <orderEntry type="module" module-name="intellij.groovy.testFramework" scope="TEST" />
+    <orderEntry type="module" module-name="intellij.groovy.ant" scope="TEST" />
     <orderEntry type="module" module-name="intellij.groovy.langInjection" scope="RUNTIME" />
     <orderEntry type="module" module-name="intellij.groovy.spock" scope="RUNTIME" />
+    <orderEntry type="module" module-name="intellij.platform.vcs.plugin" scope="RUNTIME" />
     <orderEntry type="module" module-name="intellij.groovy.scripting" scope="TEST" />
     <orderEntry type="module" module-name="intellij.groovy.live.templates" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.statistics" scope="TEST" />
     <orderEntry type="module" module-name="intellij.libraries.junit4" scope="TEST" />
-    <orderEntry type="module" module-name="intellij.libraries.junit5" scope="TEST" />
+    <orderEntry type="module" module-name="intellij.libraries.junit6" scope="TEST" />
   </component>
   <component name="TestModuleProperties" production-module="intellij.groovy" />
 </module>

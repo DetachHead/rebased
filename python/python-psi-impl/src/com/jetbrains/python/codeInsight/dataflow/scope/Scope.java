@@ -31,10 +31,9 @@ import java.util.List;
 import java.util.Set;
 
 public interface Scope {
-  /*
-   * @return defined scope local/instance/class variables and parameters, using reaching defs
-   *
-   * it uses obsolete dfa analysis under the hood for pretty unclear reasons
+  /**
+   * @return the local, instance or class variable or the parameter with the given name, from the reaching definitions
+   * @deprecated The method uses the obsolete DFA analysis. This interface has no replacement for it.
    */
   @Nullable
   @Deprecated

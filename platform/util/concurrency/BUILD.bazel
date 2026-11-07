@@ -1,5 +1,10 @@
 load("@community//build:tests-options.bzl", "jps_test")
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
+
+### auto-generated section `dev intellij.platform.concurrency` start
+content_module_jar(module = ":concurrency")
+### auto-generated section `dev intellij.platform.concurrency` end
 
 ### auto-generated section `build intellij.platform.concurrency` start
 jvm_library(
@@ -13,6 +18,10 @@ jvm_library(
         allow_empty = True,
     ),
     module_name = "intellij.platform.concurrency",
+    resource_strip_prefix = "resources",
+    resources = glob(
+        ["resources/**/*"],
+    ),
     visibility = ["//visibility:public"],
     deps = [
         # do not sort,
@@ -48,10 +57,6 @@ jvm_library(
         "//platform/util/coroutines:coroutines_test_lib",
         "//platform/util/multiplatform:multiplatform_test_lib",
         "//platform/util/base:base_test_lib",
-        "//libraries/assertj-core",
-        "//libraries/assertj-core:assertj-core_test_lib",
-        "//libraries/junit5",
-        "//libraries/junit5:junit5_test_lib",
     ],
 )
 ### auto-generated section `build intellij.platform.concurrency` end
@@ -60,6 +65,7 @@ jvm_library(
 exports_files(
     [
         "intellij.platform.concurrency.iml",
+        "resources/intellij.platform.concurrency.xml",
     ],
     visibility = ["//visibility:public"],
 )
@@ -74,7 +80,11 @@ jvm_library(
     ),
     module_name = "intellij.platform.concurrency.tests",
     visibility = ["//visibility:public"],
-    runtime_deps = ["//platform/platform-tests:tests"],
+    runtime_deps = [
+        # do not sort,
+        "//platform/platform-tests:tests",
+        "//platform/core-impl:core-impl-tests",
+    ],
 )
 
 jvm_library(
@@ -101,6 +111,7 @@ jvm_library(
         # do not sort,
         ":concurrency-tests",
         "//platform/platform-tests:tests_test_lib",
+        "//platform/core-impl:core-impl-tests_test_lib",
     ],
     deps = [
         # do not sort,
@@ -119,8 +130,8 @@ jvm_library(
         "//platform/util/coroutines:coroutines_test_lib",
         "//libraries/assertj-core",
         "//libraries/assertj-core:assertj-core_test_lib",
-        "//libraries/junit5",
-        "//libraries/junit5:junit5_test_lib",
+        "//libraries/junit6",
+        "//libraries/junit6:junit6_test_lib",
     ],
 )
 ### auto-generated section `build intellij.platform.concurrency.tests` end

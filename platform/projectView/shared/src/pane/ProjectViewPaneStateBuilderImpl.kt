@@ -6,6 +6,7 @@ package com.intellij.platform.projectView.pane
 import com.intellij.openapi.diagnostic.debug
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.diagnostic.trace
+import com.intellij.openapi.options.advanced.AdvancedSettings
 import com.intellij.platform.projectView.actions.toDTO
 import com.intellij.platform.projectView.settings.ProjectViewPaneFileNestingValue
 import com.intellij.platform.projectView.settings.ProjectViewPaneFileNestingValueImpl
@@ -21,9 +22,13 @@ import com.intellij.platform.util.coroutines.flow.MutableStateWithIncrementalUpd
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
+import org.jetbrains.annotations.ApiStatus
+import org.jetbrains.annotations.VisibleForTesting
 import java.util.concurrent.ConcurrentHashMap
 
-internal class ProjectViewPaneStateBuilderImpl(
+@ApiStatus.Internal
+@VisibleForTesting
+class ProjectViewPaneStateBuilderImpl(
   paneId: ProjectViewPaneId,
 ) : ProjectViewPaneStateBuilder {
   private class State(private val paneId: ProjectViewPaneId) : MutableStateWithIncrementalUpdates<ProjectViewPaneStateEvent> {
@@ -35,10 +40,10 @@ internal class ProjectViewPaneStateBuilderImpl(
 
     override suspend fun applyUpdate(update: ProjectViewPaneStateEvent): ProjectViewPaneStateEvent? {
       LOG.debug { "Handling update: $update" }
-      if (update !is ProjectViewClearStateEvent) {
-        isInitialized.value = true
-      }
       when (update) {
+        is ProjectViewActivateStateEvent -> {
+          isInitialized.value = true
+        }
         is ProjectViewClearStateEvent -> {
           isInitialized.value = false
           actionState = null
@@ -108,10 +113,14 @@ internal class ProjectViewPaneStateBuilderImpl(
     }
 
     private fun removeNode(id: Long) {
-      val removed = nodeById.remove(id)
-      val userObject = removed?.model?.userObject
-      if (userObject != null) {
-        nodeByUserObject.remove(userObject)
+      val removed = nodeById.remove(id) ?: return
+      val userObject = removed.model.userObject
+      nodeByUserObject.remove(userObject)
+      val children = removed.children
+      if (children != null) {
+        for (child in children) {
+          removeNode(child.model.id)
+        }
       }
     }
 
@@ -272,13 +281,19 @@ internal class ProjectViewPaneStateBuilderImpl(
     updateState(ProjectViewChildRemoved(parentId, index))
   }
 
-  override suspend fun selectNode(nodePath: ProjectViewNodePath) {
-    updateState(ProjectViewSelectNodeEvent(nodePath as ProjectViewNodePathImpl))
+  override suspend fun selectNode(nodePath: ProjectViewNodePath, options: ((SelectInProjectViewRequestBuilder) -> Unit)?) {
+    val optionsBuilder = SelectInProjectViewRequestBuilderImpl(nodePath)
+    options?.invoke(optionsBuilder)
+    updateState(optionsBuilder.buildSelectNodeEvent())
   }
 
   override suspend fun updateSettingsState(build: (ProjectViewPaneSettingsStateBuilder) -> Unit) {
     val builder = ProjectViewPaneSettingsStateBuilderImpl()
     build(builder)
+    // This advanced setting forces Select Opened File to be always on.
+    // It must come from the pane model, because advanced settings can differ between the backend and the frontend,
+    // and the value is checked on the frontend (in AnAction.update, essentially).
+    builder.setForceSelectOpenedFileEnabled(AdvancedSettings.getBoolean("project.view.do.not.autoscroll.to.libraries"))
     updateState(ProjectViewSettingsStateEvent(builder.build()))
   }
 
@@ -287,6 +302,9 @@ internal class ProjectViewPaneStateBuilderImpl(
   }
 
   private suspend fun updateState(update: ProjectViewPaneStateEvent) {
+    if (update !is ProjectViewClearStateEvent) {
+      flowProducer.handleUpdate(ProjectViewActivateStateEvent)
+    }
     flowProducer.handleUpdate(update)
   }
 
@@ -325,6 +343,10 @@ private class ProjectViewPaneSettingsAccessorImpl(
   }
 }
 
-private data class Node(val parent: Node?, var model: ProjectViewNodeModelImpl<*>, var children: MutableList<Node>? = null)
+private class Node(val parent: Node?, var model: ProjectViewNodeModelImpl<*>, var children: MutableList<Node>? = null) {
+  override fun toString(): String {
+    return "Node(parentID=${parent?.model?.id}, model=$model, childrenIDs=${children?.joinToString { it.model.id.toString() }})"
+  }
+}
 
 private val LOG = logger<ProjectViewPaneStateBuilder>()

@@ -1,9 +1,10 @@
-// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.refactoring.rename;
 
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.JavaRecursiveElementWalkingVisitor;
+import com.intellij.psi.JavaResolveResult;
 import com.intellij.psi.PsiClass;
 import com.intellij.psi.PsiCompiledElement;
 import com.intellij.psi.PsiElement;
@@ -36,6 +37,8 @@ import com.intellij.util.CommonJavaRefactoringUtil;
 import com.intellij.util.IncorrectOperationException;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.containers.MultiMap;
+import com.siyeh.ig.psiutils.ExpressionUtils;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -44,6 +47,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Function;
 
 import static com.intellij.openapi.util.NlsContexts.DialogMessage;
 
@@ -98,7 +102,7 @@ public class RenameJavaVariableProcessor extends RenameJavaMemberProcessor {
           }
         }
       }
-      }
+    }
     // do actual rename
     variable.setName(newName);
     if (listener != null) {
@@ -195,8 +199,22 @@ public class RenameJavaVariableProcessor extends RenameJavaMemberProcessor {
                                         @NotNull String newName,
                                         @NotNull MultiMap<PsiElement, @DialogMessage String> conflicts,
                                         @NotNull Map<PsiElement, String> allRenames) {
+    findExistingNameConflicts(conflicts, allRenames, RenamePsiElementProcessor::forElement);
+  }
+
+  /**
+   * Collects the conflicts of every element of the rename, each one with the processor of that element.
+   *
+   * @param processorOf the processor of an element. A rename with a user takes it from
+   *                    {@code renamePsiElementProcessor}, and a rename with no user takes it from
+   *                    {@link HeadlessRenamePsiElementProcessor}, which is registered on its own.
+   */
+  @ApiStatus.Internal
+  public static void findExistingNameConflicts(@NotNull MultiMap<PsiElement, @DialogMessage String> conflicts,
+                                        @NotNull Map<PsiElement, String> allRenames,
+                                        @NotNull Function<PsiElement, ? extends RenamePsiElementProcessorBase> processorOf) {
     for (PsiElement psiElement : allRenames.keySet()) {
-      forElement(psiElement).findExistingNameConflicts(psiElement, allRenames.get(psiElement), conflicts);
+      processorOf.apply(psiElement).findExistingNameConflicts(psiElement, allRenames.get(psiElement), conflicts);
     }
   }
 
@@ -226,10 +244,9 @@ public class RenameJavaVariableProcessor extends RenameJavaMemberProcessor {
 
   @Override
   public boolean isToSearchInComments(@NotNull PsiElement element) {
-    if (element instanceof PsiField) {
-      return JavaRefactoringSettings.getInstance().RENAME_SEARCH_IN_COMMENTS_FOR_FIELD;
-    }
-    return JavaRefactoringSettings.getInstance().RENAME_SEARCH_IN_COMMENTS_FOR_VARIABLE;
+    return element instanceof PsiField
+           ? JavaRefactoringSettings.getInstance().RENAME_SEARCH_IN_COMMENTS_FOR_FIELD
+           : JavaRefactoringSettings.getInstance().RENAME_SEARCH_IN_COMMENTS_FOR_VARIABLE;
   }
 
   @Override
@@ -244,10 +261,9 @@ public class RenameJavaVariableProcessor extends RenameJavaMemberProcessor {
 
   @Override
   public boolean isToSearchForTextOccurrences(@NotNull PsiElement element) {
-    if (element instanceof PsiField) {
-      return JavaRefactoringSettings.getInstance().RENAME_SEARCH_FOR_TEXT_FOR_FIELD;
-    }
-    return JavaRefactoringSettings.getInstance().RENAME_SEARCH_FOR_TEXT_FOR_VARIABLE;
+    return element instanceof PsiField
+           ? JavaRefactoringSettings.getInstance().RENAME_SEARCH_FOR_TEXT_FOR_FIELD
+           : JavaRefactoringSettings.getInstance().RENAME_SEARCH_FOR_TEXT_FOR_VARIABLE;
   }
 
   @Override
@@ -285,7 +301,7 @@ public class RenameJavaVariableProcessor extends RenameJavaMemberProcessor {
   }
 
   private static void findLocalHidesFieldCollisions(PsiElement element, String newName, Map<? extends PsiElement, String> allRenames,
-                                                    List<? super UsageInfo> result) {
+                                                    List<? super UsageInfo> collisions) {
     PsiElement scopeElement;
     if (element instanceof PsiLocalVariable local) {
       scopeElement = CommonJavaRefactoringUtil.getVariableScope(local);
@@ -305,18 +321,20 @@ public class RenameJavaVariableProcessor extends RenameJavaMemberProcessor {
       @Override public void visitReferenceExpression(@NotNull PsiReferenceExpression expression) {
         super.visitReferenceExpression(expression);
         if (!expression.isQualified()) {
-          PsiElement resolved = expression.resolve();
-          if (resolved instanceof PsiField field) {
+          JavaResolveResult result = expression.advancedResolve(false);
+          if (result.isValidResult() && result.getElement() instanceof PsiField field) {
             String fieldNewName = allRenames.containsKey(field) ? allRenames.get(field) : field.getName();
             if (newName.equals(fieldNewName)) {
-              result.add(new LocalHidesFieldUsageInfo(expression, element));
+              collisions.add(ExpressionUtils.getEffectiveQualifier(expression) == null
+                         ? new UnresolvableLocalCollisionUsageInfo(field, element)
+                         : new LocalHidesFieldUsageInfo(expression, element));
             }
           }
         }
       }
     });
   }
-  
+
   @Override
   public String getQualifiedNameAfterRename(@NotNull PsiElement element, @NotNull String newName, boolean nonJava) {
     if (!nonJava || !(element instanceof PsiField field)) return null;
@@ -324,5 +342,31 @@ public class RenameJavaVariableProcessor extends RenameJavaMemberProcessor {
     if (containingClass == null) return null;
     String qualifiedName = containingClass.getQualifiedName();
     return qualifiedName == null ? null : StringUtil.getQualifiedName(qualifiedName, newName);
+  }
+
+  /**
+   * Renames a Java variable for a caller that has no user.
+   * <p>
+   * The outer class asks the user nothing, but it does not state the headless rename itself, because
+   * it has subclasses. A subclass must not inherit that statement.
+   */
+  public static final class HeadlessRenameJavaVariableProcessor extends RenameJavaVariableProcessor
+    implements DelegatingHeadlessRenamePsiElementProcessor {
+
+    /**
+     * Collects the conflicts of every element of the rename, and reads no interactive registration.
+     * <p>
+     * The outer class dispatches the conflicts of one element to the processor of that element, and it
+     * takes that processor from {@code renamePsiElementProcessor}. A caller with no user can leave that
+     * extension point empty, and the default processor collects no conflict. So this dispatches through
+     * {@link HeadlessRenamePsiElementProcessor} instead.
+     */
+    @Override
+    public void findExistingNameConflictsHeadless(@NotNull PsiElement element,
+                                                  @NotNull String newName,
+                                                  @NotNull MultiMap<PsiElement, @DialogMessage String> conflicts,
+                                                  @NotNull Map<PsiElement, String> allRenames) {
+      findExistingNameConflicts(conflicts, allRenames, HeadlessRenamePsiElementProcessor::processorOf);
+    }
   }
 }

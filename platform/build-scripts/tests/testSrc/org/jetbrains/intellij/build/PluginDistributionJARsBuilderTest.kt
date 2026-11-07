@@ -9,14 +9,39 @@ import org.jetbrains.intellij.build.impl.createBuildContext
 import org.jetbrains.intellij.build.impl.createIdeClassPath
 import org.jetbrains.intellij.build.impl.createPlatformLayout
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.Timeout
 
 class PluginDistributionJARsBuilderTest {
   @Test
+  @Timeout(30)
   @Suppress("DEPRECATION")
-  fun verifyStableClasspathOrder(): Unit = runBlocking(Dispatchers.Default) {
-    val context = createBuildContext(COMMUNITY_ROOT.communityRoot, RebasedProperties(COMMUNITY_ROOT.communityRoot))
-    val ideClasspath1 = createIdeClassPath(createPlatformLayout(context = context), context)
-    val ideClasspath2 = createIdeClassPath(createPlatformLayout(context = context), context)
-    assertThat(ideClasspath1).isEqualTo(ideClasspath2)
+  fun sourceLayoutDoesNotRegisterDistFiles() {
+    BuildLifetime().use { lifetime ->
+      val properties = object : RebasedProperties(COMMUNITY_ROOT.communityRoot) {
+        override fun registerDistFiles(context: BuildContext) {
+          error("Source layout must not register distribution files")
+        }
+      }
+      properties.productLayout.addPlatformSpec { layout ->
+        layout.withDistFiles(OsFamily.LINUX, JvmArchitecture.x64, testDistFileSpec("guard")) { error("Source layout must not register dist files") }
+      }
+      val context = createBuildContext(COMMUNITY_ROOT.communityRoot, properties, lifetime = lifetime)
+
+      val layout = createPlatformLayout(productProperties = properties, outputProvider = context.outputProvider)
+
+      assertThat(layout.includedModules).isNotEmpty()
+      assertThat(context.getDistFiles(os = null, arch = null, libcImpl = null)).isEmpty()
+    }
+  }
+
+  @Test
+  @Suppress("DEPRECATION")
+  fun verifyStableClasspathOrder(): Unit = BuildLifetime().use { lifetime ->
+    runBlocking(Dispatchers.Default) {
+      val context = createBuildContext(COMMUNITY_ROOT.communityRoot, RebasedProperties(COMMUNITY_ROOT.communityRoot), lifetime = lifetime)
+      val ideClasspath1 = createIdeClassPath(createPlatformLayout(context = context), context)
+      val ideClasspath2 = createIdeClassPath(createPlatformLayout(context = context), context)
+      assertThat(ideClasspath1).isEqualTo(ideClasspath2)
+    }
   }
 }

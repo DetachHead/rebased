@@ -26,6 +26,10 @@ sealed class ProjectViewPaneStateSerializableEvent : ProjectViewPaneStateEvent, 
 
 @ApiStatus.Internal
 @Serializable
+data object ProjectViewActivateStateEvent : ProjectViewPaneStateSerializableEvent()
+
+@ApiStatus.Internal
+@Serializable
 data object ProjectViewClearStateEvent : ProjectViewPaneStateSerializableEvent()
 
 @ApiStatus.Internal
@@ -93,6 +97,7 @@ data class ProjectViewChildRemoved(
 @Serializable
 data class ProjectViewSelectNodeEvent(
   val nodePath: ProjectViewNodePathImpl,
+  val requestFocus: Boolean,
 ) : ProjectViewPaneStateSerializableEvent()
 
 @ApiStatus.Internal

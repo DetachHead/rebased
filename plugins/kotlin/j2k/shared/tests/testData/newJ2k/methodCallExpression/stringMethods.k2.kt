@@ -142,6 +142,6 @@ internal class A {
         val order = java.lang.String.CASE_INSENSITIVE_ORDER
     }
 
-    fun useSplit(result: Array<String?>?) {
+    fun useSplit(result: Array<String?>) {
     }
 }

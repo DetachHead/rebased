@@ -10,7 +10,7 @@ internal class ArrayArgument {
         takesArray(array)
     }
 
-    private fun takesArray(array: Array<String>?) {
+    private fun takesArray(array: Array<String>) {
     }
 }
 

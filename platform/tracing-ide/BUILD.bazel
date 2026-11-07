@@ -1,3 +1,4 @@
+load("@community//platform/build-scripts/bazel-rules:ij_plugin.bzl", "ij_plugin")
 load("@rules_jvm//:jvm.bzl", "jvm_library")
 
 ### auto-generated section `build intellij.platform.tracing.ide` start
@@ -28,6 +29,7 @@ jvm_library(
         "//platform/tracing:tracing-rt",
         "//platform/lang-api:lang",
         "//java/compiler/impl",
+        "//platform/execution",
     ],
 )
 
@@ -51,7 +53,14 @@ jvm_library(
         "//platform/tracing:tracing-rt_test_lib",
         "//platform/lang-api:lang_test_lib",
         "//java/compiler/impl:impl_test_lib",
+        "//platform/execution:execution_test_lib",
     ],
+)
+
+ij_plugin(
+    name = "tracing-ide_plugin",
+    descriptor_module = ":tracing-ide",
+    visibility = ["//visibility:public"],
 )
 ### auto-generated section `build intellij.platform.tracing.ide` end
 

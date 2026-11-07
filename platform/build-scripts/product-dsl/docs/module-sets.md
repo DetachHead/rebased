@@ -19,6 +19,16 @@ Read [ADR 0005](../../../../../build/decisions/0005-a-library-copy-belongs-to-th
 for the decision, and [content-module-copy-conflict.md](validators/content-module-copy-conflict.md) for the rule
 that enforces the middle route.
 
+## A module set is the leaf, a fragment is the feature
+
+A module set groups platform content and the library wrappers that ship with it. A fragment
+(`productModules { }` plus `include()`) groups a feature: bundled plugins plus sets plus modules, which only
+the product builder can name. A library plugin is reserved for a fat, plugin-only library that a non-bundling
+product must be able to install. Do not add a module set for a group that one product uses.
+
+Read [ADR 0010](../../../../../build/decisions/0010-a-module-set-is-the-leaf-a-fragment-is-the-feature.md)
+for the decision and the rejected alternatives.
+
 ## How Module Sets Work
 
 Module sets are **defined in Kotlin code** and **auto-generate XML files**:
@@ -34,7 +44,8 @@ Module sets are **defined in Kotlin code** and **auto-generate XML files**:
 | Location | File Path | Description |
 |----------|-----------|-------------|
 | Community | `community/platform/build-scripts/src/org/jetbrains/intellij/build/productLayout/CommunityModuleSets.kt` | IDE feature sets (essential, vcs, xml, debugger) |
-| Community (Core) | `community/platform/build-scripts/src/org/jetbrains/intellij/build/productLayout/CoreModuleSets.kt` | Platform infrastructure (libraries, corePlatform, rpc) |
+| Community (Core) | `community/platform/build-scripts/src/org/jetbrains/intellij/build/productLayout/CoreModuleSets.kt` | Platform infrastructure (corePlatform, coreLang, rpc, telemetry) |
+| Community (Libraries) | `community/platform/build-scripts/src/org/jetbrains/intellij/build/productLayout/LibraryModuleSets.kt` | Library wrapper sets (libraries.platform, libraries.ide, libraries.grpc) |
 | Ultimate | `platform/buildScripts/src/productLayout/UltimateModuleSets.kt` | Ultimate-only module sets |
 
 Each module set is defined as a Kotlin function (e.g., `fun essential(): ModuleSet`) that returns a `ModuleSet` object. The XML files (pattern: `intellij.moduleSets.<name>.xml`) are **auto-generated** from this Kotlin code.
@@ -91,7 +102,6 @@ fun moduleSet(
   alias: String? = null,             // Optional: module alias (e.g., "com.intellij.modules.xml")
   outputModule: String? = null,      // Optional: module whose resources dir receives generated XML
   selfContained: Boolean = false,    // Optional: validate in isolation
-  includeDependencies: Boolean = false, // Optional: default for embedded modules
   block: ModuleSetBuilder.() -> Unit
 ): ModuleSet
 ```
@@ -135,7 +145,7 @@ Includes another module set. Creates hierarchical composition:
 fun ideCommon() = moduleSet("ide.common") {
   moduleSet(essential())  // Nest essential modules
   moduleSet(vcs())        // Nest VCS modules
-  moduleSet(xml())        // Nest XML modules
+  moduleSet(lsp())        // Nest LSP modules
 }
 ```
 
@@ -156,14 +166,14 @@ Generation intersects that build-time registry with each product's `ProductModul
 Generates a `<module value="..."/>` declaration in the XML, allowing plugins to depend on this module set as a module:
 
 ```kotlin
-fun xml() = moduleSet("xml", alias = "com.intellij.modules.xml") {
+fun featureX() = moduleSet("feature.x", alias = "com.intellij.modules.featureX") {
   // ...
 }
 ```
 
 Generated XML includes:
 ```xml
-<module value="com.intellij.modules.xml"/>
+<module value="com.intellij.modules.featureX"/>
 ```
 
 ### `outputModule` - Custom Output Location
@@ -190,17 +200,11 @@ fun corePlatform() = moduleSet("core.platform", selfContained = true) {
 
 Use for module sets designed to be standalone building blocks.
 
-### `includeDependencies` - Auto-Include Dependencies
+### A module reaches a product only as a content module
 
-When `true`, embedded modules in this set automatically include their implementation-only transitive dependencies:
-
-```kotlin
-fun essential() = moduleSet("essential", includeDependencies = true) {
-  embeddedModule("intellij.platform.core")  // Inherits includeDependencies=true
-}
-```
-
-See [programmatic-content.md](programmatic-content.md) for details on content vs implementation modules.
+The layout packs the modules the descriptor names and nothing else. A JPS module that a member needs at
+runtime is a content module of its own: give it a `<module>.xml` descriptor and list it in the set of its
+consumer. The generator then writes the `<dependencies>` edge, and the validators see the module.
 
 ## Real-World Examples
 
@@ -237,14 +241,11 @@ fun vcs(): ModuleSet = moduleSet("vcs") {
 
 ```kotlin
 /**
- * XML support modules.
+ * The feature X modules. Plugins depend on the alias, not on one member module.
  */
-fun xml(): ModuleSet = moduleSet("xml", alias = "com.intellij.modules.xml") {
-  embeddedModule("intellij.xml.dom")
-  embeddedModule("intellij.xml.psi")
-  embeddedModule("intellij.xml.psi.impl")
-  module("intellij.xml.emmet")
-  module("intellij.relaxng")
+fun featureX(): ModuleSet = moduleSet("feature.x", alias = "com.intellij.modules.featureX") {
+  embeddedModule("intellij.featureX")
+  module("intellij.featureX.impl")
   // ...
 }
 ```
@@ -261,8 +262,8 @@ fun librariesTestFrameworks(): ModuleSet = moduleSet("libraries.testFrameworks")
   requiredModule("intellij.libraries.assertj.core")
   requiredModule("intellij.libraries.hamcrest")
   requiredModule("intellij.libraries.junit4")
-  requiredModule("intellij.libraries.junit5")
-  requiredModule("intellij.libraries.junit5.jupiter")
+  requiredModule("intellij.libraries.junit6")
+  requiredModule("intellij.libraries.junit6.jupiter")
 }
 ```
 
@@ -272,10 +273,11 @@ fun librariesTestFrameworks(): ModuleSet = moduleSet("libraries.testFrameworks")
 /**
  * Essential platform modules required by most IDE products.
  */
-fun essential(): ModuleSet = moduleSet("essential", includeDependencies = true) {
-  // Include minimal essential modules
-  moduleSet(essentialMinimal())
-  moduleSet(debugger())
+fun essential(): ModuleSet = moduleSet("essential") {
+  // Include coreLang and the feature sets (splitCore, editor, find, and others)
+  moduleSet(coreLang())
+  moduleSet(splitCore())
+  moduleSet(editor())
 
   // Embedded modules (core classloader)
   embeddedModule("intellij.platform.scopes")
@@ -293,13 +295,61 @@ fun essential(): ModuleSet = moduleSet("essential", includeDependencies = true) 
 
 ## Creating a New Module Set
 
-See `/create-module-set` slash command for detailed instructions on creating a new module set.
+A module set is a Kotlin function. The generator writes the XML from it. Never write the XML by hand.
+Read the two decision sections above before you add a set.
 
-**Quick checklist:**
-1. Add function to appropriate file (`CommunityModuleSets.kt` or `UltimateModuleSets.kt`)
-2. Write comprehensive KDoc (see existing examples)
-3. Run `bazel run //platform/buildScripts:plugin-model-tool` to create XML, or the "Generate Product Layouts" run configuration
-4. Reference from products via `moduleSet(yourSet())`
+1. Add a public function that returns `ModuleSet` to the provider object. Pick the file from
+   [Module Set Locations](#module-set-locations). The generator finds the function by reflection.
+   A private function or another return type is not found.
+
+   ```kotlin
+   /**
+    * What the set holds. Which set nests it. Which lean product adds it itself.
+    */
+   fun externalSystem(): ModuleSet = moduleSet("externalSystem") {
+     module("intellij.platform.externalSystem")
+     embeddedModule("intellij.platform.example")  // only for a module that the core classloader must load
+     moduleSet(otherSet())                        // nest a set instead of repeating its modules
+   }
+   ```
+
+   Name the set after the function. Pass `alias` only when a plugin must depend on the set as a module.
+   An alias must be unique.
+
+2. Reference the set. Call `moduleSet(yourSet())` in the set that nests it, or
+   `moduleSet(CommunityModuleSets.yourSet())` in `getProductContentDescriptor()` of each product that needs it.
+   Remove the modules from every place that listed them directly. A module reaches a product once.
+
+3. Regenerate from the repository root. The first generator run writes the new XML. The converter then adds
+   it to the `exports_files` list of its `BUILD.bazel`. The second generator run reads that export into the
+   dev-dist descriptor files. The check fails without the second run.
+
+   ```bash
+   bazel run //platform/buildScripts:plugin-model-tool
+   ./build/jpsModelToBazel.cmd
+   bazel run //platform/buildScripts:plugin-model-tool
+   bazel run //platform/buildScripts:plugin-model-tool -- --check
+   bazel run //:format.check
+   (cd community && bazel run //:format.check)
+   ```
+
+   The generator writes `intellij.moduleSets.<name>.xml` under `community/platform/platform-resources/generated/META-INF/`,
+   or under `licenseCommon/generated/META-INF/` for an ultimate set. It also writes the product descriptors and
+   the dev-dist `.bzl` files. Read `git status`. Every changed file must be one you expected. Stop on a surprise.
+
+4. Run the tests:
+
+   ```bash
+   ./tests.cmd --module intellij.platform.buildScripts.productDsl.tests --test "org.jetbrains.intellij.build.productLayout.*"
+   ```
+
+5. Commit the Kotlin edit and the generated output together.
+
+Do not:
+
+- edit a generated `intellij.moduleSets.*.xml`, a product descriptor, or a `dev_dist_*.bzl` file by hand;
+- add a `module-content.yaml`, because the generator derives the jar of a content module;
+- add an `xi:include` for a module set by hand, because the generator writes it from `moduleSet()`.
 
 ## Discovering Available Module Sets
 
@@ -343,7 +393,7 @@ Don't create a module set if:
 ### Naming Conventions
 
 - Use **functional names** that describe what the modules do: `vcs`, `xml`, `ssh`, `essential`
-- Use **dot notation** for hierarchical relationships: `libraries.core`, `ide.common`, `essential.minimal`
+- Use **dot notation** for hierarchical relationships: `libraries.core`, `ide.common`, `split.core`
 - Avoid **product names** in module set names (sets should be reusable)
 - Keep names **concise** and **memorable**
 
@@ -353,8 +403,7 @@ Module sets can:
 - **Include individual modules**: `module("intellij.platform.vcs.impl")`
 - **Nest other module sets**: `moduleSet(corePlatform())`
 - **Use embedded loading**: `embeddedModule("intellij.platform.core")` for core classloader
-- **Use required loading**: `requiredModule("intellij.libraries.junit5")` for test frameworks
-- **Include dependencies**: `includeDependencies = true` to automatically pull in module dependencies
+- **Use required loading**: `requiredModule("intellij.libraries.junit6")` for test frameworks
 
 **Tip**: Prefer nesting existing module sets over duplicating modules. This creates a clean hierarchy and ensures consistency.
 

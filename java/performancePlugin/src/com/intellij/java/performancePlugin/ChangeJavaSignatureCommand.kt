@@ -64,7 +64,7 @@ class ChangeJavaSignatureCommand(text: String, line: Int) : PlaybackCommandCorou
 
     val editor = readAction {
       val fileEditorManager = FileEditorManager.getInstance(context.project)
-      fileEditorManager.selectedTextEditor ?: fileEditorManager.getAllEditors().firstNotNullOfOrNull { it as TextEditor }?.editor
+      fileEditorManager.selectedTextEditor ?: fileEditorManager.allEditors.firstNotNullOfOrNull { it as TextEditor }?.editor
     } ?: throw IllegalArgumentException("Couldn't get text editor")
 
 

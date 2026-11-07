@@ -10,8 +10,8 @@ import org.jetbrains.plugins.groovy.util.TestUtils;
  */
 public class GrDocCompletionTest extends GroovyCompletionTestBase {
   @Override
-  protected String getBasePath() {
-    return TestUtils.getTestDataPath() + "groovy/completion/gdoc";
+  protected String getTestDataPath() {
+    return TestUtils.getAbsoluteTestDataPath() + "groovy/completion/gdoc";
   }
 
   public void testLinkCompletion() { doBasicTest(); }

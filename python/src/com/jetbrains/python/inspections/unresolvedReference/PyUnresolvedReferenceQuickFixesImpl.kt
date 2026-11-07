@@ -4,11 +4,9 @@ package com.jetbrains.python.inspections.unresolvedReference
 import com.intellij.codeInspection.LocalQuickFix
 import com.intellij.ide.projectView.actions.MarkRootsManager
 import com.intellij.lang.injection.InjectedLanguageManager
-import com.intellij.openapi.components.service
 import com.intellij.openapi.module.Module
 import com.intellij.openapi.module.ModuleUtilCore
 import com.intellij.openapi.project.Project
-import com.intellij.openapi.projectRoots.Sdk
 import com.intellij.openapi.roots.ModuleRootManager
 import com.intellij.openapi.util.registry.Registry
 import com.intellij.openapi.vfs.VirtualFile
@@ -19,8 +17,10 @@ import com.intellij.psi.search.FilenameIndex
 import com.intellij.psi.search.GlobalSearchScope
 import com.intellij.psi.util.PsiTreeUtil
 import com.intellij.psi.util.QualifiedName
-import com.intellij.python.externalIndex.PyExternalFilesIndexService
 import com.intellij.python.pyproject.model.api.isPyProjectTomlBased
+import com.intellij.python.pyproject.model.evolution.findEvoPyProjectIfReady
+import com.intellij.python.sdk.backend.PythonInterpreter
+import com.intellij.python.sdk.backend.getSdkAPI
 import com.intellij.util.containers.ContainerUtil
 import com.jetbrains.python.PyNames
 import com.jetbrains.python.PyPsiPackageUtil
@@ -54,7 +54,6 @@ import com.jetbrains.python.psi.impl.references.PyImportReference
 import com.jetbrains.python.psi.resolve.fromModule
 import com.jetbrains.python.psi.resolve.resolveInRoot
 import com.jetbrains.python.sdk.isReadOnly
-import com.jetbrains.python.sdk.legacy.PythonSdkUtil
 import org.jetbrains.annotations.ApiStatus
 
 @ApiStatus.Internal
@@ -83,18 +82,15 @@ object PyUnresolvedReferenceQuickFixesImpl : PyUnresolvedReferenceQuickFixes {
     }
     val packageName = PyPsiPackageUtil.moduleToPackageName(components[0])
 
-    val project = node.project
-    val module = ModuleUtilCore.findModuleForPsiElement(node)
-    val sdk = PythonSdkUtil.findPythonSdk(module)
-              ?: project.service<PyExternalFilesIndexService>().findSdkForExternallyIndexedFile(node.containingFile.virtualFile)
-    if (sdk == null || !PyPackageUtil.packageManagementEnabled(sdk, false, true)) {
+    val interpreter = node.findEvoPyProjectIfReady(mainForOrphans = false)?.interpreter
+    @Suppress("DEPRECATION")
+    if (interpreter == null || !PyPackageUtil.packageManagementEnabled(interpreter.getSdkAPI(), false, true)) {
       return emptyList()
     }
 
+    val packageManager = PythonPackageManager.forPythonInterpreter(node.project, interpreter)
 
-    val packageManager = PythonPackageManager.forSdk(project, sdk)
-
-    val shouldBeSuggest = !sdk.isReadOnly && packageManager.isNotInstalledAndCanBeInstalled(packageName)
+    val shouldBeSuggest = !interpreter.isReadOnly && packageManager.isNotInstalledAndCanBeInstalled(packageName)
     if (!shouldBeSuggest)
       return emptyList()
     return listOfNotNull(InstallPackageQuickFix(packageName))
@@ -232,12 +228,12 @@ object PyUnresolvedReferenceQuickFixesImpl : PyUnresolvedReferenceQuickFixes {
     }
 
     val referencedName = if (node is PyReferenceExpression && !node.isQualified) node.referencedName else null
-    val pythonSdk = PythonSdkUtil.findPythonSdk(node)
-    if (referencedName != null && pythonSdk != null) {
-      ContainerUtil.addIfNotNull(result, createInstallAndImportQuickFix(node.project, pythonSdk, referencedName, null))
+    val interpreter = node.findEvoPyProjectIfReady(mainForOrphans = false)?.interpreter
+    if (referencedName != null && interpreter != null) {
+      ContainerUtil.addIfNotNull(result, createInstallAndImportQuickFix(node.project, interpreter, referencedName, null))
       val realPackageName = PY_COMMON_IMPORT_ALIASES[referencedName]
       if (realPackageName != null) {
-        ContainerUtil.addIfNotNull(result, createInstallAndImportQuickFix(node.project, pythonSdk, realPackageName, referencedName))
+        ContainerUtil.addIfNotNull(result, createInstallAndImportQuickFix(node.project, interpreter, realPackageName, referencedName))
       }
     }
 
@@ -245,14 +241,13 @@ object PyUnresolvedReferenceQuickFixesImpl : PyUnresolvedReferenceQuickFixes {
   }
 
   override fun getPluginQuickFixes(fixes: MutableList<LocalQuickFix>, reference: PsiReference) {
-    for (provider in PyUnresolvedReferenceQuickFixProvider.EP_NAME.extensionList) {
-      provider.registerQuickFixes(reference, fixes)
-    }
+    PyUnresolvedReferenceQuickFixProvider.EP_NAME.forEachExtensionSafe { it.registerQuickFixes(reference, fixes) }
   }
 
-  private fun createInstallAndImportQuickFix(project: Project, pythonSdk: Sdk, importedModuleName: String, asName: String?): LocalQuickFix? {
+  private fun createInstallAndImportQuickFix(project: Project, interpreter: PythonInterpreter, importedModuleName: String, asName: String?): LocalQuickFix? {
     val packageName = PyPsiPackageUtil.moduleToPackageName(importedModuleName)
-    val canBeInstalled = !pythonSdk.isReadOnly && PythonPackageManager.forSdk(project, pythonSdk).isNotInstalledAndCanBeInstalled(packageName)
+    val canBeInstalled = !interpreter.isReadOnly &&
+                         PythonPackageManager.forPythonInterpreter(project, interpreter).isNotInstalledAndCanBeInstalled(packageName)
     return if (canBeInstalled)
         InstallAndImportPackageQuickFix(importedModuleName, asName)
     else

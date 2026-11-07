@@ -10,12 +10,14 @@ import com.intellij.psi.GenericsUtil;
 import com.intellij.psi.JavaResolveResult;
 import com.intellij.psi.PsiCapturedWildcardType;
 import com.intellij.psi.PsiClassType;
+import com.intellij.psi.PsiConditionalExpression;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiExpression;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.PsiJavaFile;
 import com.intellij.psi.PsiMethod;
 import com.intellij.psi.PsiMethodCallExpression;
+import com.intellij.psi.PsiPatternVariable;
 import com.intellij.psi.PsiSubstitutor;
 import com.intellij.psi.PsiType;
 import com.intellij.psi.PsiTypes;
@@ -577,6 +579,46 @@ public final class PsiTypeNullabilityTest extends LightJavaCodeInsightFixtureTes
     return ((PsiCapturedWildcardType)argument).getUpperBound().getNullability().nullability();
   }
 
+  public void testCaptureInMethodReference() {
+    setupJSpecifyAnnotations();
+    PsiFile file = myFixture.configureByText("Test.java", """
+      import org.jspecify.annotations.NullMarked;
+
+      @NullMarked
+      class Test {
+        interface Sup<T> {
+          T get();
+        }
+
+        interface Box<V> {}
+
+        static class Src<T> {
+          void to(Object target) {}
+        }
+
+        static class Mapper {
+          <T> Src<T> from(T value) { return new Src<>(); }
+
+          <T> Src<T> from(Sup<? extends T> supplier) { return new Src<>(); }
+        }
+
+        static class Props {
+          Box<?> getKeySerializer() { return null; }
+        }
+
+        void test(Mapper map, Props props) {
+          map.from(props::getKeySerializer).to("x");
+        }
+      }
+      """);
+    List<PsiMethodCallExpression> calls = new ArrayList<>(PsiTreeUtil.findChildrenOfType(file, PsiMethodCallExpression.class));
+    PsiMethodCallExpression outerCall = calls.getFirst();
+    assertEquals("to", outerCall.getMethodExpression().getReferenceName());
+    PsiMethod resolved = outerCall.resolveMethod();
+    assertNotNull(resolved);
+    assertEquals("to", resolved.getName());
+  }
+
   public void testInstantiateWithNullable() {
     addJSpecifyNullMarked(myFixture);
     setupTypeUseAnnotations("org.jspecify.annotations", myFixture);
@@ -696,6 +738,155 @@ public final class PsiTypeNullabilityTest extends LightJavaCodeInsightFixtureTes
     // The @Nullable bound alone does not make the return type nullable: T is instantiated with the non-null Base
     assertEquals("NOT_NULL (@NullMarked on class Sample)", argumentNullabilityOf(calls.get(1)));
     assertEquals("NOT_NULL (@NullMarked on class Sample)", parameterNullabilityOf(calls.get(1)));
+  }
+
+  /**
+   * The not-null usage of a type variable in a return type must reach the type parameter of the
+   * enclosing call, whose type argument is inferred from that return type.
+   */
+  public void testNotNullTypeArgumentOfNestedCall() {
+    addJSpecifyNullMarked(myFixture);
+    setupTypeUseAnnotations("org.jspecify.annotations", myFixture);
+    PsiFile file = myFixture.configureByText("Test.java", """
+      import org.jspecify.annotations.NotNull;
+      import org.jspecify.annotations.NullMarked;
+      import org.jspecify.annotations.Nullable;
+
+      @NullMarked
+      class Sample {
+        interface Box<T extends @Nullable Object> {}
+
+        static <A extends @Nullable Object> Box<@NotNull A> notNullBox(A a) { return null; }
+
+        static <A extends @Nullable Object> Box<A> box(A a) { return null; }
+
+        static <B extends @Nullable Object> Box<B> concat(Box<? extends B> a, Box<? extends B> b) { return null; }
+
+        static void test(Integer x, @Nullable Integer y) {
+          concat(notNullBox(x), notNullBox(y));
+          concat(box(x), box(y));
+        }
+      }
+      """);
+    List<PsiMethodCallExpression> calls = new ArrayList<>();
+    PsiTreeUtil.processElements(file, PsiMethodCallExpression.class, call -> {
+      if ("concat".equals(call.getMethodExpression().getReferenceName())) calls.add(call);
+      return true;
+    });
+    assertEquals(2, calls.size());
+    assertEquals(Nullability.NOT_NULL, typeArgumentNullabilityOf(calls.get(0)));
+    assertEquals(Nullability.NULLABLE, typeArgumentNullabilityOf(calls.get(1)));
+  }
+
+  /**
+   * The least upper bound of two equal intersection types joins the nullability of the arguments,
+   * so the order of the conditional branches does not change the result.
+   */
+  public void testIntersectionTypeLeastUpperBound() {
+    addJSpecifyNullMarked(myFixture);
+    setupTypeUseAnnotations("org.jspecify.annotations", myFixture);
+    PsiFile file = myFixture.configureByText("Test.java", """
+      import org.jspecify.annotations.NullMarked;
+      import org.jspecify.annotations.Nullable;
+
+      @NullMarked
+      class Sample {
+        interface A {}
+        interface B {}
+
+        static <T extends A & B> T notNull() { return null; }
+        static <T extends @Nullable A & @Nullable B> @Nullable T nullable() { return null; }
+
+        void test(boolean flag) {
+          var notNullFirst = flag ? notNull() : nullable();
+          var nullableFirst = flag ? nullable() : notNull();
+        }
+      }
+      """);
+    List<PsiConditionalExpression> conditionals =
+      new ArrayList<>(PsiTreeUtil.findChildrenOfType(file, PsiConditionalExpression.class));
+    assertEquals(2, conditionals.size());
+    for (PsiConditionalExpression conditional : conditionals) {
+      PsiType type = conditional.getType();
+      assertNotNull(type);
+      assertEquals(conditional.getText(), "NULLABLE (@Nullable)", type.getNullability().toString());
+    }
+  }
+
+  /**
+   * A nullability written on a pattern type is ignored, so the container does not reach the pattern variable.
+   */
+  public void testPatternVariableIgnoresContainer() {
+    setupJSpecifyAnnotations();
+    assertEquals("UNKNOWN (NONE)", patternVariableNullability("""
+      import org.jspecify.annotations.NullMarked;
+
+      @NullMarked
+      class A {
+        void test(Object o) {
+          if (o instanceof String s) {}
+        }
+      }
+      """));
+  }
+
+  /**
+   * A nullability written on a pattern type is ignored, and the not-null context type supplies one instead.
+   */
+  public void testPatternVariableTakesContextNullability() {
+    setupJSpecifyAnnotations();
+    assertEquals("NOT_NULL (@NullMarked on class A)", patternVariableNullability("""
+      import org.jspecify.annotations.NullMarked;
+      import org.jspecify.annotations.Nullable;
+
+      @NullMarked
+      class A {
+        interface Foo<T extends @Nullable Object> {}
+        record FooInner<T extends @Nullable Object>(T value) implements Foo<T> {}
+
+        void test(Foo<String> foo) {
+          if (foo instanceof FooInner<String>(String s)) {}
+        }
+      }
+      """));
+  }
+
+  /**
+   * The written type argument of the pattern says not-null, but a pattern cannot check that, so the nullable context wins.
+   */
+  public void testPatternVariableTakesNullableContextNullability() {
+    setupJSpecifyAnnotations();
+    assertEquals("NULLABLE (@Nullable)", patternVariableNullability("""
+      import org.jspecify.annotations.NullMarked;
+      import org.jspecify.annotations.Nullable;
+
+      @NullMarked
+      class A {
+        interface Foo<T extends @Nullable Object> {}
+        record FooInner<T extends @Nullable Object>(T value) implements Foo<T> {}
+
+        void test(Foo<@Nullable String> foo) {
+          if (foo instanceof FooInner<String>(String s)) {}
+        }
+      }
+      """));
+  }
+
+  /**
+   * @param code code with exactly one pattern variable
+   * @return the nullability of the type of that pattern variable
+   */
+  private @NotNull String patternVariableNullability(@Language("JAVA") @NotNull String code) {
+    PsiFile file = myFixture.configureByText("Test.java", code);
+    PsiPatternVariable variable = PsiTreeUtil.findChildOfType(file, PsiPatternVariable.class);
+    assertNotNull(variable);
+    return variable.getType().getNullability().toString();
+  }
+
+  private static @NotNull Nullability typeArgumentNullabilityOf(@NotNull PsiMethodCallExpression call) {
+    PsiClassType type = (PsiClassType)call.getType();
+    assertNotNull(type);
+    return type.getParameters()[0].getNullability().nullability();
   }
 
   private static @NotNull String argumentNullabilityOf(@NotNull PsiMethodCallExpression call) {

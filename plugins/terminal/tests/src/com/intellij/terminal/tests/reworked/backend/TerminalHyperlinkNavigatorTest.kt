@@ -20,6 +20,7 @@ import kotlinx.coroutines.Dispatchers
 import org.assertj.core.api.Assertions.assertThat
 import org.jetbrains.plugins.terminal.hyperlinks.TerminalHyperlinkNavigator
 import org.junit.jupiter.api.Test
+import java.util.concurrent.CompletableFuture
 
 @TestApplication
 internal class TerminalHyperlinkNavigatorTest {
@@ -59,6 +60,12 @@ private class RecordingNavigationService : NavigationService {
     private set
   var navigatableCalls: Int = 0
     private set
+
+  override fun requestNavigate(navigatable: Navigatable, options: NavigationOptions): CompletableFuture<Boolean> =
+    error("Unexpected navigation submission")
+
+  override fun requestNavigate(request: NavigationRequest, options: NavigationOptions): CompletableFuture<Boolean> =
+    error("Unexpected navigation submission")
 
   override suspend fun navigate(request: NavigationRequest, options: NavigationOptions): Boolean {
     requestCalls++

@@ -10,8 +10,8 @@ import java.util.Iterator;
 
 public class FormatterTest extends GroovyFormatterTestCase {
   @Override
-  public final String getBasePath() {
-    return TestUtils.getTestDataPath() + "groovy/formatter/";
+  public final String getTestDataPath() {
+    return TestUtils.getAbsoluteTestDataPath() + "groovy/formatter/";
   }
 
   public void testAdding1() { doTest(); }

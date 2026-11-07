@@ -27,7 +27,7 @@ import com.intellij.openapi.util.io.FileUtil.namesEqual
 import com.intellij.openapi.util.io.FileUtil.toSystemDependentName
 import com.intellij.openapi.util.text.StringUtil
 import com.intellij.openapi.vfs.VfsUtil
-import com.intellij.platform.eel.annotations.NativePath
+import com.intellij.platform.util.annotations.paths.OsPath
 import com.intellij.platform.eel.provider.asEelPath
 import com.intellij.platform.eel.provider.getEelDescriptor
 import com.intellij.platform.eel.provider.toEelApi
@@ -120,7 +120,7 @@ class MavenCommandLineSetup(
   }
 
   private fun setupTargetJavaRuntime(runnerSettings: MavenRunnerSettings) {
-    @NativePath
+    @OsPath
     var targetJavaHome: String? = null
     if (runnerSettings.jreName != MavenRunnerSettings.USE_PROJECT_JDK) {
       val jdkPath = ProjectJdkTable.getInstance(project)
@@ -151,7 +151,7 @@ class MavenCommandLineSetup(
     return true
   }
 
-  private suspend fun calculateTargetJavaHome(): @NativePath String? {
+  private suspend fun calculateTargetJavaHome(): @OsPath String? {
     val descriptor = project.getEelDescriptor()
     val eel = descriptor.toEelApi()
     val targetEnv = eel.exec.fetchLoginShellEnvVariables()
@@ -352,5 +352,5 @@ class MavenCommandLineSetup(
     val setupKey = Key.create<MavenCommandLineSetup>("org.jetbrains.idea.maven.execution.target.MavenCommandLineSetup")
   }
 
-  private fun @NativePath String.asTargetPathString(): String = Path.of(this).asEelPath().toString()
+  private fun @OsPath String.asTargetPathString(): String = Path.of(this).asEelPath().toString()
 }

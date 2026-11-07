@@ -47,8 +47,8 @@ public class ReferenceCompletionTest extends CompletionTestBase {
   public void testUntyped() { doTest(); }
 
   @Override
-  protected String getBasePath() {
-    return TestUtils.getTestDataPath() + "groovy/oldCompletion/reference";
+  protected String getTestDataPath() {
+    return TestUtils.getAbsoluteTestDataPath() + "groovy/oldCompletion/reference";
   }
 
   @Override

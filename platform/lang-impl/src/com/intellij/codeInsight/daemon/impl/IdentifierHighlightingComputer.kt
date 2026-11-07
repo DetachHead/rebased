@@ -2,11 +2,13 @@
 package com.intellij.codeInsight.daemon.impl
 
 import com.intellij.codeInsight.TargetElementUtil
+import com.intellij.codeInsight.daemon.impl.IdentifierHighlightingComputer.Companion.findTarget
 import com.intellij.codeInsight.daemon.impl.IdentifierHighlightingResult.Companion.EMPTY_RESULT
 import com.intellij.codeInsight.highlighting.CodeBlockSupportHandler
 import com.intellij.codeInsight.highlighting.HighlightUsagesHandler
 import com.intellij.codeInsight.highlighting.ReadWriteAccessDetector
 import com.intellij.codeInsight.highlighting.getUsageRanges
+import com.intellij.codeInsight.multiverse.EditorContextManager
 import com.intellij.find.FindManager
 import com.intellij.find.impl.FindManagerImpl
 import com.intellij.inlinePrompt.isInlinePromptShown
@@ -22,7 +24,6 @@ import com.intellij.openapi.project.IndexNotReadyException
 import com.intellij.openapi.util.ProperTextRange
 import com.intellij.openapi.util.Segment
 import com.intellij.openapi.util.TextRange
-import com.intellij.psi.PsiDocumentManager
 import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiFile
 import com.intellij.psi.PsiReference
@@ -57,8 +58,8 @@ class IdentifierHighlightingComputer(
     myEnabled = !highlightSelectionOccurrences || !model.getPrimaryCaret().hasSelection()
   }
 
-  @RequiresReadLock
-  @RequiresBackgroundThread
+  @RequiresReadLock(generateAssertion = false /* IJPL-115548 */)
+  @RequiresBackgroundThread(generateAssertion = false /* IJPL-115548 */)
   @ApiStatus.Internal
   fun computeRanges(): IdentifierHighlightingResult {
     ThreadingAssertions.assertBackgroundThread()
@@ -158,8 +159,14 @@ class IdentifierHighlightingComputer(
    * true if the [contextElement] can be an identifier highlighting target, i.e. if the caret is inside this element then [computeRanges].myTargets should be added to the editor markup
    *
    * it just checks that the symbols under all offsets in this identifier are the same
+   *
+   * a whole-file element is never a target. A file with no fine-grained PSI has one leaf which spans the whole file,
+   * and then the check costs one symbol resolution per character. [findTarget] applies the same rule.
    */
   private fun isCacheableTarget(contextElement: PsiElement): Boolean {
+    if (contextElement.textRange == myPsiFile.textRange) {
+      return false
+    }
     val textRange = contextElement.textRange
     var reference: PsiReference? = null
     var objs: Collection<Any>? = null
@@ -263,7 +270,7 @@ class IdentifierHighlightingComputer(
       logIndexNotReadyException(e)
     }
     val injectedEditor = InjectedLanguageUtil.getEditorForInjectedLanguageNoCommit(myEditor, myPsiFile, myCaretOffset)
-    val injectedFile = PsiDocumentManager.getInstance(myPsiFile.getProject()).getPsiFile(injectedEditor!!.getDocument())
+    val injectedFile = EditorContextManager.getPsiFileForEditor(injectedEditor!!, myPsiFile.getProject())
     if (injectedFile == null || injectedFile === myPsiFile) {
       return listOf()
     }

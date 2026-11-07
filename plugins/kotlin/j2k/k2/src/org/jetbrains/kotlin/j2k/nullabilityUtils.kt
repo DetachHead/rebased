@@ -11,6 +11,7 @@ import com.intellij.openapi.util.Key
 import com.intellij.psi.PsiExpression
 import com.intellij.psi.PsiJavaCodeReferenceElement
 import com.intellij.psi.PsiMethod
+import com.intellij.psi.PsiModifierListOwner
 import com.intellij.psi.PsiPrimitiveType
 import com.intellij.psi.PsiReferenceExpression
 import com.intellij.psi.PsiType
@@ -80,6 +81,12 @@ internal fun getExpressionDfaNullability(expr: PsiExpression): DfaNullability? {
     if (dfType !is DfReferenceType) return null
     return dfType.getNullability()
 }
+
+// JPA returns an empty collection for a to-many relationship, so neither the collection nor its elements can be null
+private val TO_MANY_ANNOTATIONS: Set<String> = jpaAnnotations("OneToMany", "ManyToMany")
+
+internal fun isJpaToManyDeclaration(owner: PsiModifierListOwner): Boolean =
+    owner.modifierList?.annotations.orEmpty().any { it.qualifiedName in TO_MANY_ANNOTATIONS }
 
 // This function should not be called very often, but the computation is expensive, so it's better to cache it anyway
 internal fun getMethodNullabilityByDfa(method: PsiMethod): Nullability {

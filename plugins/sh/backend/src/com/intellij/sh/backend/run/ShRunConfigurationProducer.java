@@ -4,6 +4,7 @@ package com.intellij.sh.backend.run;
 import com.intellij.execution.actions.ConfigurationContext;
 import com.intellij.execution.actions.LazyRunConfigurationProducer;
 import com.intellij.execution.configurations.ConfigurationFactory;
+import com.intellij.ide.TrustedFiles;
 import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.Ref;
 import com.intellij.openapi.vfs.VirtualFile;
@@ -18,7 +19,7 @@ import com.intellij.sh.run.ShRunConfiguration;
 import com.intellij.testFramework.LightVirtualFile;
 import org.jetbrains.annotations.NotNull;
 
-import static com.intellij.sh.backend.run.ShRunFileAction.parseInterpreterAndOptions;
+import static com.intellij.sh.parser.ShShebangParserUtil.parseInterpreterAndOptions;
 
 final class ShRunConfigurationProducer extends LazyRunConfigurationProducer<ShRunConfiguration> {
   @Override
@@ -36,6 +37,7 @@ final class ShRunConfigurationProducer extends LazyRunConfigurationProducer<ShRu
     if (viewProvider instanceof MultiplePsiFilesPerDocumentFileViewProvider) return false;
     VirtualFile virtualFile = psiFile.getVirtualFile();
     if (virtualFile == null || virtualFile instanceof LightVirtualFile) return false;
+    if (!TrustedFiles.isTrusted(virtualFile, psiFile.getProject())) return false;
 
     String defaultShell = ShConfigurationType.getDefaultShell(psiFile.getProject());
     String shebang = ShShebangParserUtil.getShebangExecutable((ShFile)psiFile);

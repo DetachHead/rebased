@@ -20,8 +20,8 @@ public class InferMethodParametersTypesIntentionTest extends GrIntentionTestCase
   }
 
   @Override
-  public final String getBasePath() {
-    return TestUtils.getTestDataPath() + "refactoring/inferMethodParametersTypes";
+  public final String getTestDataPath() {
+    return TestUtils.getAbsoluteTestDataPath() + "refactoring/inferMethodParametersTypes";
   }
 
   @Override

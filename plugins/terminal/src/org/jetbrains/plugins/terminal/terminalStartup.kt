@@ -1,9 +1,12 @@
-// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.plugins.terminal
 
+import com.intellij.diagnostic.PluginException
+import com.intellij.diagnostic.rethrowControlFlowException
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.progress.runBlockingMaybeCancellable
+import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.io.OSAgnosticPathUtil
 import com.intellij.openapi.util.registry.Registry
 import com.intellij.platform.eel.EelApi
@@ -14,6 +17,7 @@ import com.intellij.platform.eel.EelExecWindowsApi
 import com.intellij.platform.eel.EelPlatform
 import com.intellij.platform.eel.EelProcess
 import com.intellij.platform.eel.ExecuteProcessException
+import com.intellij.platform.eel.convertToJVMProcess
 import com.intellij.platform.eel.environmentVariables
 import com.intellij.platform.eel.isPosix
 import com.intellij.platform.eel.path.EelPath
@@ -30,9 +34,9 @@ import com.intellij.util.system.LowLevelLocalMachineAccess
 import com.intellij.util.system.OS
 import com.jediterm.core.util.TermSize
 import com.jediterm.terminal.TtyConnector
-import com.pty4j.PtyProcess
 import org.jetbrains.plugins.terminal.startup.ShellExecCommand
 import org.jetbrains.plugins.terminal.startup.ShellExecCommandImpl
+import org.jetbrains.plugins.terminal.startup.TerminalWorkingDirectoryCustomizer
 import org.jetbrains.plugins.terminal.startup.WslShellExecCommand
 import org.jetbrains.plugins.terminal.util.ShellNameUtil
 import java.nio.file.Path
@@ -245,13 +249,35 @@ internal fun getUserHomePathBlocking(eelDescriptor: EelDescriptor): Path {
   }
 }
 
+internal fun getContextualStartWorkingDirectoryBlocking(project: Project): String? {
+  return runBlockingMaybeCancellable {
+    for (customizer in TerminalWorkingDirectoryCustomizer.EP_NAME.extensionList) {
+      try {
+        val dir = customizer.getContextualStartWorkingDirectory(project)
+        if (dir != null) {
+          return@runBlockingMaybeCancellable dir.toString()
+        }
+      }
+      catch (e: Throwable) {
+        rethrowControlFlowException(e)
+        log.error(PluginException.createByClass(
+          "Exception during getting contextual start directory by ${customizer::class.java}",
+          e,
+          customizer::class.java
+        ))
+      }
+    }
+    null
+  }
+}
+
 internal class ShellProcessHolder(
   val eelProcess: EelProcess,
   val eelApi: EelApi,
 ) {
   val isPosix: Boolean get() = eelApi.platform.isPosix
 
-  val ptyProcess: PtyProcess = eelProcess.convertToJavaProcess() as PtyProcess
+  val ptyProcess: Process = eelProcess.convertToJVMProcess()
 
   val descriptor: EelDescriptor get() = eelApi.descriptor
 }

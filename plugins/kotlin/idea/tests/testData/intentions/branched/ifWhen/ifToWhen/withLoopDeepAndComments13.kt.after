@@ -22,10 +22,12 @@ fun test() {
                         // Comment 7
                         break@loop2
                     }
+
                     i > 5 -> {
                         // Comment 8
                         i.hashCode()
                     }
+
                     else -> {
                         // Comment 9
                         continue@loop2

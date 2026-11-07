@@ -16,40 +16,22 @@
 package com.intellij.terminal.tests.reworked.hyperlinks
 
 import com.intellij.execution.filters.Filter
-import com.intellij.execution.filters.OpenFileHyperlinkInfo
 import com.intellij.openapi.project.Project
-import com.intellij.openapi.vfs.LocalFileSystem
-import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.platform.eel.path.EelPath
-import com.intellij.platform.eel.provider.LocalEelDescriptor
 import com.intellij.terminal.backend.hyperlinks.TerminalHyperlinkFilterContextImpl
+import com.intellij.terminal.backend.hyperlinks.filter.FILENAME_MAX
+import com.intellij.terminal.backend.hyperlinks.filter.TerminalFileKind
+import com.intellij.terminal.backend.hyperlinks.filter.TerminalGenericFileFilter
 import org.apache.commons.lang3.RandomStringUtils
 import org.assertj.core.api.Assertions
-import org.jetbrains.plugins.terminal.hyperlinks.filter.FILENAME_MAX
-import org.jetbrains.plugins.terminal.hyperlinks.filter.TerminalGenericFileFilter
-import org.junit.Before
+import org.jetbrains.plugins.terminal.hyperlinks.TerminalFileHyperlinkInfo
 import org.junit.Test
-import org.mockito.Mockito
 import org.mockito.Mockito.mock
-import org.mockito.kotlin.eq
-import org.mockito.kotlin.whenever
 import kotlin.random.Random
 
 internal class TerminalGenericFileFilterAbsolutePathTest {
 
-  private val localFileSystem = mock(LocalFileSystem::class.java)
   private val project = mock(Project::class.java)
-  private val filter = TerminalGenericFileFilter(project, null, localFileSystem)
-
-  @Before
-  fun setUp() {
-    whenever(localFileSystem.findFileByPathIfCached(Mockito.anyString())).thenAnswer { invocation ->
-      val pathString = invocation.arguments.single() as String
-      mock(VirtualFile::class.java).apply {
-        whenever(this.path).thenReturn(pathString)
-      }
-    }
-  }
 
   @Test
   fun `lonely slashes are not highlighted`() =
@@ -85,16 +67,21 @@ internal class TerminalGenericFileFilterAbsolutePathTest {
 
   @Test
   fun `short names are highlighted`() =
-    getFilterResultAndCheckHighlightPositions("hello /a world, hello C:\\ C:\\b world C:\\d", listOf("/a", "C:\\", "C:\\b"),false)
-      .checkFileLinks("/a", "C:\\", "C:\\b")
+    getFilterResultAndCheckHighlightPositions("hello /a world", listOf("/a"),false)
+      .checkFileLinks("/a")
+
+  @Test
+  fun `short Windows names are highlighted`() =
+    getFilterResultAndCheckHighlightPositions("hello C:\\ C:\\b world C:\\d", listOf("C:\\", "C:\\b"), false, windows = true)
+      .checkFileLinks("C:\\", "C:\\b")
 
   @Test
   fun `honor FILENAME_MAX for performance reasons`() {
     val longString = RandomStringUtils.secure().nextAlphanumeric(FILENAME_MAX + 1)
-    whenever(localFileSystem.findFileByPathIfCached(eq("/$longString"))).thenThrow(AssertionError("Should not be queried"))
 
-    getFilterResultAndCheckHighlightPositions("/$longString /path/to/file", listOf("/path/to/file"), checkHighlights = false)
-      .checkFileLinks("/path/to/file")
+    val run = getFilterResultAndCheckHighlightPositions("/$longString /path/to/file", listOf("/path/to/file"), checkHighlights = false)
+    run.checkFileLinks("/path/to/file")
+    Assertions.assertThat(run.lookedUpPaths).doesNotContain(run.path("/$longString"))
   }
 
   @Test
@@ -103,16 +90,99 @@ internal class TerminalGenericFileFilterAbsolutePathTest {
     val p2 = RandomStringUtils.secure().nextAlphanumeric(FILENAME_MAX / 2 + 1)
     assert(p1.length + p2.length > FILENAME_MAX)
 
-    whenever(localFileSystem.findFileByPathIfCached(eq("/$p1"))).thenReturn(null)
-    whenever(localFileSystem.findFileByPathIfCached(eq("/$p1 $p2"))).thenThrow(AssertionError("Should not be queried"))
-    getFilterResultAndCheckHighlightPositions("/$p1 $p2 /path/to/file", listOf("/path/to/file"), checkHighlights = false)
-      .checkFileLinks("/path/to/file")
+    val run = getFilterResultAndCheckHighlightPositions("/$p1 $p2 /path/to/file", listOf("/path/to/file"), checkHighlights = false)
+    run.checkFileLinks("/path/to/file")
+    Assertions.assertThat(run.lookedUpPaths).doesNotContain(run.path("/$p1 $p2"))
   }
 
   @Test
   fun `nonexisting paths cancel early`() =
     getFilterResultAndCheckHighlightPositions("This /is/not/a path /path/to/file", listOf("/path/to/file"), checkHighlights = false)
       .checkFileLinks("/path/to/file")
+
+  @Test
+  fun `path without spaces is looked up once, not per segment`() {
+    val run = getFilterResultAndCheckHighlightPositions("blah blah /path/to/file", listOf("/path/to/file"), checkHighlights = false)
+    run.checkFileLinks("/path/to/file")
+    Assertions.assertThat(run.lookedUpPaths).containsExactly(run.path("/path/to/file"))
+  }
+
+  @Test
+  fun `nonexisting path followed by prose is not looked up per word`() {
+    val run = getFilterResultAndCheckHighlightPositions(
+      "This /is/not/a path with more words /path/to/file", listOf("/path/to/file"), checkHighlights = false
+    )
+    run.checkFileLinks("/path/to/file")
+    // "/is/not/a", then its directory "/is/not" (which proves that no continuation can exist), then "/path/to/file"
+    Assertions.assertThat(run.lookedUpPaths).containsExactly(run.path("/is/not/a"), run.path("/is/not"), run.path("/path/to/file"))
+  }
+
+  @Test
+  fun `URL followed by prose is looked up a bounded number of times`() {
+    val run = getFilterResultAndCheckHighlightPositions(
+      "see https://example.com/docs/setup for more information about the setup", emptyList(), checkHighlights = false
+    )
+    run.checkFileLinks()
+    Assertions.assertThat(run.lookedUpPaths).containsExactly(run.path("//example.com/docs/setup"), run.path("//example.com/docs"))
+  }
+
+  @Test
+  fun `path with space in the first segment is not cancelled early`() =
+    getFilterResultAndCheckHighlightPositions("blah /with space blah", listOf("/with space"), checkHighlights = false)
+      .checkFileLinks("/with space")
+
+  @Test
+  fun `Windows path with space in the first segment is not cancelled early`() =
+    getFilterResultAndCheckHighlightPositions("blah C:\\with space blah", listOf("C:\\with space"), checkHighlights = false, windows = true)
+      .checkFileLinks("C:\\with space")
+
+  @Test
+  fun `recognize Windows path after a nonexisting file in an existing directory`() {
+    // "C:\path\to" exists but "missing" does not, so the parser keeps going, since
+    // the file name may contain spaces. The ':' branch then restarts it
+    // at the second "C:".
+    val run = getFilterResultAndCheckHighlightPositions(
+      "Cannot open C:\\path\\to\\missing C:\\path\\to\\file", listOf("C:\\path\\to\\file"), checkHighlights = false, windows = true
+    )
+    run.checkFileLinks("C:\\path\\to\\file")
+    Assertions.assertThat(run.lookedUpPaths).contains(run.path("C:\\path\\to\\missing"), run.path("C:\\path\\to"))
+  }
+
+  @Test
+  fun `Windows path is not recognized in a Posix environment`() =
+    getFilterResultAndCheckHighlightPositions("Cannot open C:\\path\\to\\file", listOf("/path/to/file"), checkHighlights = false)
+      .checkFileLinks()
+
+  @Test
+  fun `recognize path with space in a middle segment when the prefix before the space does not exist`() =
+    getFilterResultAndCheckHighlightPositions("""
+    | blah blah /path/to/my dir/file blah blah
+                ^^^^^^^^^^^^^^^^^^^^
+  """.trimIndent(), listOf("/path/to/my dir/file"))
+    .checkFileLinks("/path/to/my dir/file")
+
+  @Test
+  fun `recognize path at the end of a line without a line break`() =
+    getFilterResultAndCheckHighlightPositions("blah blah /path/to/file", listOf("/path/to/file"), checkHighlights = false, lineBreak = "")
+      .checkFileLinks("/path/to/file")
+
+  @Test
+  fun `recognize Windows path at the end of a line without a line break`() =
+    getFilterResultAndCheckHighlightPositions("blah blah C:\\path\\to\\file", listOf("C:\\path\\to\\file"), checkHighlights = false, windows = true, lineBreak = "")
+      .checkFileLinks("C:\\path\\to\\file")
+
+  @Test
+  fun `take longest path with spaces at the end of a line without a line break`() =
+    getFilterResultAndCheckHighlightPositions("In folder /work projects 2", listOf("/work projects", "/work projects 2"), checkHighlights = false, lineBreak = "")
+      .checkFileLinks("/work projects 2")
+
+  @Test
+  fun `nonexisting path at the end of a line is not looked up again with the line break`() {
+    val run = getFilterResultAndCheckHighlightPositions("blah blah /is/not/a", emptyList(), checkHighlights = false)
+    run.checkFileLinks()
+    // Looked up at the line break; the end-of-line check must not repeat it with the line break included.
+    Assertions.assertThat(run.lookedUpPaths).containsExactly(run.path("/is/not/a"), run.path("/is/not"))
+  }
 
   @Test
   fun `recognize simple Linux path`() = getFilterResultAndCheckHighlightPositions("""
@@ -125,14 +195,14 @@ internal class TerminalGenericFileFilterAbsolutePathTest {
   fun `recognize simple Windows path`() = getFilterResultAndCheckHighlightPositions("""
     | C:\path\to\file
       ^^^^^^^^^^^^^^^
-  """.trimIndent(), listOf("""C:\path\to\file"""))
+  """.trimIndent(), listOf("""C:\path\to\file"""), windows = true)
     .checkFileLinks("""C:\path\to\file""")
 
   @Test
   fun `recognize simple Windows path with forward slashes`() = getFilterResultAndCheckHighlightPositions("""
     | C:/path/to/file
       ^^^^^^^^^^^^^^^
-  """.trimIndent(), listOf("""C:/path/to/file"""))
+  """.trimIndent(), listOf("""C:/path/to/file"""), windows = true)
     .checkFileLinks("""C:/path/to/file""")
 
   @Test
@@ -198,31 +268,162 @@ internal class TerminalGenericFileFilterAbsolutePathTest {
   fun `recognize path with space and numbers parenthesis Windows`() = getFilterResultAndCheckHighlightPositions("""
     | blah blah C:\path\to\file\with space.kt: (3, 7): blah blah
                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  """.trimIndent(), listOf("""C:\path\to\file\with space.kt"""))
+  """.trimIndent(), listOf("""C:\path\to\file\with space.kt"""), windows = true)
     .checkFileLinks("""C:\path\to\file\with space.kt""")
 
   @Test
   fun `multiple lines and multiple links`() = getFilterResultAndCheckHighlightPositions("""
     | blah blah /path/to/file1 blah blah /path/to/file2:3.
                 ^^^^^^^^^^^^^^           ^^^^^^^^^^^^^^^^
-    | blah blah blah /path/to/file3:1:2: error: blah blah C:\path\to\file4
-                     ^^^^^^^^^^^^^^^^^^                   ^^^^^^^^^^^^^^^^
-  """.trimIndent(), listOf("/path/to/file1", "/path/to/file2", "/path/to/file3", """C:\path\to\file4"""))
+    | blah blah blah /path/to/file3:1:2: error: blah blah /path/to/file4
+                     ^^^^^^^^^^^^^^^^^^                   ^^^^^^^^^^^^^^
+  """.trimIndent(), listOf("/path/to/file1", "/path/to/file2", "/path/to/file3", "/path/to/file4"))
     .checkFileLinks(
       "/path/to/file1",
       "/path/to/file2",
       "/path/to/file3",
-      """C:\path\to\file4"""
+      "/path/to/file4"
     )
 
   @Test
-  fun `skip files not cached by local file system`() = getFilterResultAndCheckHighlightPositions("""
-    | /path/to/cached/file and /path/to/uncached/file
-      ^^^^^^^^^^^^^^^^^^^^
-  """.trimIndent(), listOf("/path/to/cached/file"))
+  fun `skip nonexisting files`() = getFilterResultAndCheckHighlightPositions("""
+    | /path/to/existing/file and /path/to/missing/file
+      ^^^^^^^^^^^^^^^^^^^^^^
+  """.trimIndent(), listOf("/path/to/existing/file"))
     .checkFileLinks(
-        "/path/to/cached/file"
+        "/path/to/existing/file"
       )
+
+  @Test
+  fun `a named pipe or a device gets no link`() = getFilterResultAndCheckHighlightPositions("""
+    | /tmp/ht-fifo /dev/null /tmp/ht-q/a.txt
+                             ^^^^^^^^^^^^^^^
+  """.trimIndent(), listOf("/tmp/ht-q/a.txt"), otherKindPaths = listOf("/tmp/ht-fifo", "/dev/null"))
+    .checkFileLinks("/tmp/ht-q/a.txt")
+
+  @Test
+  fun `path in quotes or brackets, or with trailing punctuation`() = getFilterResultAndCheckHighlightPositions("""
+    | "/tmp/ht-q/a.txt"
+       ^^^^^^^^^^^^^^^
+    | '/tmp/ht-q/a.txt'
+       ^^^^^^^^^^^^^^^
+    | `/tmp/ht-q/a.txt`
+       ^^^^^^^^^^^^^^^
+    | (/tmp/ht-q/a.txt)
+       ^^^^^^^^^^^^^^^
+    | [/tmp/ht-q/a.txt]
+       ^^^^^^^^^^^^^^^
+    | </tmp/ht-q/a.txt>
+       ^^^^^^^^^^^^^^^
+    | {/tmp/ht-q/a.txt}
+       ^^^^^^^^^^^^^^^
+    | /tmp/ht-q/a.txt, next
+      ^^^^^^^^^^^^^^^
+    | see /tmp/ht-q/a.txt.
+          ^^^^^^^^^^^^^^^
+    | /tmp/ht-q/a.txt; next
+      ^^^^^^^^^^^^^^^
+  """.trimIndent(), listOf("/tmp/ht-q/a.txt"))
+    .checkFileLinks(*Array(10) { "/tmp/ht-q/a.txt" })
+
+  @Test
+  fun `Windows path in quotes or brackets, or with a trailing dot`() = getFilterResultAndCheckHighlightPositions("""
+    | "C:\path\to\file"
+       ^^^^^^^^^^^^^^^
+    | (C:\path\to\file)
+       ^^^^^^^^^^^^^^^
+    | C:\path\to\file.
+      ^^^^^^^^^^^^^^^
+  """.trimIndent(), listOf("""C:\path\to\file"""), windows = true)
+    .checkFileLinks("""C:\path\to\file""", """C:\path\to\file""", """C:\path\to\file""")
+
+  @Test
+  fun `path with a position in brackets`() = getFilterResultAndCheckHighlightPositions("""
+    | [/path/to/file.md:10]
+       ^^^^^^^^^^^^^^^^^^^
+    | (/path/to/file.md:10:2)
+       ^^^^^^^^^^^^^^^^^^^^^
+  """.trimIndent(), listOf("/path/to/file.md"))
+    .checkFileLinks("/path/to/file.md", "/path/to/file.md")
+
+  @Test
+  fun `Windows path with a position in parentheses`() = getFilterResultAndCheckHighlightPositions("""
+    | (C:\path\to\file:10:2)
+       ^^^^^^^^^^^^^^^^^^^^
+  """.trimIndent(), listOf("""C:\path\to\file"""), windows = true)
+    .checkFileLinks("""C:\path\to\file""")
+
+  @Test
+  fun `quoted path with spaces and trailing punctuation`() = getFilterResultAndCheckHighlightPositions("""
+    | open "/tmp/my dir/a.txt".
+            ^^^^^^^^^^^^^^^^^
+  """.trimIndent(), listOf("/tmp/my dir/a.txt"))
+    .checkFileLinks("/tmp/my dir/a.txt")
+
+  @Test
+  fun `path that ends with a bracket keeps it`() = getFilterResultAndCheckHighlightPositions("""
+    | "/tmp/Copy (1)"
+       ^^^^^^^^^^^^^
+  """.trimIndent(), listOf("/tmp/Copy (1)"))
+    .checkFileLinks("/tmp/Copy (1)")
+
+  @Test
+  fun `path that ends with a dot wins over its prefix`() = getFilterResultAndCheckHighlightPositions("""
+    | "/tmp/dir."
+       ^^^^^^^^^
+  """.trimIndent(), listOf("/tmp/dir.", "/tmp/dir"))
+    .checkFileLinks("/tmp/dir.")
+
+  @Test
+  fun `trailing dot is dropped when only the prefix exists`() = getFilterResultAndCheckHighlightPositions("""
+    | "/tmp/dir."
+       ^^^^^^^^
+  """.trimIndent(), listOf("/tmp/dir"))
+    .checkFileLinks("/tmp/dir")
+
+  @Test
+  fun `quote after a directory with a trailing separator`() = getFilterResultAndCheckHighlightPositions("""
+    | "/tmp/dir/"
+       ^^^^^^^^^
+  """.trimIndent(), listOf("/tmp/dir/file"))
+    .checkFileLinks("/tmp/dir")
+
+  @Test
+  fun `position after a closing quote belongs to the text`() = getFilterResultAndCheckHighlightPositions("""
+    | "/tmp/a.txt":10 and /tmp/a.txt:10:2
+       ^^^^^^^^^^         ^^^^^^^^^^^^^^^
+  """.trimIndent(), listOf("/tmp/a.txt"))
+    .checkFileLinks("/tmp/a.txt", "/tmp/a.txt")
+
+  @Test
+  fun `quoted home-relative path`() = getFilterResultAndCheckHighlightPositions("""
+    | "~/foo"
+       ^^^^^
+  """.trimIndent(), listOf("/Users/testuser/foo"), homeDirectory = "/Users/testuser")
+    .checkFileLinks("/Users/testuser/foo")
+
+  @Test
+  fun `quoted path costs one extra lookup`() {
+    val run = getFilterResultAndCheckHighlightPositions("\"/tmp/ht-q/a.txt\"", listOf("/tmp/ht-q/a.txt"), checkHighlights = false)
+    run.checkFileLinks("/tmp/ht-q/a.txt")
+    Assertions.assertThat(run.lookedUpPaths).containsExactly(run.path("/tmp/ht-q/a.txt\""), run.path("/tmp/ht-q/a.txt"))
+  }
+
+  @Test
+  fun `trailing punctuation of a missing path is retried a bounded number of times`() {
+    val run = getFilterResultAndCheckHighlightPositions("/missing))).", emptyList(), checkHighlights = false)
+    run.checkFileLinks()
+    Assertions.assertThat(run.lookedUpPaths).containsExactly(
+      run.path("/missing)))."), run.path("/missing)))"), run.path("/missing))"), run.path("/missing)"),
+    )
+  }
+
+  @Test
+  fun `path followed by a file type marker or a pipe`() = getFilterResultAndCheckHighlightPositions("""
+    | /usr/bin/zsh* | /tmp/ht-q/a.txt|
+      ^^^^^^^^^^^^    ^^^^^^^^^^^^^^^
+  """.trimIndent(), listOf("/usr/bin/zsh", "/tmp/ht-q/a.txt"))
+    .checkFileLinks("/usr/bin/zsh", "/tmp/ht-q/a.txt")
 
   @Test
   fun `ignore slashes from progress indicators`() = getFilterResultAndCheckHighlightPositions("""
@@ -236,7 +437,7 @@ internal class TerminalGenericFileFilterAbsolutePathTest {
                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
     | blah blah C:\path\to\file\with space and more.kt: (3, 7): blah blah
                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-    """.trimIndent(), listOf("""C:\path\to\file\with space\and no more.kt""", """C:\path\to\file\with space and more.kt"""))
+    """.trimIndent(), listOf("""C:\path\to\file\with space\and no more.kt""", """C:\path\to\file\with space and more.kt"""), windows = true)
       .checkFileLinks(
         """C:\path\to\file\with space\and no more.kt""",
         """C:\path\to\file\with space and more.kt""",
@@ -331,7 +532,7 @@ internal class TerminalGenericFileFilterAbsolutePathTest {
   fun `recognize Windows path with line range`() = getFilterResultAndCheckHighlightPositions("""
     | C:\path\to\file.txt:10-14
       ^^^^^^^^^^^^^^^^^^^^^^^^^
-  """.trimIndent(), listOf("""C:\path\to\file.txt"""))
+  """.trimIndent(), listOf("""C:\path\to\file.txt"""), windows = true)
     .checkFileLinks("""C:\path\to\file.txt""")
 
   @Test
@@ -370,7 +571,7 @@ internal class TerminalGenericFileFilterAbsolutePathTest {
   """.trimIndent(), listOf(
     """C:\android\Android studio Projects\AppManager\app\src\main\res\values-zh-rCN\strings.xml""",
     """C:\android\Android studio\bin\studio.exe"""
-  )).checkFileLinks(
+  ), windows = true).checkFileLinks(
     """C:\android\Android studio Projects\AppManager\app\src\main\res\values-zh-rCN\strings.xml""",
     """C:\android\Android studio\bin\studio.exe""",
     """C:\android\Android studio"""
@@ -378,13 +579,13 @@ internal class TerminalGenericFileFilterAbsolutePathTest {
 
   @Test
   fun `fuzz test`() {
-    val allGeneratedPaths = mutableListOf<String>()
+    val linuxPaths = mutableListOf<String>()
 
     val wordGen = oneOf(('a'..'z').asIterable() + ".-_()[]吃葡萄不吐葡萄皮".asIterable()).repeated(3..8)
     val linuxPathGen = ('/' + wordGen).repeated(2..10)
-      .useGenerated { allGeneratedPaths += it }
+      .useGenerated { linuxPaths += it }
+    // Windows paths are not absolute in a Posix environment and must not become links.
     val windowsPathGen = (oneOf('A'..'Z') + ":" + ('\\' + wordGen).repeated(2..10))
-      .useGenerated { allGeneratedPaths += it }
     val fileNumberGen = ':' + someInt()
     val pathWithLineNumberGen = oneOf(linuxPathGen, windowsPathGen) + fileNumberGen
     val pathWithLineAndColumnNumberGen = pathWithLineNumberGen + fileNumberGen
@@ -394,52 +595,44 @@ internal class TerminalGenericFileFilterAbsolutePathTest {
     ).repeated(1..5, " ")
     val paragraphGen = sentenceGen.repeated(50..60, "\n")
 
-    getFilterResultAndCheckHighlightPositions(Random.paragraphGen(), allGeneratedPaths, checkHighlights = false)
-      .checkFileLinks(*allGeneratedPaths.toTypedArray())
+    getFilterResultAndCheckHighlightPositions(Random.paragraphGen(), linuxPaths, checkHighlights = false)
+      .checkFileLinks(*linuxPaths.toTypedArray())
   }
 
   // Home-relative path tests
 
   @Test
-  fun `recognize home-relative path`() {
-    val filter = filterWithHomeDirectory("/Users/testuser")
+  fun `recognize home-relative path`() =
     getFilterResultAndCheckHighlightPositions("""
       | ~/IdeaProjects/file
         ^^^^^^^^^^^^^^^^^^^
-    """.trimIndent(), listOf("/Users/testuser/IdeaProjects/file"), filter = filter)
+    """.trimIndent(), listOf("/Users/testuser/IdeaProjects/file"), homeDirectory = "/Users/testuser")
       .checkFileLinks("/Users/testuser/IdeaProjects/file")
-  }
 
   @Test
-  fun `recognize home-relative path with line and column`() {
-    val filter = filterWithHomeDirectory("/Users/testuser")
+  fun `recognize home-relative path with line and column`() =
     getFilterResultAndCheckHighlightPositions("""
       | ~/IdeaProjects/file.kt:3:7
         ^^^^^^^^^^^^^^^^^^^^^^^^^^
-    """.trimIndent(), listOf("/Users/testuser/IdeaProjects/file.kt"), filter = filter)
+    """.trimIndent(), listOf("/Users/testuser/IdeaProjects/file.kt"), homeDirectory = "/Users/testuser")
       .checkFileLinks("/Users/testuser/IdeaProjects/file.kt")
-  }
 
   @Test
-  fun `recognize home-relative path with backslash separator`() {
-    val filter = filterWithHomeDirectory("""C:\Users\testuser""")
+  fun `recognize home-relative path with backslash separator`() =
     getFilterResultAndCheckHighlightPositions("""
       | ~\IdeaProjects\file
         ^^^^^^^^^^^^^^^^^^^
-    """.trimIndent(), listOf("""C:\Users\testuser\IdeaProjects\file"""), filter = filter)
+    """.trimIndent(), listOf("""C:\Users\testuser\IdeaProjects\file"""), windows = true, homeDirectory = """C:\Users\testuser""")
       .checkFileLinks("""C:\Users\testuser\IdeaProjects\file""")
-  }
 
   @Test
-  fun `recognize multiple home-relative paths in a line`() {
-    val filter = filterWithHomeDirectory("/Users/testuser")
+  fun `recognize multiple home-relative paths in a line`() =
     getFilterResultAndCheckHighlightPositions(
       "Compare ~/foo with ~/bar",
       listOf("/Users/testuser/foo", "/Users/testuser/bar"),
       checkHighlights = false,
-      filter = filter,
+      homeDirectory = "/Users/testuser",
     ).checkFileLinks("/Users/testuser/foo", "/Users/testuser/bar")
-  }
 
   @Test
   fun `home-relative path is not resolved without a filter context`() =
@@ -447,65 +640,52 @@ internal class TerminalGenericFileFilterAbsolutePathTest {
       .checkFileLinks()
 
   @Test
-  fun `tilde not followed by a separator is not treated as a home path`() {
-    val filter = filterWithHomeDirectory("/Users/testuser")
-    getFilterResultAndCheckHighlightPositions("~notahome and a lonely ~", emptyList(), checkHighlights = false, filter = filter)
+  fun `tilde not followed by a separator is not treated as a home path`() =
+    getFilterResultAndCheckHighlightPositions("~notahome and a lonely ~", emptyList(), checkHighlights = false, homeDirectory = "/Users/testuser")
       .checkFileLinks()
-  }
 
   @Test
-  fun `recognize bare home directory`() {
-    val filter = filterWithHomeDirectory("/Users/testuser")
+  fun `recognize bare home directory`() =
     getFilterResultAndCheckHighlightPositions("""
       | ~/
         ^^
-    """.trimIndent(), listOf("/Users/testuser/"), filter = filter)
+    """.trimIndent(), listOf("/Users/testuser/"), homeDirectory = "/Users/testuser")
       .checkFileLinks("/Users/testuser/")
-  }
 
   @Test
-  fun `recognize bare home directory in the middle of a sentence`() {
-    val filter = filterWithHomeDirectory("/Users/testuser")
-    getFilterResultAndCheckHighlightPositions("cd ~/ to go home", listOf("/Users/testuser/"), checkHighlights = false, filter = filter)
+  fun `recognize bare home directory in the middle of a sentence`() =
+    getFilterResultAndCheckHighlightPositions("cd ~/ to go home", listOf("/Users/testuser/"), checkHighlights = false, homeDirectory = "/Users/testuser")
       .checkFileLinks("/Users/testuser/")
-  }
 
   @Test
-  fun `recognize home-relative path with line number and column in parenthesis`() {
-    val filter = filterWithHomeDirectory("/Users/testuser")
+  fun `recognize home-relative path with line number and column in parenthesis`() =
     getFilterResultAndCheckHighlightPositions(
       "~/IdeaProjects/file.kt: (3, 7): No value passed for parameter 'silent'",
       listOf("/Users/testuser/IdeaProjects/file.kt"),
       checkHighlights = false,
-      filter = filter,
+      homeDirectory = "/Users/testuser",
     ).checkFileLinks("/Users/testuser/IdeaProjects/file.kt")
-  }
 
   @Test
-  fun `recognize home-relative path with space`() {
-    val filter = filterWithHomeDirectory("/Users/testuser")
+  fun `recognize home-relative path with space`() =
     getFilterResultAndCheckHighlightPositions(
       "blah blah ~/IdeaProjects/with space blah blah",
       listOf("/Users/testuser/IdeaProjects/with space"),
       checkHighlights = false,
-      filter = filter,
+      homeDirectory = "/Users/testuser",
     ).checkFileLinks("/Users/testuser/IdeaProjects/with space")
-  }
 
   @Test
-  fun `recognize home-relative path with line range`() {
-    val filter = filterWithHomeDirectory("/Users/testuser")
+  fun `recognize home-relative path with line range`() =
     getFilterResultAndCheckHighlightPositions(
       "~/IdeaProjects/file.c:10-20",
       listOf("/Users/testuser/IdeaProjects/file.c"),
       checkHighlights = false,
-      filter = filter,
+      homeDirectory = "/Users/testuser",
     ).checkFileLinks("/Users/testuser/IdeaProjects/file.c")
-  }
 
   @Test
   fun `real world case with mixed absolute and home-relative paths`() {
-    val filter = filterWithHomeDirectory("/Users/testuser")
     val content = "Downloading dependency to ~/.m2/repository/com/example/lib-1.0.jar\n" +
                   "Build failed, see /var/log/build.log for details"
 
@@ -513,41 +693,58 @@ internal class TerminalGenericFileFilterAbsolutePathTest {
       content,
       listOf("/Users/testuser/.m2/repository/com/example/lib-1.0.jar", "/var/log/build.log"),
       checkHighlights = false,
-      filter = filter,
+      homeDirectory = "/Users/testuser",
     ).checkFileLinks("/Users/testuser/.m2/repository/com/example/lib-1.0.jar", "/var/log/build.log")
   }
 
-  private fun filterWithHomeDirectory(homeDirectory: String): TerminalGenericFileFilter {
-    val homeEelPath = mockEelPath(homeDirectory)
-    val context = TerminalHyperlinkFilterContextImpl(LocalEelDescriptor, homeEelPath)
-    return TerminalGenericFileFilter(project, context, localFileSystem)
+  /** The results of one filter run and the fake file tree it ran against. */
+  private class FilterRun(private val results: List<Filter.Result>, private val lookup: FakeTerminalFileLookup) {
+    val lookedUpPaths: List<EelPath>
+      get() = lookup.lookedUpPaths
+
+    fun path(path: String): EelPath = lookup.path(path)
+
+    fun checkFileLinks(vararg paths: String) {
+      val actualPaths = results.flatMap { it.resultItems }.map { (it.hyperlinkInfo as TerminalFileHyperlinkInfo).path }
+      Assertions.assertThat(actualPaths).isEqualTo(paths.map { path(it) })
+    }
   }
 
-  private fun mockEelPath(path: String): EelPath {
-    val eelPath = mock(EelPath::class.java)
-    whenever(eelPath.toString()).thenReturn(path)
-    return eelPath
-  }
-
+  /**
+   * Applies the filter to every line of [content] that starts with `| `. Unless
+   * [checkHighlights] is `false`, the highlighted ranges are checked against the `^`
+   * marks of the following line. Only [validPaths], [otherKindPaths], and their parent
+   * directories exist. [otherKindPaths] are named pipes, devices, or other special
+   * files.
+   */
   private fun getFilterResultAndCheckHighlightPositions(
     content: String,
     validPaths: Collection<String>,
     checkHighlights: Boolean = true,
-    filter: TerminalGenericFileFilter = this.filter,
-  ): List<Filter.Result> {
+    windows: Boolean = false,
+    homeDirectory: String? = null,
+    lineBreak: String = "\n",
+    otherKindPaths: Collection<String> = emptyList(),
+  ): FilterRun {
+    val descriptor = if (windows) TestEelDescriptor.WINDOWS else TestEelDescriptor.POSIX
+    val lookup = FakeTerminalFileLookup(descriptor)
+    for (path in validPaths) {
+      lookup.addFile(path)
+    }
+    for (path in otherKindPaths) {
+      lookup.addFile(path, TerminalFileKind.OTHER)
+    }
+    val context = homeDirectory?.let { TerminalHyperlinkFilterContextImpl(descriptor, lookup.path(it)) }
+    val filter = TerminalGenericFileFilter(project, descriptor, context, lookup)
+
     var totalLength = 0
     var previousInputLine = ""
     var previousInputStartIndex = 0
     val results = mutableListOf<Filter.Result?>()
 
-    whenever(localFileSystem.findFileByPathIfCached(Mockito.argThat {arg ->
-      !validPaths.any {
-        arg == it || it.startsWith("$arg/") || it.startsWith("$arg\\")
-      }
-    })).thenReturn(null)
     content.lines().forEach { line ->
       if (!checkHighlights || line.startsWith('|')) {
-        val inputLine = line.removePrefix("| ") + "\n"
+        val inputLine = line.removePrefix("| ") + lineBreak
         previousInputLine = inputLine
         previousInputStartIndex = totalLength
         totalLength += inputLine.length
@@ -567,16 +764,8 @@ internal class TerminalGenericFileFilterAbsolutePathTest {
         Assertions.assertThat(actualHighlighted).isEqualTo(expectedHighlighted)
       }
     }
-    return results.filterNotNull()
+    return FilterRun(results.filterNotNull(), lookup)
   }
-
-  private fun List<Filter.Result>.checkFileLinks(vararg paths: String) {
-    Assertions.assertThat(
-      // Unfortunately, there is no way to read the line and column numbers passed to the OpenFileHyperlinkInfo since those are private
-      flatMap { it.resultItems }.map { (it.hyperlinkInfo as OpenFileHyperlinkInfo).virtualFile!!.path })
-      .isEqualTo(paths.toList())
-  }
-
 }
 
 /** Creates a generator function that chooses one of the options from the given iterable randomly. */

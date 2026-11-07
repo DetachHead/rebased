@@ -1,5 +1,8 @@
 load("@bazel_skylib//rules:common_settings.bzl", "bool_flag")
 load(":dev_dist_content_test.bzl", "dev_dist_content_test_suite")
+load(":dev_dist_platform_jar_order_test.bzl", "dev_dist_platform_jar_order_test_suite")
+load(":dev_dist_product_content_test.bzl", "dev_dist_product_content_test_suite")
+load(":dev_dist_tool.bzl", "dev_dist_tool")
 
 # Whether the packaging actions of a dev distribution write a Jaeger-JSON span file beside each of their outputs.
 #
@@ -35,45 +38,67 @@ bool_flag(
     visibility = ["//visibility:public"],
 )
 
-# Whether a dev-distribution fragment writes out the plugin descriptors it patched, beside its own outputs.
-#
-# The third flag of this shape, with the same off-means-absent rule as `trace_spans` and `dev_dist_plans`. It is
-# separate from `dev_dist_plans` for a reason of its own. A recipe is wanted from an ordinary build, by the replay gate
-# among others. Every descriptor of every plugin is several megabytes that the gate has no use for.
-#
-# "Patched" is in the name because `build/dev_dist_descriptors.bzl` already names the descriptor *inputs* a fragment
-# declares. This flag is about the descriptors a fragment *wrote*.
-#
-#     bazel build //build:idea_air_dist --@community//platform/build-scripts/bazel-rules:dev_dist_patched_descriptors \
-#       --output_groups=+dev_dist_patched_descriptors
-bool_flag(
-    name = "dev_dist_patched_descriptors",
-    build_setting_default = False,
+# The tools of the dev distribution, one binary each for all products. A rule attribute names these targets with
+# `cfg = "exec"`, never the `rust_binary` itself. See `dev_dist_tool`.
+dev_dist_tool(
+    name = "content_module_packer",
+    tool = "//build/dev-dist-tools/bins/content-module-packer",
     visibility = ["//visibility:public"],
 )
 
-# Whether every `dev_dist_plugin_descriptor` target also runs the JVM reference tool, beside the Go executor.
-#
-# The fourth flag of this shape, and the only one that adds an **action** rather than a side output of one. The two
-# producers write one plugin's descriptor from one request, and `./build/dev-dist.cmd descriptors --two-producer`
-# compares their bytes. Off means the reference file does not exist, so an ordinary build runs one action per plugin
-# and the primary action's key is the same either way.
-#
-#     bazel build //build/dev-dist-descriptors:idea_plugin_descriptors \
-#       --@community//platform/build-scripts/bazel-rules:dev_dist_descriptor_reference
-bool_flag(
-    name = "dev_dist_descriptor_reference",
-    build_setting_default = False,
+dev_dist_tool(
+    name = "dev_dist_collector",
+    tool = "//build/dev-dist-tools/bins/dev-dist-collector",
     visibility = ["//visibility:public"],
+)
+
+dev_dist_tool(
+    name = "dev_dist_composer",
+    tool = "//build/dev-dist-tools/bins/dev-dist-composer",
+    visibility = ["//visibility:public"],
+)
+
+dev_dist_tool(
+    name = "plugin_descriptor_writer",
+    tool = "//build/dev-dist-tools/bins/plugin-descriptor-writer",
+    visibility = ["//visibility:public"],
+)
+
+dev_dist_tool(
+    name = "plugin_remainder_packer",
+    tool = "//build/dev-dist-tools/bins/plugin-remainder-packer",
+    visibility = ["//visibility:public"],
+)
+
+dev_dist_tool(
+    name = "runtime_layout",
+    tool = "//build/dev-dist-tools/bins/runtime-layout",
+    visibility = ["//visibility:public"],
+)
+
+# The application info of the fixture product that the rule tests of this package and its subpackages declare.
+exports_files(
+    ["testdata/ApplicationInfo.xml"],
+    visibility = [":__subpackages__"],
 )
 
 dev_dist_content_test_suite(name = "dev_dist_content_tests")
+
+dev_dist_platform_jar_order_test_suite(name = "dev_dist_platform_jar_order_tests")
+
+dev_dist_product_content_test_suite(name = "dev_dist_product_content_tests")
 
 test_suite(
     name = "bazel_rules_tests",
     tests = [
         ":dev_dist_content_tests",
+        ":dev_dist_platform_jar_order_tests",
+        ":dev_dist_product_content_tests",
+        "//build/dev-dist-tools/bins/plugin-descriptor-writer:descriptor_rule_tests",
+        "//platform/build-scripts/bazel-rules/dev-plugin-remainder-tests:dev_plugin_remainder_tests",
+        "//platform/build-scripts/bazel-rules/dev-plugin-tests:dev_plugin_tests",
         "//platform/build-scripts/bazel-rules/ij-plugin-packager/tests:ij-plugin-packager-tests",
+        "//platform/build-scripts/bazel-rules/ij-plugin-packager/tests/smoke:non-classpath-data-attributes-tests",
         "@jps_to_bazel//:bazel-generator-integration-tests",
         "@jps_to_bazel//:kotlinc-project-defaults-tests",
     ],

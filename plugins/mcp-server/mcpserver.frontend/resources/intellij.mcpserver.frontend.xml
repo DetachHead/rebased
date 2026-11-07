@@ -1,12 +1,10 @@
 <idea-plugin visibility="public">
   <!-- region Generated dependencies - run `Generate Product Layouts` to regenerate -->
   <dependencies>
-    <module name="intellij.libraries.compose.swing"/>
     <module name="intellij.libraries.kotlinx.serialization.core"/>
     <module name="intellij.libraries.kotlinx.serialization.json"/>
     <module name="intellij.mcpserver"/>
     <module name="intellij.platform.analysis"/>
-    <module name="intellij.platform.compose"/>
     <module name="intellij.platform.compose.swing"/>
     <module name="intellij.platform.core"/>
     <module name="intellij.platform.core.impl"/>
@@ -28,6 +26,9 @@
   <!-- endregion -->
 
   <extensions defaultExtensionNs="com.intellij">
+    <applicationService serviceInterface="com.intellij.mcpserver.McpServerConsentUi"
+                        serviceImplementation="com.intellij.mcpserver.frontend.util.McpServerConsentUiImpl"/>
+
     <serviceViewContributor implementation="com.intellij.mcpserver.frontend.services.McpServiceViewContributor"/>
 
     <statusBarWidgetFactory id="McpServerStatusBarWidget"
@@ -52,7 +53,7 @@
   </extensions>
 
   <actions resource-bundle="messages.McpServerBundle">
-    <action id="com.intellij.mcpserver.actions.ShowMcpToolsAction" class="com.intellij.mcpserver.frontend.actions.ShowMcpToolsAction">
+    <action id="ShowMcpTools" class="com.intellij.mcpserver.frontend.actions.ShowMcpToolsAction">
       <add-to-group group-id="ToolsMenu" anchor="last"/>
     </action>
   </actions>

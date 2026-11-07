@@ -7,6 +7,7 @@ import com.intellij.application.options.codeStyle.CodeStyleSchemesModel
 import com.intellij.application.options.codeStyle.CodeStyleSettingsPanelFactory
 import com.intellij.application.options.codeStyle.NewCodeStyleSettingsPanel
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.options.Configurable
 import com.intellij.psi.codeStyle.CodeStyleScheme
 import com.intellij.psi.codeStyle.CodeStyleSettingsProvider
 import org.jetbrains.annotations.ApiStatus
@@ -23,12 +24,21 @@ open class ConfigurableFactory {
   open fun createCodeStyleConfigurable(provider: CodeStyleSettingsProvider,
                                        codeStyleSchemesModel: CodeStyleSchemesModel,
                                        owner: CodeStyleSchemesConfigurable): CodeStyleConfigurableWrapper {
-    val codeStyleConfigurableWrapper = CodeStyleConfigurableWrapper(provider, object : CodeStyleSettingsPanelFactory() {
+    val panelFactory = object : CodeStyleSettingsPanelFactory() {
       override fun createPanel(scheme: CodeStyleScheme): NewCodeStyleSettingsPanel {
         return NewCodeStyleSettingsPanel(
           provider.createConfigurable(scheme.codeStyleSettings, codeStyleSchemesModel.getCloneSettings(scheme)), codeStyleSchemesModel)
       }
-    }, owner)
-    return codeStyleConfigurableWrapper
+    }
+    if (provider is Configurable.Beta) {
+      return BetaCodeStyleConfigurableWrapper(provider, panelFactory, owner)
+    }
+    return CodeStyleConfigurableWrapper(provider, panelFactory, owner)
   }
 }
+
+private class BetaCodeStyleConfigurableWrapper(
+  provider: CodeStyleSettingsProvider,
+  factory: CodeStyleSettingsPanelFactory,
+  owner: CodeStyleSchemesConfigurable,
+) : CodeStyleConfigurableWrapper(provider, factory, owner), Configurable.Beta

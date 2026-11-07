@@ -41,18 +41,19 @@ class PyMappingPatternImpl(astNode: ASTNode?) : PyElementImpl(astNode), PyMappin
     val valueTypes = mutableListOf<PyType?>()
     for (it in elements.filterIsInstance<PyKeyValuePattern>()) {
       keyTypes.add(context.getType(it.keyPattern))
-      if (it.valuePattern != null) {
-        valueTypes.add(context.getType(it.valuePattern!!))
+      val valuePattern = it.valuePattern
+      if (valuePattern != null) {
+        valueTypes.add(context.getType(valuePattern))
       }
     }
 
-    val patternMappingType = wrapInMappingType(PyUnionType.union(keyTypes), PyUnionType.union(valueTypes))
+    val patternMappingType = wrapInMappingType(PyUnionType.unionOrUnknown(keyTypes), PyUnionType.unionOrUnknown(valueTypes))
 
     val matchingComponents = PyCaptureContext.getCaptureType(this, context).compositeComponents.filter { captureType: PyType? ->
       val mappingType = captureType.convertToType("typing.Mapping", this, context) ?: return@filter false
       PyTypeChecker.match(mappingType, patternMappingType, context)
     }
-    val filteredType = if (matchingComponents.isEmpty()) null else PyUnionType.union(matchingComponents)
+    val filteredType = if (matchingComponents.isEmpty()) null else PyUnionType.unionOrUnknown(matchingComponents)
 
     return filteredType ?: patternMappingType
   }
@@ -72,7 +73,7 @@ class PyMappingPatternImpl(astNode: ASTNode?) : PyElementImpl(astNode), PyMappin
 
     return PyCaptureContext.getCaptureType(this, context).compositeComponents
       .map { possibleMapping -> possibleMapping.getValueType(sequenceMember, context) }
-      .let { PyUnionType.union(it) }
+      .let { PyUnionType.unionOrUnknown(it) }
   }
 
   private fun wrapInMappingType(keyType: PyType?, valueType: PyType?): PyType? {
@@ -84,7 +85,7 @@ class PyMappingPatternImpl(astNode: ASTNode?) : PyElementImpl(astNode), PyMappin
 private fun PyType?.getValueType(sequenceMember: PyKeyValuePattern, context: TypeEvalContext): PyType? {
   if (this is PyTypedDictType) {
     val key = sequenceMember.getKeyString(context)
-    if (key != null) return getElementType(key)
+    if (key != null) return getElementType(key, context)
   }
   val mappingType = this.convertToType("typing.Mapping", sequenceMember, context)
                     ?: return PyNeverType.NEVER

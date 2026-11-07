@@ -2,6 +2,7 @@
 package com.jetbrains.python.newProjectWizard.impl
 
 import com.intellij.openapi.ui.DialogPanel
+import com.intellij.platform.eel.EelApi
 import com.intellij.ui.dsl.builder.BottomGap
 import com.intellij.ui.dsl.builder.bindSelected
 import com.intellij.ui.dsl.builder.panel
@@ -15,15 +16,14 @@ import com.jetbrains.python.sdk.add.v2.PySdkCreator
 import com.jetbrains.python.sdk.add.v2.PythonSdkPanelBuilderAndSdkCreator
 import javax.swing.JComponent
 
-internal class PyV3UI<TYPE_SPECIFIC_SETTINGS : PyV3ProjectTypeSpecificSettings> @RequiresEdt constructor(
+internal class PyV3UI<TYPE_SPECIFIC_SETTINGS : PyV3ProjectTypeSpecificSettings> @RequiresEdt(generateAssertion = false /* IJPL-115548 */) constructor(
   baseSettings: PyV3BaseProjectSettings,
   projectNameProvider: ProjectPathProvider,
   specificUiAndSettings: Pair<PyV3ProjectTypeSpecificUI<TYPE_SPECIFIC_SETTINGS>, TYPE_SPECIFIC_SETTINGS>?,
+  eel: EelApi
 ) {
 
-  private val sdkPanelBuilderAndSdkCreator: PythonSdkPanelBuilderAndSdkCreator = PythonSdkPanelBuilderAndSdkCreator(
-      module = null,
-  )
+  private val sdkPanelBuilderAndSdkCreator: PythonSdkPanelBuilderAndSdkCreator = PythonSdkPanelBuilderAndSdkCreator(eel = eel)
 
   private val _mainPanel: DialogPanel = panel {
     val checkBoxRow = row {

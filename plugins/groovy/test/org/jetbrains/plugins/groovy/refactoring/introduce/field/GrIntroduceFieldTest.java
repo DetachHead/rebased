@@ -27,8 +27,8 @@ import static org.jetbrains.plugins.groovy.refactoring.introduce.field.GrIntrodu
  */
 public class GrIntroduceFieldTest extends LightGroovyTestCase {
   @Override
-  protected String getBasePath() {
-    return TestUtils.getTestDataPath() + "refactoring/introduceField/";
+  protected String getTestDataPath() {
+    return TestUtils.getAbsoluteTestDataPath() + "refactoring/introduceField/";
   }
 
   public void testSimple() {

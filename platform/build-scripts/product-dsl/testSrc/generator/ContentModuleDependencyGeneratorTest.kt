@@ -1,6 +1,7 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.intellij.build.productLayout.generator
 
+import com.intellij.platform.buildScripts.concurrency.SharedTaskOwner
 import com.intellij.platform.pluginGraph.ContentModuleName
 import com.intellij.platform.pluginGraph.PluginId
 import com.intellij.platform.pluginGraph.PluginModuleId
@@ -37,10 +38,10 @@ import java.nio.file.Path
 @ExtendWith(TestFailureLogger::class)
 class ContentModuleDependencyGeneratorTest {
   /**
-   * Tests for test module dependency handling.
+   * Tests for test-only module dependency handling.
    *
-   * Test modules (content modules ending with `._test`) are test descriptors declared in module sets.
-   * They need their TEST scope JPS dependencies included in XML because they run in test context.
+   * A test-only module keeps its descriptor in a test resource root. It runs in a test context, so its TEST scope
+   * JPS dependencies are included in the written XML.
    *
    * Bug fix: Previously, generator used `withTests=false` for all modules, causing TEST scope deps
    * to be invisible and removed from test module XML files.
@@ -50,7 +51,7 @@ class ContentModuleDependencyGeneratorTest {
     @Test
     fun `test module includes TEST scope JPS dependencies in XML`(@TempDir tempDir: Path) {
       runBlocking(Dispatchers.Default) {
-        // Setup: A test module (ending with ._test) with a TEST scope JPS dependency
+        // Setup: A test-only module (descriptor in a test resource root) with a TEST scope JPS dependency
         val setup = pluginTestSetup(tempDir) {
           // The dependency module (like a test library)
           contentModule("intellij.libraries.junit5.pioneer") {
@@ -58,7 +59,8 @@ class ContentModuleDependencyGeneratorTest {
           }
 
           // The test module with TEST scope dependency
-          contentModule("intellij.platform.testFramework._test") {
+          contentModule("intellij.platform.testFramework.tests") {
+            descriptorInTestResources = true
             descriptor = """
             <idea-plugin>
               <dependencies>
@@ -72,7 +74,7 @@ class ContentModuleDependencyGeneratorTest {
 
           // Plugin containing the test module
           plugin("intellij.platform.testFramework.plugin") {
-            content("intellij.platform.testFramework._test")
+            content("intellij.platform.testFramework.tests")
           }
         }
 
@@ -81,7 +83,7 @@ class ContentModuleDependencyGeneratorTest {
 
         // Verify: TEST scope dep is preserved in the test module's XML
         val diffs = setup.strategy.getDiffs()
-        val testModuleDiff = diffs.find { it.path.toString().contains("intellij.platform.testFramework._test.xml") }
+        val testModuleDiff = diffs.find { it.path.toString().contains("intellij.platform.testFramework.tests.xml") }
 
         // If there's no diff, the XML was unchanged (TEST dep was preserved)
         // If there IS a diff, verify it still contains the TEST scope dependency
@@ -105,7 +107,8 @@ class ContentModuleDependencyGeneratorTest {
           }
 
           // Test module with TEST scope JPS dependency and existing XML dependency
-          contentModule("intellij.feature._test") {
+          contentModule("intellij.feature.tests") {
+            descriptorInTestResources = true
             descriptor = """
             <idea-plugin>
               <dependencies>
@@ -117,7 +120,7 @@ class ContentModuleDependencyGeneratorTest {
           }
 
           plugin("intellij.feature.plugin") {
-            content("intellij.feature._test")
+            content("intellij.feature.tests")
           }
         }
 
@@ -125,7 +128,7 @@ class ContentModuleDependencyGeneratorTest {
 
         // Verify: No diff means dependency was preserved, or diff still contains the dep
         val diffs = setup.strategy.getDiffs()
-        val testModuleDiff = diffs.find { it.path.toString().contains("intellij.feature._test.xml") }
+        val testModuleDiff = diffs.find { it.path.toString().contains("intellij.feature.tests.xml") }
 
         if (testModuleDiff != null) {
           assertThat(testModuleDiff.expectedContent)
@@ -145,7 +148,7 @@ class ContentModuleDependencyGeneratorTest {
             descriptor = """<idea-plugin package="test.only"/>"""
           }
 
-          // Regular module (NOT ending with ._test) with TEST scope dependency
+          // Regular module (descriptor in a production resource root) with TEST scope dependency
           contentModule("intellij.regular.module") {
             descriptor = """<idea-plugin package="regular"/>"""
             // TEST scope - should NOT be included for regular modules
@@ -184,7 +187,8 @@ class ContentModuleDependencyGeneratorTest {
             descriptor = """<idea-plugin package="test.dep"/>"""
           }
 
-          contentModule("intellij.mixed._test") {
+          contentModule("intellij.mixed.tests") {
+            descriptorInTestResources = true
             descriptor = """
             <idea-plugin>
               <dependencies>
@@ -198,7 +202,7 @@ class ContentModuleDependencyGeneratorTest {
           }
 
           plugin("intellij.mixed.plugin") {
-            content("intellij.mixed._test")
+            content("intellij.mixed.tests")
           }
         }
 
@@ -206,7 +210,7 @@ class ContentModuleDependencyGeneratorTest {
 
         // Verify: Test module should have BOTH dependencies
         val diffs = setup.strategy.getDiffs()
-        val testModuleDiff = diffs.find { it.path.toString().contains("intellij.mixed._test.xml") }
+        val testModuleDiff = diffs.find { it.path.toString().contains("intellij.mixed.tests.xml") }
 
         if (testModuleDiff != null) {
           assertThat(testModuleDiff.expectedContent)
@@ -222,28 +226,35 @@ class ContentModuleDependencyGeneratorTest {
 
   @Nested
   inner class TestPluginContentModuleTest {
+    private val owner = SharedTaskOwner("TestPluginContentModuleTest")
+
+    @org.junit.jupiter.api.AfterEach
+    fun closeSharedTasks() {
+      owner.close()
+    }
+
     @Test
     fun `test plugin content modules are processed`(@TempDir tempDir: Path) {
       runBlocking(Dispatchers.Default) {
         val setup = pluginTestSetup(tempDir) {
-          contentModule("intellij.libraries.junit5.vintage") {
+          contentModule("intellij.libraries.junit6.vintage") {
             descriptor = """<idea-plugin package="org.junit.vintage"/>"""
           }
           contentModule("intellij.tools.testsBootstrap") {
             descriptor = """<idea-plugin package="com.intellij.tests.bootstrap"/>"""
-            jpsDependency("intellij.libraries.junit5.vintage", JpsJavaDependencyScope.COMPILE)
+            jpsDependency("intellij.libraries.junit6.vintage", JpsJavaDependencyScope.COMPILE)
           }
           plugin("intellij.test.plugin") {
             isTestPlugin = true
             content("intellij.tools.testsBootstrap")
-            content("intellij.libraries.junit5.vintage")
+            content("intellij.libraries.junit6.vintage")
           }
         }
 
         val model = testGenerationModel(
           pluginGraph = setup.pluginGraph,
           outputProvider = setup.jps.outputProvider,
-          fileUpdater = setup.strategy,
+          fileUpdater = setup.strategy, owner = owner,
         )
 
         val ctx = ComputeContextImpl(model)
@@ -263,7 +274,7 @@ class ContentModuleDependencyGeneratorTest {
           .describedAs("Test plugin content module should be processed by dependency planner")
           .isNotNull()
         assertThat(testBootstrapDiff!!.expectedContent)
-          .contains("<module name=\"intellij.libraries.junit5.vintage\"/>")
+          .contains("<module name=\"intellij.libraries.junit6.vintage\"/>")
       }
     }
 
@@ -299,7 +310,7 @@ class ContentModuleDependencyGeneratorTest {
         val model = testGenerationModel(
           pluginGraph = graph,
           outputProvider = setup.jps.outputProvider,
-          fileUpdater = setup.strategy,
+          fileUpdater = setup.strategy, owner = owner,
         )
 
         val ctx = ComputeContextImpl(model)
@@ -332,7 +343,7 @@ class ContentModuleDependencyGeneratorTest {
     fun `production content module with test-support-like name keeps TEST scope dependency out of written deps`(@TempDir tempDir: Path) {
       runBlocking(Dispatchers.Default) {
         val busModule = ContentModuleName("intellij.tools.ide.starter.bus")
-        val junit5 = ContentModuleName("intellij.libraries.junit5")
+        val junit5 = ContentModuleName("intellij.libraries.junit6")
         val setup = pluginTestSetup(tempDir) {
           contentModule(junit5.value) {
             descriptor = """<idea-plugin package="junit5"/>"""
@@ -356,13 +367,12 @@ class ContentModuleDependencyGeneratorTest {
           }
         }
 
-        val descriptorCache = ModuleDescriptorCache(setup.jps.outputProvider)
+        val descriptorCache = ModuleDescriptorCache(setup.jps.outputProvider, owner = owner)
         val generation = planContentModuleDependenciesWithBothSets(
           contentModuleName = busModule,
           descriptorCache = descriptorCache,
           outputProvider = setup.jps.outputProvider,
           pluginGraph = graph,
-          isTestDescriptor = false,
           suppressionConfig = SuppressionConfig(),
           updateSuppressions = false,
         )
@@ -421,13 +431,12 @@ class ContentModuleDependencyGeneratorTest {
           moduleWithScopedDeps(testsModule.value, existingDep.value to "COMPILE", testOnlyDep.value to "TEST")
         }
 
-        val descriptorCache = ModuleDescriptorCache(setup.jps.outputProvider)
+        val descriptorCache = ModuleDescriptorCache(setup.jps.outputProvider, owner = owner)
         val generation = planContentModuleDependenciesWithBothSets(
           contentModuleName = testsModule,
           descriptorCache = descriptorCache,
           outputProvider = setup.jps.outputProvider,
           pluginGraph = graph,
-          isTestDescriptor = false,
           suppressionConfig = SuppressionConfig(),
           updateSuppressions = false,
         )
@@ -543,10 +552,9 @@ class ContentModuleDependencyGeneratorTest {
 
         val generation = planContentModuleDependenciesWithBothSets(
           contentModuleName = ContentModuleName("owner.content"),
-          descriptorCache = ModuleDescriptorCache(setup.jps.outputProvider),
+          descriptorCache = ModuleDescriptorCache(setup.jps.outputProvider, owner = owner),
           outputProvider = setup.jps.outputProvider,
           pluginGraph = graph,
-          isTestDescriptor = false,
           suppressionConfig = SuppressionConfig(),
           updateSuppressions = false,
         )
@@ -620,10 +628,9 @@ class ContentModuleDependencyGeneratorTest {
 
       val generation = planContentModuleDependenciesWithBothSets(
         contentModuleName = testsModule,
-        descriptorCache = ModuleDescriptorCache(setup.jps.outputProvider),
+        descriptorCache = ModuleDescriptorCache(setup.jps.outputProvider, owner = owner),
         outputProvider = setup.jps.outputProvider,
         pluginGraph = graph,
-        isTestDescriptor = false,
         suppressionConfig = SuppressionConfig(),
         updateSuppressions = updateSuppressions,
       )
@@ -660,13 +667,12 @@ class ContentModuleDependencyGeneratorTest {
           moduleWithScopedDeps(testsModule.value, prodDep.value to "COMPILE", testOnlyDep.value to "TEST")
         }
 
-        val descriptorCache = ModuleDescriptorCache(setup.jps.outputProvider)
+        val descriptorCache = ModuleDescriptorCache(setup.jps.outputProvider, owner = owner)
         val generation = planContentModuleDependenciesWithBothSets(
           contentModuleName = testsModule,
           descriptorCache = descriptorCache,
           outputProvider = setup.jps.outputProvider,
           pluginGraph = graph,
-          isTestDescriptor = false,
           suppressionConfig = SuppressionConfig(),
           updateSuppressions = false,
         )
@@ -710,13 +716,12 @@ class ContentModuleDependencyGeneratorTest {
           }
         }
 
-        val descriptorCache = ModuleDescriptorCache(setup.jps.outputProvider)
+        val descriptorCache = ModuleDescriptorCache(setup.jps.outputProvider, owner = owner)
         val generation = planContentModuleDependenciesWithBothSets(
           contentModuleName = ContentModuleName("intellij.test.only.consumer"),
           descriptorCache = descriptorCache,
           outputProvider = setup.jps.outputProvider,
           pluginGraph = graph,
-          isTestDescriptor = false,
           suppressionConfig = SuppressionConfig(),
           updateSuppressions = false,
         )
@@ -798,13 +803,12 @@ class ContentModuleDependencyGeneratorTest {
           }
         }
 
-        val descriptorCache = ModuleDescriptorCache(setup.jps.outputProvider)
+        val descriptorCache = ModuleDescriptorCache(setup.jps.outputProvider, owner = owner)
         val generation = planContentModuleDependenciesWithBothSets(
           contentModuleName = consumer,
           descriptorCache = descriptorCache,
           outputProvider = setup.jps.outputProvider,
           pluginGraph = setup.pluginGraph,
-          isTestDescriptor = false,
           suppressionConfig = SuppressionConfig(),
           updateSuppressions = true,
         )
@@ -832,6 +836,13 @@ class ContentModuleDependencyGeneratorTest {
 
   @Nested
   inner class ExtensionPointNameRewritingTest {
+    private val owner = SharedTaskOwner("ExtensionPointNameRewritingTest")
+
+    @org.junit.jupiter.api.AfterEach
+    fun closeSharedTasks() {
+      owner.close()
+    }
+
     @Test
     fun `plugin source does not rewrite extension point names in shared descriptor`(@TempDir tempDir: Path) {
       runBlocking(Dispatchers.Default) {
@@ -861,7 +872,7 @@ class ContentModuleDependencyGeneratorTest {
         val model = testGenerationModel(
           pluginGraph = builder.build(),
           outputProvider = setup.jps.outputProvider,
-          fileUpdater = setup.strategy,
+          fileUpdater = setup.strategy, owner = owner,
         )
 
         val ctx = ComputeContextImpl(model)
@@ -1382,6 +1393,13 @@ class ContentModuleDependencyGeneratorTest {
 
   @Nested
   inner class UpdateSuppressionsDslTestPluginPolicyTest {
+    private val owner = SharedTaskOwner("UpdateSuppressionsDslTestPluginPolicyTest")
+
+    @org.junit.jupiter.api.AfterEach
+    fun closeSharedTasks() {
+      owner.close()
+    }
+
     @Test
     fun `pure dsl test owned module respects explicit suppressions config in regular generation`(@TempDir tempDir: Path) {
       runBlocking(Dispatchers.Default) {
@@ -1420,12 +1438,11 @@ class ContentModuleDependencyGeneratorTest {
           )
         )
 
-        val descriptorCache = ModuleDescriptorCache(setup.jps.outputProvider)
+        val descriptorCache = ModuleDescriptorCache(setup.jps.outputProvider, owner = owner)
         val generation = planContentModuleDependenciesWithBothSets(
           contentModuleName = ContentModuleName("owner.content"),
           descriptorCache = descriptorCache,
           pluginGraph = graph,
-          isTestDescriptor = false,
           suppressionConfig = suppressionConfig,
           updateSuppressions = false,
         )
@@ -1485,12 +1502,11 @@ class ContentModuleDependencyGeneratorTest {
           )
         )
 
-        val descriptorCache = ModuleDescriptorCache(setup.jps.outputProvider)
+        val descriptorCache = ModuleDescriptorCache(setup.jps.outputProvider, owner = owner)
         val generation = planContentModuleDependenciesWithBothSets(
           contentModuleName = ContentModuleName("shared.content"),
           descriptorCache = descriptorCache,
           pluginGraph = graph,
-          isTestDescriptor = false,
           suppressionConfig = suppressionConfig,
           updateSuppressions = false,
         )
@@ -1525,12 +1541,11 @@ class ContentModuleDependencyGeneratorTest {
         }
 
         val graph = buildContentModuleAliasGraph(aliasId)
-        val descriptorCache = ModuleDescriptorCache(setup.jps.outputProvider)
+        val descriptorCache = ModuleDescriptorCache(setup.jps.outputProvider, owner = owner)
         val generation = planContentModuleDependenciesWithBothSets(
           contentModuleName = ContentModuleName("owner.content"),
           descriptorCache = descriptorCache,
           pluginGraph = graph,
-          isTestDescriptor = false,
           suppressionConfig = SuppressionConfig(),
           updateSuppressions = false,
         )
@@ -1577,12 +1592,11 @@ class ContentModuleDependencyGeneratorTest {
         }
 
         val graph = buildContentModuleAliasGraph(aliasId)
-        val descriptorCache = ModuleDescriptorCache(setup.jps.outputProvider)
+        val descriptorCache = ModuleDescriptorCache(setup.jps.outputProvider, owner = owner)
         val generation = planContentModuleDependenciesWithBothSets(
           contentModuleName = ContentModuleName("owner.content"),
           descriptorCache = descriptorCache,
           pluginGraph = graph,
-          isTestDescriptor = false,
           suppressionConfig = SuppressionConfig(
             contentModules = mapOf(
               ContentModuleName("owner.content") to org.jetbrains.intellij.build.productLayout.config.ContentModuleSuppression(
@@ -1632,12 +1646,11 @@ class ContentModuleDependencyGeneratorTest {
           linkPluginMainTarget("dep.plugin")
         }
 
-        val descriptorCache = ModuleDescriptorCache(setup.jps.outputProvider)
+        val descriptorCache = ModuleDescriptorCache(setup.jps.outputProvider, owner = owner)
         val generation = planContentModuleDependenciesWithBothSets(
           contentModuleName = ContentModuleName("owner.content"),
           descriptorCache = descriptorCache,
           pluginGraph = graph,
-          isTestDescriptor = false,
           suppressionConfig = SuppressionConfig(),
           updateSuppressions = true,
         )
@@ -1687,12 +1700,11 @@ class ContentModuleDependencyGeneratorTest {
           linkPluginMainTarget("dep.plugin")
         }
 
-        val descriptorCache = ModuleDescriptorCache(setup.jps.outputProvider)
+        val descriptorCache = ModuleDescriptorCache(setup.jps.outputProvider, owner = owner)
         val generation = planContentModuleDependenciesWithBothSets(
           contentModuleName = ContentModuleName("owner.content"),
           descriptorCache = descriptorCache,
           pluginGraph = graph,
-          isTestDescriptor = false,
           suppressionConfig = SuppressionConfig(),
           updateSuppressions = true,
         )

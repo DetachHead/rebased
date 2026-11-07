@@ -90,6 +90,18 @@ public class TestClassGradleConfigurationProducer extends AbstractGradleTestRunC
   }
 
   @Override
+  protected @NotNull String suggestTaskFirstConfigurationName(
+    @NotNull ConfigurationContext context,
+    @NotNull PsiClass element,
+    @NotNull List<? extends PsiClass> chosenElements,
+    @NotNull List<String> selectedTestTaskNames
+  ) {
+    List<? extends PsiClass> elements = chosenElements.isEmpty() ? List.of(element) : chosenElements;
+    List<String> targetNames = ContainerUtil.map(elements, psiClass -> Objects.requireNonNull(psiClass.getName()));
+    return createTaskFirstConfigurationNameFor(selectedTestTaskNames, targetNames);
+  }
+
+  @Override
   protected void chooseSourceElements(
     @NotNull ConfigurationContext context,
     @NotNull PsiClass element,

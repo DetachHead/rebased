@@ -19,7 +19,7 @@ interface PyTypeEngineProvider {
 
     @ApiStatus.Internal
     fun createTypeEngine(module: Module): PyTypeEngine? {
-      return EP_NAME.extensionList.firstNotNullOfOrNull { it.createTypeEngine(module) }
+      return EP_NAME.computeSafeIfAny { it.createTypeEngine(module) }
     }
   }
 }

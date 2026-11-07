@@ -34,6 +34,9 @@ public abstract class AbstractNamingConventionMerger<T extends PsiNameIdentifier
   protected boolean areSettingsMerged(@NotNull Map<String, Element> inspectionsSettings, @NotNull Element inspectionElement) {
     Element merge = merge(inspectionsSettings, false);
     if (merge != null) {
+      if (JDOMUtil.areElementsEqual(merge, inspectionElement)) {
+        return true;
+      }
       myNewInspection.readSettings(merge);
       merge.removeContent();
       myNewInspection.writeSettings(merge);

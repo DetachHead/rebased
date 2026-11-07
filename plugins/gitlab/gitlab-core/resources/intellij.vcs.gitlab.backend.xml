@@ -5,9 +5,9 @@
   <dependencies>
     <plugin id="Git4Idea"/>
     <module name="intellij.libraries.caffeine"/>
-    <module name="intellij.libraries.jackson"/>
-    <module name="intellij.libraries.jackson.databind"/>
-    <module name="intellij.libraries.jackson.module.kotlin"/>
+    <module name="intellij.libraries.jackson3"/>
+    <module name="intellij.libraries.jackson3.databind"/>
+    <module name="intellij.libraries.jackson3.module.kotlin"/>
     <module name="intellij.libraries.jsoup"/>
     <module name="intellij.libraries.kotlinx.coroutines.core"/>
     <module name="intellij.libraries.kotlinx.serialization.core"/>
@@ -33,7 +33,9 @@
     <module name="intellij.platform.ide.core"/>
     <module name="intellij.platform.ide.core.impl"/>
     <module name="intellij.platform.ide.impl"/>
+    <module name="intellij.platform.ide.observable"/>
     <module name="intellij.platform.ide.progress"/>
+    <module name="intellij.platform.ide.util.netty"/>
     <module name="intellij.platform.lang"/>
     <module name="intellij.platform.lang.impl"/>
     <module name="intellij.platform.markdown.utils"/>
@@ -80,7 +82,8 @@
                     serviceImplementation="org.jetbrains.plugins.gitlab.mergerequest.ui.GitLabConnectedProjectViewModelFactoryImpl"/>
 
     <!--suppress PluginXmlI18n - intentionally suppress the inspection to avoid translating `GitLab` technology name-->
-    <projectConfigurable parentId="project.propVCSSupport.Mappings" groupWeight="-500"
+    <projectConfigurable id="org.jetbrains.plugins.gitlab.GitLabSettingsConfigurable"
+                         parentId="project.propVCSSupport.Mappings" groupWeight="-500"
                          instance="org.jetbrains.plugins.gitlab.GitLabSettingsConfigurable"
                          displayName="GitLab"/>
 
@@ -124,10 +127,6 @@
                  key="gitlab.viewed.state.stale.timeout"/>
     <registryKey key="gitlab.merge.requests.load.project.with.rest" defaultValue="true"
                  description="Load the project details purely with REST API"/>
-
-    <registryKey defaultValue="0" description="The number of merge requests at the top of the list to pre-emptively load and cache"
-                 key="gitlab.merge.requests.cached.from.list"/>
-
     <registryKey defaultValue="true" description="Enable file uploading action for review notes"
                  key="gitlab.merge.requests.file.upload.enabled"/>
     <applicationSettings service="org.jetbrains.plugins.gitlab.authentication.accounts.GitLabPersistentAccounts"/>
@@ -136,6 +135,8 @@
     <projectSettings service="org.jetbrains.plugins.gitlab.mergerequest.ui.details.model.GitLabPersistentMergeRequestChangesViewedState"/>
     <projectSettings service="org.jetbrains.plugins.gitlab.authentication.accounts.GitLabProjectDefaultAccountHolder"/>
     <applicationSettings service="org.jetbrains.plugins.gitlab.GitLabSettings"/>
+
+    <advancedSetting default="gitlab.com" id="gitlab.aliases" groupKey="advanced.setting.gitlab"/>
   </extensions>
 
   <extensions defaultExtensionNs="com.intellij.statistics">
@@ -156,6 +157,8 @@
                              implementation="org.jetbrains.plugins.gitlab.git.http.GitLabHttpAuthDataProvider"/>
     <gitCurrentBranchPresenter
       implementation="org.jetbrains.plugins.gitlab.mergerequest.ui.review.GitLabMergeRequestOnCurrentBranchService$BranchPresenter"/>
+    <gitBranchReviewPresenter
+      implementation="org.jetbrains.plugins.gitlab.mergerequest.ui.review.GitLabBranchReviewPresenter"/>
     <gitPushNotificationCustomizer implementation="org.jetbrains.plugins.gitlab.notification.GitLabPushNotificationCustomizer"/>
   </extensions>
 
@@ -176,6 +179,10 @@
             icon="AllIcons.Actions.Refresh"/>
     <action id="GitLab.Merge.Request.Show"
             class="org.jetbrains.plugins.gitlab.mergerequest.action.GitLabShowMergeRequestAction"/>
+    <action id="GitLab.Merge.Request.CheckoutBranch"
+            class="org.jetbrains.plugins.gitlab.mergerequest.action.GitLabMergeRequestCheckoutBranchAction"/>
+    <action id="GitLab.Merge.Request.OpenInWorktree"
+            class="org.jetbrains.plugins.gitlab.mergerequest.action.GitLabMergeRequestOpenInWorktreeAction"/>
     <action id="GitLab.Merge.Request.Open.Link"
             class="org.jetbrains.plugins.gitlab.mergerequest.action.GitLabMergeRequestOpenURLAction"
             icon="com.intellij.vcs.gitlab.icons.GitlabIcons.GitLabLogo"/>
@@ -228,6 +235,8 @@
 
     <group id="GitLab.Merge.Request.List.Actions">
       <reference ref="GitLab.Merge.Request.Show"/>
+      <reference ref="GitLab.Merge.Request.CheckoutBranch"/>
+      <reference ref="GitLab.Merge.Request.OpenInWorktree"/>
       <reference ref="GitLab.Merge.Request.Open.Link"/>
       <reference ref="GitLab.Merge.Request.Copy.Link"/>
       <separator/>

@@ -49,11 +49,7 @@ public final class PluginDescriptorChooser {
       Map.entry("intellij.platform.execution.impl", "intellij.platform.execution.impl.xml"),
       Map.entry("intellij.platform.lang.impl", "intellij.platform.lang.impl.xml"),
       Map.entry("intellij.platform.vcs", "VcsExtensions.xml"),
-      Map.entry("intellij.platform.vcs.impl", "VcsExtensions.xml"),
-      Map.entry("intellij.java", "IdeaPlugin.xml"),
-      Map.entry("intellij.java.impl", "IdeaPlugin.xml"),
-      Map.entry("intellij.java.impl.inspections", "IdeaPlugin.xml"),
-      Map.entry("intellij.java.analysis.impl", "IdeaPlugin.xml"));
+      Map.entry("intellij.platform.vcs.impl", "VcsExtensions.xml"));
 
   public static void show(final Project project,
                           final Editor editor,

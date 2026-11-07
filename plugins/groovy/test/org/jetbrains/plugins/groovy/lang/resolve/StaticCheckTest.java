@@ -11,8 +11,8 @@ import org.junit.Assert;
  */
 public class StaticCheckTest extends GroovyResolveTestCase {
   @Override
-  protected String getBasePath() {
-    return TestUtils.getTestDataPath() + "resolve/static/";
+  protected String getTestDataPath() {
+    return TestUtils.getAbsoluteTestDataPath() + "resolve/static/";
   }
 
   protected void doTest(boolean staticOk) {

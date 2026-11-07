@@ -13,8 +13,29 @@
   <!-- endregion -->
 
   <extensions defaultExtensionNs="com.intellij">
-    <platform.rpc.backend.remoteApiProvider implementation="com.intellij.platform.lang.impl.backend.IdeLanguageCustomizationApiProvider"/>
-    <platform.rpc.backend.remoteApiProvider implementation="com.intellij.platform.lang.impl.backend.GotoContributorsAvailabilityApiProvider"/>
+    <applicationInitializedListener implementation="com.intellij.util.indexing.FileBasedIndexLoader" order="first"/>
+    <backgroundPostStartupActivity implementation="com.intellij.openapi.projectRoots.impl.jdkDownloader.JdkUpdaterStartup"/>
+    <backgroundPostStartupActivity implementation="com.intellij.facet.FacetTypeFeatureCollector"/>
+    <postStartupActivity implementation="com.intellij.openapi.projectRoots.impl.UnknownSdkHeadlessActivity"/>
+    <editorNotificationProvider implementation="com.intellij.openapi.projectRoots.impl.UnknownSdkEditorNotificationsProvider"/>
+    <requiredForSmartModeStartupActivity implementation="com.intellij.util.indexing.ProjectFileBasedIndexStartupActivity" order="first"
+                                         id="projectIndexStartup"/>
+    <requiredForSmartModeStartupActivity implementation="com.intellij.util.indexing.DumbModeWhileScanningSubscriber"/>
+    <requiredForSmartModeStartupActivity implementation="com.intellij.util.indexing.FileBasedIndexInfrastructureExtensionStartup"/>
+    <postStartupActivity implementation="com.intellij.util.indexing.projectFilter.ProjectIndexableFilesFilterHealthCheckStarter"/>
+    <postStartupActivity implementation="com.intellij.openapi.roots.impl.ScanningCancellationMonitorStarter"/>
+    <postStartupActivity implementation="com.intellij.openapi.projectRoots.impl.UnknownSdkStartupChecker"/>
+    <postStartupActivity implementation="com.intellij.ide.scratch.workspace.ScratchWorkspaceStartupActivity"/>
+    <postStartupActivity implementation="com.intellij.facet.impl.pointers.FacetPointersPostStartupActivity"/>
+    <projectService serviceInterface="com.intellij.util.indexing.DumbModeReindexingScheduler"
+                    serviceImplementation="com.intellij.platform.lang.impl.backend.BackendDumbModeReindexingScheduler"
+                    overrides="true"/>
+    <platform.rpc.backend.remoteApiProvider implementation="com.intellij.platform.lang.impl.backend.IdeLanguageCustomizationApiProvider"
+                                            apiInterfaces="com.intellij.find.impl.IdeLanguageCustomizationApi"/>
+    <platform.rpc.backend.remoteApiProvider implementation="com.intellij.platform.lang.impl.backend.GotoContributorsAvailabilityApiProvider"
+                                            apiInterfaces="com.intellij.ide.actions.searcheverywhere.GotoContributorsAvailabilityApi"/>
+    <platform.rpc.backend.remoteApiProvider implementation="com.intellij.platform.lang.impl.backend.QuestionHintApiProvider"
+                                            apiInterfaces="com.intellij.codeInsight.hint.QuestionHintApi"/>
 
     <intentionAction>
       <language/>
@@ -69,4 +90,19 @@
       <skipBeforeAfter>true</skipBeforeAfter>
     </intentionAction>
   </extensions>
+
+  <applicationListeners>
+    <listener class="com.intellij.util.indexing.FileBasedIndexPluginListener" topic="com.intellij.ide.plugins.DynamicPluginListener"/>
+  </applicationListeners>
+
+  <projectListeners>
+    <listener class="com.intellij.util.indexing.ProjectEntityIndexingService"
+              topic="com.intellij.workspaceModel.core.fileIndex.WorkspaceFileIndexListener"/>
+    <listener class="com.intellij.util.indexing.ProjectEntityIndexingService"
+              topic="com.intellij.openapi.roots.ModuleRootListener"/>
+    <listener class="com.intellij.workspaceModel.ide.impl.legacyBridge.facet.FacetEntityChangeListener$WorkspaceModelListener"
+              topic="com.intellij.platform.backend.workspace.WorkspaceModelChangeListener"/>
+    <listener class="com.intellij.facet.impl.pointers.FacetPointerModuleListener" topic="com.intellij.openapi.project.ModuleListener"/>
+    <listener class="com.intellij.facet.impl.pointers.FacetPointersFacetManagerListener" topic="com.intellij.facet.FacetManagerListener"/>
+  </projectListeners>
 </idea-plugin>

@@ -26,6 +26,25 @@ interface ModuleOutputProvider {
 
   fun findRequiredModule(name: String): JpsModule
 
+  /**
+   * The file at [relativePath] in the source roots of [module], or `null` when no root holds it.
+   *
+   * The answer is the one [org.jetbrains.intellij.build.findFileInModuleSources] gives. A provider answers from its
+   * index, so a search that asks many modules for one file costs no file system call per module. Build code calls
+   * this method and not the file system function, so every search goes through the same index.
+   */
+  fun findFileInModuleSources(module: JpsModule, relativePath: String, onlyProductionSources: Boolean = false): Path?
+
+  /**
+   * The modules whose production sources hold [relativePath], in the order of [getAllModules].
+   *
+   * A search that no declared module answers asks the whole project. This is the one answer to that question, so a
+   * provider can compute it once per path.
+   */
+  fun findModulesWithSourceFile(relativePath: String): List<JpsModule> {
+    return getAllModules().filter { findFileInModuleSources(module = it, relativePath = relativePath, onlyProductionSources = true) != null }
+  }
+
   fun findLibraryRoots(libraryName: String, moduleLibraryModuleName: String? = null): List<Path>
 
   /**
@@ -39,15 +58,17 @@ interface ModuleOutputProvider {
     findLibraryRoots(libraryName = libraryName, moduleLibraryModuleName = moduleLibraryModuleName)
 
   /**
-   * Returns a map from project library name to library module name.
+   * One stable identity per jar of a library, read from the project model and not from a file.
    *
-   * This is required to translate project-level JPS library dependencies
-   * (e.g., assertJ) into intellij.libraries.* modules when
-   * building the plugin graph and DSL test plugin content.
+   * Two libraries that name the same artifact report the same identity for it. The packer decides with these whether a
+   * library still contributes a file to a jar, so a library whose every jar another library already packed is never
+   * resolved. That matters under an explicit Bazel input manifest: resolving a library declares it, and a build that
+   * packs nothing of a library must not need it declared.
    *
-   * Will be removed as soon as all indirect usages are replaced.
+   * Defaults to the resolved roots. A provider that can answer from its model overrides this.
    */
-  fun getProjectLibraryToModuleMap(): Map<String, String>
+  fun getLibraryJarIdentities(libraryName: String, moduleLibraryModuleName: String? = null): List<String> =
+    findLibraryRoots(libraryName = libraryName, moduleLibraryModuleName = moduleLibraryModuleName).map { it.toString() }
 
   fun getModuleOutputRoots(module: JpsModule, forTests: Boolean = false): List<Path>
 

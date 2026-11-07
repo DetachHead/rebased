@@ -2,6 +2,7 @@
 package com.jetbrains.env;
 
 import com.intellij.openapi.projectRoots.Sdk;
+import com.intellij.openapi.project.Project;
 import com.intellij.util.text.SemVer;
 import org.jetbrains.annotations.NotNull;
 
@@ -25,12 +26,12 @@ public interface PyTestEnvironment extends AutoCloseable {
   Set<String> getTags();
 
   /**
-   * Prepare the environment and create an SDK for running tests.
-   * 
+   * Prepare the environment and add its SDK to [project] for running tests.
+   *
    * @return the SDK to use for running tests
    */
   @NotNull
-  Sdk prepareSdk();
+  Sdk prepareSdk(@NotNull Project project);
 
   /**
    * Clean up resources associated with this environment.

@@ -42,19 +42,23 @@ internal class Console(private val uiContext: ProcessOutputUiContext) {
   val component: JComponent
     field = JPanel(BorderLayout())
 
-  private val infoSection = CollapsibleConsolePanel(
+  private val commandSection = ConsoleRegion.createStaticRegion(
+    name = Naming.COMMAND_SECTION_NAME,
+    formatter = InfoTag.formatter,
+  )
+
+  private val infoSection = ConsoleRegion.createCollapsibleRegion(
     title = message("process.output.output.sections.info"),
     name = Naming.INFO_SECTION_NAME,
     formatter = InfoTag.formatter,
-    onToggle = { uiContext.controller.toggleProcessInfo() },
+    onChevronClicked = { uiContext.controller.toggleProcessInfo() },
   )
 
-  private val outputSection = CollapsibleConsolePanel(
+  private val outputSection = ConsoleRegion.createCollapsibleRegion(
     title = message("process.output.output.sections.output"),
     name = Naming.OUTPUT_SECTION_NAME,
     formatter = OutputTag.formatter,
-    onToggle = { uiContext.controller.toggleProcessOutput() },
-    onCopy = this::onCopy,
+    onChevronClicked = { uiContext.controller.toggleProcessOutput() },
     onRebuild = this::onOutputPanelRebuild,
   )
 
@@ -82,6 +86,7 @@ internal class Console(private val uiContext: ProcessOutputUiContext) {
           uiContext.scrollOnProcessDisplayed = ProcessOutputUiContext.ScrollOnProcessDisplayed.None
         }
         else {
+          commandSection.setLines(buildCommandLines(loggedProcess.data))
           infoSection.setLines(buildInfoLines(loggedProcess.data))
 
           linesJob =
@@ -98,6 +103,7 @@ internal class Console(private val uiContext: ProcessOutputUiContext) {
             }
 
           if (contentPanel.componentCount == 0) {
+            contentPanel.add(commandSection.component)
             contentPanel.add(infoSection.component)
             contentPanel.add(outputSection.component)
           }
@@ -131,6 +137,7 @@ internal class Console(private val uiContext: ProcessOutputUiContext) {
           val wrap = OutputFilter.Item.WRAP_CONTENT in active
 
           outputSection.setShowTags(showTags)
+          commandSection.setWrapContent(wrap)
           infoSection.setWrapContent(wrap)
           outputSection.setWrapContent(wrap)
 
@@ -145,17 +152,6 @@ internal class Console(private val uiContext: ProcessOutputUiContext) {
 
           contentPanel.revalidate()
         }
-    }
-  }
-
-  private fun onCopy(line: ConsoleTextLine<OutputTag>, index: Int) {
-    val loggedProcess = uiContext.controller.selectedProcess.value ?: return
-
-    when (line.tag) {
-      OutputTag.EXIT ->
-        uiContext.controller.copyOutputExitInfoToClipboard(loggedProcess)
-      OutputTag.OUTPUT, OutputTag.ERROR ->
-        uiContext.controller.copyOutputTagAtIndexToClipboard(loggedProcess, index)
     }
   }
 
@@ -183,10 +179,12 @@ internal class Console(private val uiContext: ProcessOutputUiContext) {
     }
   }
 
+  private fun buildCommandLines(data: LoggedProcessDto): List<ConsoleTextLine<InfoTag>> =
+    listOf(ConsoleTextLine(InfoTag.COMMAND, data.commandString))
+
   private fun buildInfoLines(data: LoggedProcessDto): List<ConsoleTextLine<InfoTag>> =
     buildList {
       add(ConsoleTextLine(InfoTag.STARTED, data.startedAt.formatFull()))
-      add(ConsoleTextLine(InfoTag.COMMAND, data.commandString))
       data.pid?.also { pid -> add(ConsoleTextLine(InfoTag.PID, pid.toString())) }
       data.cwd?.also { cwd -> add(ConsoleTextLine(InfoTag.CWD, cwd)) }
       add(ConsoleTextLine(InfoTag.TARGET, data.target))
@@ -236,6 +234,7 @@ internal class Console(private val uiContext: ProcessOutputUiContext) {
   }
 
   private object Naming {
+    const val COMMAND_SECTION_NAME = "Python.ProcessOutput.Output.Command"
     const val INFO_SECTION_NAME = "Python.ProcessOutput.Output.Info"
     const val OUTPUT_SECTION_NAME = "Python.ProcessOutput.Output.Output"
   }

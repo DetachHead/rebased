@@ -3,7 +3,8 @@ package com.intellij.filePrediction.features.history.ngram
 
 import com.intellij.internal.ml.ngram.NGramIncrementalModelRunner
 import com.intellij.internal.ml.ngram.VocabularyWithLimit
-import junit.framework.TestCase
+import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertTrue
 
 internal class FilePredictionRunnerAssertion {
   private var withVocabulary: Boolean = false
@@ -38,26 +39,26 @@ internal class FilePredictionRunnerAssertion {
   }
 
   fun assert(runner: NGramIncrementalModelRunner) {
-    TestCase.assertTrue(runner.vocabulary is VocabularyWithLimit)
+    assertTrue(runner.vocabulary is VocabularyWithLimit)
     val vocabulary = runner.vocabulary as VocabularyWithLimit
 
     if (withVocabulary) {
       // unknown token is always added to wordIndices, therefore, actual size will be always size + 1
-      TestCase.assertEquals(vocabularySize, vocabulary.wordIndices.size - 1)
+      assertEquals(vocabularySize, vocabulary.wordIndices.size - 1)
     }
 
     if (withFileSequence) {
       val actualFileSequence = vocabulary.recentSequence.subListFromStart(vocabulary.recentSequence.size())
-      TestCase.assertEquals("File sequence is different from expected", fileSequence, actualFileSequence)
+      assertEquals(fileSequence, actualFileSequence, "File sequence is different from expected")
     }
 
     if (withRecentFiles) {
       val recent = vocabulary.recent
-      TestCase.assertEquals("Next file sequence index is different from expected", nextFileSequenceIdx, recent.lastIndex() + 1)
+      assertEquals(nextFileSequenceIdx, recent.lastIndex() + 1, "Next file sequence index is different from expected")
 
       val tokens = recent.getRecentTokens()
-      TestCase.assertEquals("Recent files are different from expected", recentFiles, tokens.map { it.first })
-      TestCase.assertEquals("Recent files indices are different from expected", recentFilesIdx, tokens.map { it.second })
+      assertEquals(recentFiles, tokens.map { it.first }, "Recent files are different from expected")
+      assertEquals(recentFilesIdx, tokens.map { it.second }, "Recent files indices are different from expected")
     }
   }
 }

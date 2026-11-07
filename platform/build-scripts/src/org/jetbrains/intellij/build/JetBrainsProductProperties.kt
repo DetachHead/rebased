@@ -1,4 +1,6 @@
 // Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+@file:Suppress("ReplaceJavaStaticMethodWithKotlinAnalog")
+
 package org.jetbrains.intellij.build
 
 import com.intellij.platform.buildScripts.licenses.SoftwareBillOfMaterials
@@ -33,7 +35,7 @@ fun isCommunityModule(module: JpsModule, context: BuildContext): Boolean {
   }
 }
 
-val knownMissingModuleDependencies: List<String> = listOf(
+val knownMissingModuleDependencies: List<String> = java.util.List.of(
   "intellij.rider.plugins.fsharp",
   // conditional xi-include
   "kotlin.base.scripting.k1",
@@ -46,31 +48,41 @@ val knownMissingModuleDependencies: List<String> = listOf(
 )
 
 /**
+ * The presigned native libraries of every JetBrains product: the Maven artifact name of each, as
+ * `getLibNameBySourceFile` reads it, to its folder under `lib/`. See [ProductProperties.presignedNativeLibs].
+ * The folder is in the `lib/` directory of the plugin that owns the library jar.
+ * Only `intellij-deps-rocksdbjni` is platform content, so its folder is `lib/rocksdbjni` of the distribution root.
+ *
+ * One map for all products, because the dev distribution packs a content module jar once for all of them. Only the
+ * language servers ship `intellij-deps-rocksdbjni`.
+ */
+val PRESIGNED_NATIVE_LIBS: Map<String, String> = mapOf(
+  "pty4j" to "pty4j",
+  "jna" to "jna",
+  "native" to "native", // sqlite-native
+  "async-profiler" to "async-profiler",
+  "skiko-awt-runtime-all" to "skiko-awt-runtime-all",
+  "intellij-deps-rocksdbjni" to "rocksdbjni",
+)
+
+private val ALLOWED_PLUGIN_VENDORS: Set<String> = java.util.Set.of(
+  "JetBrains", "JetBrains s.r.o.",
+  "JetBrains, Google",
+  "JetBrains Experimental", "JetBrains-Experimental",
+)
+
+/**
  * Describes a distribution of an IntelliJ-based IDE hosted in the IntelliJ repository.
  */
 abstract class JetBrainsProductProperties : ProductProperties() {
-  private companion object {
-    val ALLOWED_PLUGIN_VENDORS: Set<String> = setOf(
-      "JetBrains", "JetBrains s.r.o.",
-      "JetBrains, Google",
-      "JetBrains Experimental", "JetBrains-Experimental",
-    )
-  }
-
   init {
     scrambleMainJar = true
-    presignedNativeLibs = mapOf(
-      "pty4j" to "pty4j",
-      "jna" to "jna",
-      "native" to "native", // sqlite-native
-      "async-profiler" to "async-profiler",
-      "skiko-awt-runtime-all" to "skiko-awt-runtime-all",
-    )
+    presignedNativeLibs = PRESIGNED_NATIVE_LIBS
     includeIntoSourcesArchiveFilter = BiPredicate(::isCommunityModule)
     sbomOptions.creator = "Organization: ${Suppliers.JETBRAINS}"
     sbomOptions.license = SoftwareBillOfMaterials.Options.DistributionLicense.JETBRAINS
 
-    productLayout.addPlatformSpec { layout, _ -> layout.withModule(IJENT_BOOT_CLASSPATH_MODULE, PLATFORM_CORE_NIO_FS) }
+    productLayout.addPlatformSpec { layout -> layout.withModule(IJENT_BOOT_CLASSPATH_MODULE, PLATFORM_CORE_NIO_FS) }
   }
 
   final override fun validatePlugin(pluginId: String?, result: PluginCreationResult<IdePlugin>): List<PluginProblem> {
@@ -93,7 +105,8 @@ abstract class JetBrainsProductProperties : ProductProperties() {
 }
 
 private class InvalidPluginDescriptorError(message: String) : InvalidDescriptorProblem(detailedMessage = message, descriptorPath = "") {
-  override val level = Level.ERROR
+  override val level: Level
+    get() = Level.ERROR
 }
 
 private fun isIntentionallyIgnored(problem: PluginProblem, pluginId: String?): Boolean {

@@ -1,8 +1,8 @@
 // Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.psi.impl.search;
 
+import com.intellij.concurrency.ConcurrencyUtils;
 import com.intellij.concurrency.JobLauncher;
-import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.progress.ProgressIndicatorProvider;
 import com.intellij.openapi.progress.ProgressManager;
@@ -67,8 +67,8 @@ public final class AllClassesSearchExecutor implements QueryExecutor<PsiClass, A
     sorted.sort(String.CASE_INSENSITIVE_ORDER);
 
     PsiShortNamesCache cache = PsiShortNamesCache.getInstance(project);
-    return JobLauncher.getInstance().invokeConcurrentlyUnderContextProgress(sorted, name ->
-      processByName(project, scope, processor, cache, name));
+    return ConcurrencyUtils.runWithIndicatorOrContextCancellation(_->JobLauncher.getInstance().invokeConcurrentlyUnderContextProgress(sorted, name ->
+      processByName(project, scope, processor, cache, name)));
   }
 
   public static boolean processClassesByNames(@NotNull Project project,

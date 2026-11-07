@@ -3,8 +3,10 @@ package com.jetbrains.python.sdk.add.v2.uv
 
 import com.intellij.openapi.module.Module
 import com.intellij.openapi.observable.properties.ObservableProperty
-import com.intellij.openapi.projectRoots.Sdk
-import com.intellij.python.uv.common.UV_UI_INFO
+import com.intellij.openapi.ui.validation.DialogValidationRequestor
+import com.intellij.python.community.impl.uv.common.UV_UI_INFO
+import com.intellij.python.sdk.backend.PythonInterpreter
+import com.intellij.ui.dsl.builder.Panel
 import com.jetbrains.python.PyBundle
 import com.jetbrains.python.errorProcessing.PyResult
 import com.jetbrains.python.sdk.ModuleOrProject
@@ -16,7 +18,8 @@ import com.jetbrains.python.sdk.add.v2.PythonMutableTargetAddInterpreterModel
 import com.jetbrains.python.sdk.add.v2.ToolValidator
 import com.jetbrains.python.sdk.add.v2.ValidatedPath
 import com.intellij.python.uv.backend.UvPyTool
-import com.jetbrains.python.sdk.add.v2.persistCustomToolPath
+import com.jetbrains.python.sdk.add.v2.pathHolder
+import com.jetbrains.python.sdk.uv.initUvProjectIfNeeded
 import com.jetbrains.python.sdk.uv.setupExistingEnvAndSdk
 import com.jetbrains.python.statistics.InterpreterType
 import com.jetbrains.python.uv.sdk.configuration.isUvEnv
@@ -32,7 +35,12 @@ internal class UvExistingEnvironmentSelector<P : PathHolder>(model: PythonMutabl
     model.fileSystem.persistCustomToolPath(pathHolder, UvPyTool.getInstance())
   }
 
-  override suspend fun getOrCreateSdk(moduleOrProject: ModuleOrProject): PyResult<Sdk> {
+  override fun setupUI(panel: Panel, validationRequestor: DialogValidationRequestor) {
+    super.setupUI(panel, validationRequestor)
+    panel.uvProjectModeRow(model.uvViewModel).visibleIf(toolState.isValidationSuccessful)
+  }
+
+  override suspend fun getOrCreateSdk(moduleOrProject: ModuleOrProject): PyResult<PythonInterpreter> {
     val sdkHomePath = selectedEnv.get()?.homePath
     val selectedInterpreterPath =
       sdkHomePath ?: return PyResult.localizedError(PyBundle.message("python.sdk.provided.path.is.invalid", sdkHomePath))
@@ -40,12 +48,16 @@ internal class UvExistingEnvironmentSelector<P : PathHolder>(model: PythonMutabl
     val workingDir = moduleOrProject.workingDirectory
                      ?: return PyResult.localizedError(PyBundle.message("python.sdk.project.working.directory.not.found"))
 
+    val uvPath = toolExecutable.get()!!.pathHolder.getOr { return it }
+    val mode = model.uvViewModel.mode
+    initUvProjectIfNeeded(uvPath, workingDir, model.fileSystem, mode).getOr { return it }
     return setupExistingEnvAndSdk(
+      moduleOrProject = moduleOrProject,
       pythonBinary = selectedInterpreterPath,
-      uvPath = toolExecutable.get()!!.pathHolder!!,
+      uvPath = uvPath,
       workingDir = workingDir,
       fileSystem = model.fileSystem,
-      usePip = false
+      mode = mode,
     )
   }
 

@@ -1,20 +1,22 @@
 package com.intellij.platform.lsp
 
+import com.intellij.idea.TestFor
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.EDT
 import com.intellij.openapi.application.readAction
 import com.intellij.openapi.command.writeCommandAction
 import com.intellij.openapi.editor.impl.DocumentImpl
 import com.intellij.openapi.fileEditor.FileDocumentManager
+import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.io.StreamUtil
 import com.intellij.openapi.vfs.VirtualFile
-import com.intellij.platform.lsp.api.LspServerManager
-import com.intellij.platform.lsp.common.FakeLspServerSupportProvider
+import com.intellij.platform.lsp.api.LspClientManager
+import com.intellij.platform.lsp.common.FakeLspIntegrationProvider
 import com.intellij.platform.lsp.common.SpaceTokenizingFileType
 import com.intellij.platform.lsp.common.assertCustomPsiTree
 import com.intellij.platform.lsp.common.configureServerSession
-import com.intellij.platform.lsp.common.fakeLspServerProviderFixture
+import com.intellij.platform.lsp.common.fakeLspIntegrationFixture
 import com.intellij.platform.lsp.common.problemFileHighlightFilterFixture
 import com.intellij.platform.lsp.common.spaceTokenizingLanguageFixture
 import com.intellij.platform.lsp.common.wolfFixture
@@ -47,8 +49,12 @@ import org.eclipse.lsp4j.DocumentDiagnosticReport
 import org.eclipse.lsp4j.Position
 import org.eclipse.lsp4j.PublishDiagnosticsParams
 import org.eclipse.lsp4j.Range
+import org.eclipse.lsp4j.Registration
+import org.eclipse.lsp4j.RegistrationParams
 import org.eclipse.lsp4j.RelatedFullDocumentDiagnosticReport
 import org.eclipse.lsp4j.RelatedUnchangedDocumentDiagnosticReport
+import org.eclipse.lsp4j.Unregistration
+import org.eclipse.lsp4j.UnregistrationParams
 import org.eclipse.lsp4j.jsonrpc.ResponseErrorException
 import org.eclipse.lsp4j.jsonrpc.messages.ResponseError
 import org.eclipse.lsp4j.jsonrpc.messages.ResponseErrorCode
@@ -78,7 +84,7 @@ internal class LspDiagnosticsTest {
   @Nested
   inner class PublishDiagnostics {
     @Suppress("unused")
-    private val fakeLspServerProvider by projectFixture.fakeLspServerProviderFixture()
+    private val fakeLspIntegration by projectFixture.fakeLspIntegrationFixture()
 
     @Test
     fun `publish diagnostics twice for the same document version`() = timeoutRunBlocking {
@@ -217,7 +223,7 @@ internal class LspDiagnosticsTest {
   @Nested
   inner class PullDiagnostics {
     @Suppress("unused")
-    private val fakeLspServerProvider by projectFixture.fakeLspServerProviderFixture(
+    private val fakeLspIntegration by projectFixture.fakeLspIntegrationFixture(
       configureServerCapabilities = {
         diagnosticProvider = DiagnosticRegistrationOptions()
       },
@@ -497,7 +503,6 @@ internal class LspDiagnosticsTest {
     fun `unchanged report keeps the diagnostics`(): Unit = timeoutRunBlocking {
       (codeInsightFixture as CodeInsightTestFixtureImpl).canChangeDocumentDuringHighlighting(true)
 
-      val otherFile = codeInsightFixture.addFileToProject("other.txt", "other").virtualFile
       val virtualFile = codeInsightFixture.configureByText("test.txt", """
       <error descr="error">hello</error> world
       """.trimIndent()).virtualFile
@@ -512,18 +517,19 @@ internal class LspDiagnosticsTest {
       }
       checkHighlightingByPolling(expectedData)
 
-      // A change in another file marks the cache stale, and the server answers "unchanged".
+      // An edit of this document marks the cache stale, and the server answers "unchanged".
+      // The trailing append leaves the cached range in place.
       val unchangedRequest = serverSession.expectRequest(serverSession.DIAGNOSTIC, { it.textDocument.uri == uri && it.previousResultId == "r1" }) {
         DocumentDiagnosticReport(RelatedUnchangedDocumentDiagnosticReport("r1"))
       }
       writeCommandAction(project, "") {
-        val otherDocument = FileDocumentManager.getInstance().getDocument(otherFile)!!
-        otherDocument.insertString(0, "x")
-        PsiDocumentManager.getInstance(project).commitDocument(otherDocument)
+        val document = codeInsightFixture.editor.document
+        document.insertString(document.textLength, " ")
+        PsiDocumentManager.getInstance(project).commitDocument(document)
       }
 
       // Trigger the pull. The cached error must stay visible while the pull is in flight.
-      val expected = createExpectedDataFromText("""<error descr="error">hello</error> world""")
+      val expected = createExpectedDataFromText("""<error descr="error">hello</error> world """)
       waitUntilAssertSucceeds {
         (codeInsightFixture as CodeInsightTestFixtureImpl).collectAndCheckHighlighting(expected)
       }
@@ -541,7 +547,7 @@ internal class LspDiagnosticsTest {
       val virtualFile = codeInsightFixture.configureByText("test.txt", "hello world").virtualFile
       val serverSession = configureServerSession(project, virtualFile)
       val uri = serverSession.fileUri(virtualFile)
-      val client = LspClientManagerImpl.getInstanceImpl(project).getClients(FakeLspServerSupportProvider::class.java).first()
+      val client = LspClientManagerImpl.getInstanceImpl(project).getClients(FakeLspIntegrationProvider::class.java).first()
 
       // Phase 1: establish a cached snapshot, so the burst below is not the "first pull" that skips the delay.
       // The test reads the cache directly: collectAndCheckHighlighting bumps the PSI counter on every call
@@ -596,7 +602,7 @@ internal class LspDiagnosticsTest {
       val virtualFile = codeInsightFixture.configureByText("test.txt", "hello world").virtualFile
       val serverSession = configureServerSession(project, virtualFile)
       val uri = serverSession.fileUri(virtualFile)
-      val client = LspClientManagerImpl.getInstanceImpl(project).getClients(FakeLspServerSupportProvider::class.java).first()
+      val client = LspClientManagerImpl.getInstanceImpl(project).getClients(FakeLspIntegrationProvider::class.java).first()
 
       // Hold the first pull pending.
       val pendingResponse = CompletableFuture<DocumentDiagnosticReport>()
@@ -625,11 +631,10 @@ internal class LspDiagnosticsTest {
     fun `unexpected unchanged report settles the cache`(): Unit = timeoutRunBlocking {
       (codeInsightFixture as CodeInsightTestFixtureImpl).canChangeDocumentDuringHighlighting(true)
 
-      val otherFile = codeInsightFixture.addFileToProject("other.txt", "other").virtualFile
       val virtualFile = codeInsightFixture.configureByText("test.txt", "hello world").virtualFile
       val serverSession = configureServerSession(project, virtualFile)
       val uri = serverSession.fileUri(virtualFile)
-      val client = LspClientManagerImpl.getInstanceImpl(project).getClients(FakeLspServerSupportProvider::class.java).first()
+      val client = LspClientManagerImpl.getInstanceImpl(project).getClients(FakeLspIntegrationProvider::class.java).first()
 
       // Phase 1: a full report without a resultId, so the next pull carries no previousResultId.
       serverSession.expectRequest(serverSession.DIAGNOSTIC, { it.textDocument.uri == uri }) {
@@ -642,15 +647,15 @@ internal class LspDiagnosticsTest {
         assertTrue(readAction { client.getDiagnosticsAndQuickFixes(virtualFile) }.isNotEmpty())
       }
 
-      // Phase 2: a change in another file makes the cache stale. The server answers "unchanged"
+      // Phase 2: an edit of this document makes the cache stale. The server answers "unchanged"
       // although no previousResultId was sent - non-conforming, but tolerated.
       val unchangedRequest = serverSession.expectRequest(serverSession.DIAGNOSTIC, { it.textDocument.uri == uri && it.previousResultId == null }) {
         DocumentDiagnosticReport(RelatedUnchangedDocumentDiagnosticReport("unexpected"))
       }
       writeCommandAction(project, "") {
-        val otherDocument = FileDocumentManager.getInstance().getDocument(otherFile)!!
-        otherDocument.insertString(0, "x")
-        PsiDocumentManager.getInstance(project).commitDocument(otherDocument)
+        val document = codeInsightFixture.editor.document
+        document.insertString(document.textLength, " ")
+        PsiDocumentManager.getInstance(project).commitDocument(document)
       }
       withContext(Dispatchers.IO) { readAction { client.getDiagnosticsAndQuickFixes(virtualFile) } }
       unchangedRequest.await()
@@ -691,7 +696,7 @@ internal class LspDiagnosticsTest {
       }
       diagnosticsArrived.await()
 
-      val client = LspClientManagerImpl.getInstanceImpl(project).getClients(FakeLspServerSupportProvider::class.java).first()
+      val client = LspClientManagerImpl.getInstanceImpl(project).getClients(FakeLspIntegrationProvider::class.java).first()
       assertTrue(
         readAction { client.getDiagnosticsAndQuickFixes(newFile) }.isNotEmpty(),
         "the diagnostics of a just-opened file must be pulled without a highlighting pass",
@@ -730,12 +735,136 @@ internal class LspDiagnosticsTest {
         (codeInsightFixture as CodeInsightTestFixtureImpl).collectAndCheckHighlighting(expected)
       }
     }
+
+    /**
+     * A new `textDocument/diagnostic` registration replaces the previous one, so the results pulled through the
+     * previous one are stale. The client pulls again for the open files and sends no `previousResultId`, as
+     * vscode-languageclient does. A server can use this instead of `workspace/diagnostic/refresh`.
+     */
+    @Test
+    @TestFor(issues = ["IJPL-256620"])
+    fun `re-registering the diagnostic capability triggers a full re-pull`(): Unit = timeoutRunBlocking {
+      (codeInsightFixture as CodeInsightTestFixtureImpl).canChangeDocumentDuringHighlighting(true)
+
+      val virtualFile = codeInsightFixture.configureByText("test.txt", """
+      <error descr="stale">hello</error> world
+      """.trimIndent()).virtualFile
+      val expectedData = stripHighlightingMarkup()
+      val serverSession = configureServerSession(project, virtualFile)
+      val uri = serverSession.fileUri(virtualFile)
+
+      serverSession.expectRequest(serverSession.DIAGNOSTIC, { it.textDocument.uri == uri && it.previousResultId == null }) {
+        DocumentDiagnosticReport(RelatedFullDocumentDiagnosticReport(listOf(
+          Diagnostic(Range(Position(0, 0), Position(0, 5)), "stale", DiagnosticSeverity.Error, null)
+        )).apply { resultId = "r1" })
+      }
+      checkHighlightingByPolling(expectedData)
+
+      // The re-pull forced by the new registration must not send previousResultId either.
+      serverSession.expectRequest(serverSession.DIAGNOSTIC, { it.textDocument.uri == uri && it.previousResultId == null }) {
+        DocumentDiagnosticReport(RelatedFullDocumentDiagnosticReport(listOf(
+          Diagnostic(Range(Position(0, 0), Position(0, 5)), "fresh", DiagnosticSeverity.Error, null)
+        )))
+      }
+      serverSession.sendRequest(serverSession.UNREGISTER_CAPABILITY) {
+        UnregistrationParams(listOf(Unregistration("diagnostic-id", "textDocument/diagnostic")))
+      }
+      serverSession.sendRequest(serverSession.REGISTER_CAPABILITY) {
+        RegistrationParams(listOf(Registration("diagnostic-id", "textDocument/diagnostic", DiagnosticRegistrationOptions())))
+      }
+
+      val expected = createExpectedDataFromText("""<error descr="fresh">hello</error> world""")
+      waitUntilAssertSucceeds {
+        (codeInsightFixture as CodeInsightTestFixtureImpl).collectAndCheckHighlighting(expected)
+      }
+    }
+
+    /**
+     * [com.intellij.platform.lsp.api.LspClient.invalidateServerResults]: the IDE changed what the server bases
+     * its answers on, so nothing it answered before can be trusted, and no server request says so.
+     */
+    @Test
+    @TestFor(issues = ["IJPL-256620"])
+    fun `invalidating server results triggers a full re-pull`(): Unit = timeoutRunBlocking {
+      (codeInsightFixture as CodeInsightTestFixtureImpl).canChangeDocumentDuringHighlighting(true)
+
+      val virtualFile = codeInsightFixture.configureByText("test.txt", """
+      <error descr="stale">hello</error> world
+      """.trimIndent()).virtualFile
+      val expectedData = stripHighlightingMarkup()
+      val serverSession = configureServerSession(project, virtualFile)
+      val uri = serverSession.fileUri(virtualFile)
+
+      serverSession.expectRequest(serverSession.DIAGNOSTIC, { it.textDocument.uri == uri && it.previousResultId == null }) {
+        DocumentDiagnosticReport(RelatedFullDocumentDiagnosticReport(listOf(
+          Diagnostic(Range(Position(0, 0), Position(0, 5)), "stale", DiagnosticSeverity.Error, null)
+        )).apply { resultId = "r1" })
+      }
+      checkHighlightingByPolling(expectedData)
+
+      serverSession.expectRequest(serverSession.DIAGNOSTIC, { it.textDocument.uri == uri && it.previousResultId == null }) {
+        DocumentDiagnosticReport(RelatedFullDocumentDiagnosticReport(listOf(
+          Diagnostic(Range(Position(0, 0), Position(0, 5)), "fresh", DiagnosticSeverity.Error, null)
+        )))
+      }
+      LspClientManager.getInstance(project)
+        .getClients(FakeLspIntegrationProvider::class.java)
+        .single()
+        .invalidateServerResults()
+
+      val expected = createExpectedDataFromText("""<error descr="fresh">hello</error> world""")
+      waitUntilAssertSucceeds {
+        (codeInsightFixture as CodeInsightTestFixtureImpl).collectAndCheckHighlighting(expected)
+      }
+    }
+
+    /**
+     * The reopened document keeps its stamp, so only `didClose` tells the client that the server may answer
+     * differently now, for example after a change in another file.
+     */
+    @Test
+    @TestFor(issues = ["IJPL-256855"])
+    fun `reopened file triggers a full re-pull`(): Unit = timeoutRunBlocking {
+      (codeInsightFixture as CodeInsightTestFixtureImpl).canChangeDocumentDuringHighlighting(true)
+
+      // No highlighting markup in the file: stripping it would leave the document unsaved, and no didClose is sent for that.
+      val virtualFile = codeInsightFixture.configureByText("test.txt", "hello world").virtualFile
+      val serverSession = configureServerSession(project, virtualFile)
+      val uri = serverSession.fileUri(virtualFile)
+
+      serverSession.expectRequest(serverSession.DIAGNOSTIC, { it.textDocument.uri == uri && it.previousResultId == null }) {
+        DocumentDiagnosticReport(RelatedFullDocumentDiagnosticReport(listOf(
+          Diagnostic(Range(Position(0, 0), Position(0, 5)), "stale", DiagnosticSeverity.Error, null)
+        )).apply { resultId = "r1" })
+      }
+      checkHighlightingByPolling(createExpectedDataFromText("""<error descr="stale">hello</error> world"""))
+
+      val didClose = serverSession.expectNotification(serverSession.DID_CLOSE) { it.textDocument.uri == uri }
+      withContext(Dispatchers.EDT) {
+        FileEditorManager.getInstance(project).closeFile(virtualFile)
+      }
+      didClose.await()
+
+      serverSession.expectRequest(serverSession.DIAGNOSTIC, { it.textDocument.uri == uri && it.previousResultId == null }) {
+        DocumentDiagnosticReport(RelatedFullDocumentDiagnosticReport(listOf(
+          Diagnostic(Range(Position(0, 0), Position(0, 5)), "fresh", DiagnosticSeverity.Error, null)
+        )))
+      }
+      withContext(Dispatchers.EDT) {
+        codeInsightFixture.openFileInEditor(virtualFile)
+      }
+
+      val expected = createExpectedDataFromText("""<error descr="fresh">hello</error> world""")
+      waitUntilAssertSucceeds {
+        (codeInsightFixture as CodeInsightTestFixtureImpl).collectAndCheckHighlighting(expected)
+      }
+    }
   }
 
   @Nested
   inner class WolfTheProblemSolverInterop {
     @Suppress("unused")
-    private val fakeLspServerProvider by projectFixture.fakeLspServerProviderFixture(
+    private val fakeLspIntegration by projectFixture.fakeLspIntegrationFixture(
       configureServerCapabilities = {
         diagnosticProvider = DiagnosticRegistrationOptions()
       },
@@ -889,7 +1018,7 @@ internal class LspDiagnosticsTest {
     private val spaceTokenizingLang = spaceTokenizingLanguageFixture()
 
     @Suppress("unused")
-    private val fakeLspServerProvider by projectFixture.fakeLspServerProviderFixture(
+    private val fakeLspIntegration by projectFixture.fakeLspIntegrationFixture(
       configureServerCapabilities = {
         diagnosticProvider = DiagnosticRegistrationOptions()
       },
@@ -943,7 +1072,7 @@ internal class LspDiagnosticsTest {
   @Nested
   inner class DiagnosticsClearedOnServerStop {
     @Suppress("unused")
-    private val fakeLspServerProvider by projectFixture.fakeLspServerProviderFixture()
+    private val fakeLspIntegration by projectFixture.fakeLspIntegrationFixture()
 
     @Test
     fun `diagnostics are cleared when the server stops`(): Unit = timeoutRunBlocking {
@@ -967,7 +1096,7 @@ internal class LspDiagnosticsTest {
       publishJob.start()
       verifyDiagnosticsShown.await()
 
-      LspServerManager.getInstance(project).stopServers(FakeLspServerSupportProvider::class.java)
+      LspClientManager.getInstance(project).stopClients(FakeLspIntegrationProvider::class.java)
 
       val expectedClean = createExpectedDataFromText("hello world")
       (codeInsightFixture as CodeInsightTestFixtureImpl).collectAndCheckHighlighting(expectedClean)
@@ -983,7 +1112,7 @@ internal class LspDiagnosticsTest {
   @Nested
   inner class UncommittedPsiReparse {
     @Suppress("unused")
-    private val fakeLspServerProvider by projectFixture.fakeLspServerProviderFixture()
+    private val fakeLspIntegration by projectFixture.fakeLspIntegrationFixture()
 
     @Test
     fun `diagnostic in not-yet-reparsed region is skipped without exception`(): Unit = timeoutRunBlocking {

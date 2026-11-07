@@ -23,11 +23,15 @@
   </component>
   <component name="NewModuleRootManager" inherit-compiler-output="true">
     <exclude-output />
+    <content url="file://$MODULE_DIR$/spec/plugin-manager">
+      <sourceFolder url="file://$MODULE_DIR$/spec/plugin-manager" type="java-test-resource" />
+    </content>
     <content url="file://$MODULE_DIR$/testSrc">
       <sourceFolder url="file://$MODULE_DIR$/testSrc" isTestSource="true" />
     </content>
     <orderEntry type="library" scope="PROVIDED" name="Mac" level="project" />
     <orderEntry type="module" module-name="intellij.platform.testFramework" scope="TEST" />
+    <orderEntry type="module" module-name="intellij.platform.pluginManager.testFramework" scope="TEST" />
     <orderEntry type="inheritedJdk" />
     <orderEntry type="sourceFolder" forTests="false" />
     <orderEntry type="module" module-name="intellij.platform.analysis" scope="TEST" />
@@ -44,7 +48,6 @@
     <orderEntry type="module" module-name="intellij.platform.lang" scope="TEST" />
     <orderEntry type="module" module-name="intellij.libraries.jna" scope="TEST" />
     <orderEntry type="module" module-name="intellij.libraries.winp" scope="TEST" />
-    <orderEntry type="module" module-name="intellij.libraries.swingx" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.core.impl" scope="TEST" />
     <orderEntry type="module" module-name="intellij.libraries.miglayout.swing" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.indexing" scope="TEST" />
@@ -70,7 +73,6 @@
     <orderEntry type="library" scope="TEST" name="diogen-analysis" level="project" />
     <orderEntry type="library" scope="RUNTIME" name="slf4j-api" level="project" />
     <orderEntry type="library" scope="RUNTIME" name="slf4j-jdk14" level="project" />
-    <orderEntry type="module" module-name="intellij.libraries.stream" scope="TEST" />
     <orderEntry type="module" module-name="intellij.libraries.kotlinx.coroutines.core" scope="TEST" />
     <orderEntry type="module" module-name="intellij.libraries.netty.codec.http" scope="TEST" />
     <orderEntry type="module" module-name="intellij.libraries.java.compatibility" scope="TEST" />
@@ -136,7 +138,7 @@
     <orderEntry type="module" module-name="intellij.platform.settings" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.util.coroutines" scope="TEST" />
     <orderEntry type="module" module-name="intellij.libraries.jetbrains.annotations" scope="TEST" />
-    <orderEntry type="library" scope="TEST" name="kotlinx-coroutines-test" level="project" />
+    <orderEntry type="module" module-name="intellij.libraries.kotlinx.coroutines.test" scope="TEST" />
     <orderEntry type="module" module-name="intellij.libraries.lz4" scope="TEST" />
     <orderEntry type="module" module-name="intellij.libraries.kotlinx.collections.immutable" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.util.io.storages" scope="TEST" />
@@ -155,6 +157,8 @@
     <orderEntry type="module" module-name="intellij.libraries.bouncy.castle.provider" scope="RUNTIME" />
     <orderEntry type="module" module-name="intellij.platform.resources" scope="RUNTIME" />
     <orderEntry type="module" module-name="intellij.platform.resources.en" scope="RUNTIME" />
+    <orderEntry type="module" module-name="intellij.platform.resources.fileTypes" scope="RUNTIME" />
+    <orderEntry type="module" module-name="intellij.platform.resources.en.fileTemplates" scope="RUNTIME" />
     <orderEntry type="module" module-name="intellij.platform.ide.ui" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.buildData" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.syntax" scope="RUNTIME" />
@@ -181,7 +185,7 @@
     <orderEntry type="module" module-name="intellij.java.guiForms.rt" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.ide.impl" scope="TEST" />
     <orderEntry type="module" module-name="fleet.rhizomedb" scope="TEST" />
-    <orderEntry type="module" module-name="intellij.libraries.junit5" scope="TEST" />
+    <orderEntry type="module" module-name="intellij.libraries.junit6" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.testFramework.junit5" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.statistics.testFramework" scope="TEST" />
   </component>

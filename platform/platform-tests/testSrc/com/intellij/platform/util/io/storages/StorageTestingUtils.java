@@ -11,6 +11,7 @@ import com.intellij.util.io.Unmappable;
 import com.intellij.util.io.pagecache.PagedStorage;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.TestOnly;
 
 import java.io.File;
 import java.lang.reflect.Field;
@@ -28,7 +29,9 @@ import java.util.concurrent.locks.ReadWriteLock;
 
 import static com.intellij.openapi.util.text.StringUtil.repeat;
 
+@TestOnly
 public final class StorageTestingUtils {
+
   /**
    * Emulates scenario there underlying storage(s) was closed without invoking storage.close() method -- as-if
    * app was kill-9-ed. This is just an emulation -- it doesn't replicate all the details of actual kill-9 --
@@ -128,6 +131,8 @@ public final class StorageTestingUtils {
     }
   }
 
+  /// Finds [CleanableStorage] instances in the object tree and asks each instance to clean itself
+  /// It closes [AutoCloseable], [Disposable], and [Unmappable] instances without cleaning them
   public static void bestEffortToCloseAndClean(@NotNull Object storage) throws Exception {
     bestEffortToCloseAndClean("", storage, new HashSet<>(), 0);
   }
@@ -207,81 +212,6 @@ public final class StorageTestingUtils {
     }
   }
 
-
-  public static void bestEffortToCloseAndUnmap(@NotNull Object storage) throws Exception {
-    bestEffortToCloseAndUnmap("", storage, new HashSet<>(), 0);
-  }
-
-  private static void bestEffortToCloseAndUnmap(@NotNull String fieldName,
-                                                @NotNull Object value,
-                                                @NotNull Set<Object> alreadyProcessed,
-                                                int depth) throws Exception {
-    if (isUntouchable(value)) {
-      return;
-    }
-    if (alreadyProcessed.contains(value)) {
-      return;
-    }
-    alreadyProcessed.add(value);
-
-    if (value instanceof Unmappable) {
-      log(depth, fieldName, "closeAndUnmap()");
-      ((Unmappable)value).closeAndUnsafelyUnmap();
-      return;
-    }
-
-    if (value instanceof Iterable<?>) {
-      log(depth, fieldName, "iterate and dive deeper...");
-      int i = 0;
-      for (Object nested : (Iterable<?>)value) {
-        bestEffortToCloseAndUnmap("[" + i + "]", nested, alreadyProcessed, depth + 1);
-        i++;
-      }
-      return;
-    }
-    //MAYBE RC: iterate Object[] also?
-
-    //Assume everything else is 'compound' storage that _may_ hold 'raw' underlying storage(s)
-    // somewhere deeper:
-    if (value instanceof AutoCloseable) {
-      log(depth, fieldName, "close() and dive deeper...");
-      ((AutoCloseable)value).close();
-    }
-    else if (value instanceof Disposable) {
-      log(depth, fieldName, "dispose() and dive deeper...");
-      Disposer.dispose((Disposable)value);
-    }
-    else {
-      log(depth, fieldName, "just dive deeper...");
-    }
-
-    Field[] fields = collectAllFields(value);
-    for (Field field : fields) {
-
-      if (Modifier.isStatic(field.getModifiers())
-          || field.isSynthetic()
-          || field.getType().isPrimitive()) {
-        //log(depth + 1, field, "ignore");
-        continue;
-      }
-
-      try {
-        field.setAccessible(true);
-        Object fieldValue = field.get(value);
-        if (fieldValue == null) {
-          //log(depth + 1, field, "ignore null");
-          continue;
-        }
-
-        bestEffortToCloseAndUnmap(field.getName(), fieldValue, alreadyProcessed, depth + 1);
-      }
-      catch (Throwable t) {
-        log(depth, field, "failed: " + t.getMessage());
-      }
-    }
-  }
-
-
   private static Field[] collectAllFields(@NotNull Object value) {
     //RC: collect through all the hierarchy seems too dangerous
     //return ReflectionUtil.collectFields(value.getClass()).toArray(Field[]::new);
@@ -330,7 +260,7 @@ public final class StorageTestingUtils {
     return false;
   }
 
-
+  // ================ helpers for debugging, now empty: ================================================================
   private static void log(int depth,
                           Field field,
                           String message) {

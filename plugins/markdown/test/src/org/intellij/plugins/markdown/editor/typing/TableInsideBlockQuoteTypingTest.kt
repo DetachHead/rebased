@@ -40,7 +40,7 @@ class TableInsideBlockQuoteTypingTest: LightPlatformCodeInsightTestCase() {
     > | ---   | ------ | ---- | 
     > | foo   | some   | fix  |
     > | bar   | item   | plz  
-    <caret>|
+    > <caret>|
     """.trimIndent()
     configureFromFileText("some.md", content)
     type('\n')

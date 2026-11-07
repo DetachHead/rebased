@@ -16,4 +16,3 @@ fun main() {
     println(Foo.bar())
 }
 // FUS_QUICKFIX_NAME: org.jetbrains.kotlin.idea.codeInsight.inspections.KotlinOptimizeImportsQuickFix
-// FUS_K2_QUICKFIX_NAME: org.jetbrains.kotlin.idea.codeInsight.inspections.KotlinOptimizeImportsQuickFix

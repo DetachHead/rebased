@@ -11,7 +11,7 @@ import com.intellij.openapi.application.EDT
 import com.intellij.openapi.diagnostic.fileLogger
 import com.intellij.openapi.diagnostic.getOrHandleException
 import com.intellij.openapi.diagnostic.logger
-import com.intellij.openapi.diagnostic.rethrowControlFlowException
+import com.intellij.diagnostic.rethrowControlFlowException
 import com.intellij.openapi.diagnostic.runAndLogException
 import com.intellij.openapi.editor.impl.EditorId
 import com.intellij.openapi.editor.impl.findEditorOrNull
@@ -332,12 +332,14 @@ fun XDebugSessionImpl.getSessionEventsFlow(
     override fun stackFrameChanged() {
       val suspendScope = currentSession.getSuspendContextModel()?.coroutineScope ?: return
       rawEvents.trySend {
+        val executionStackDto = currentSession.currentExecutionStack?.toRpc(suspendScope, currentSession)
         val stackFrameDto = currentSession.currentStackFrame?.toRpc(suspendScope, currentSession)
         XDebuggerSessionEvent.StackFrameChanged(
           currentSession.state(),
           currentSession.currentPosition?.toRpc(),
           currentSession.topFramePosition?.toRpc(),
           currentSession.isTopFrameSelected,
+          executionStackDto,
           stackFrameDto,
         )
       }

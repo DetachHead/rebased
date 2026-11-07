@@ -62,7 +62,8 @@ private typealias NewDiscussionsFlow = StateFlow<Collection<GitLabMergeRequestDi
  * A viewmodel for the merge request diff window capable of showing different file diffs
  */
 @ApiStatus.Internal
-interface GitLabMergeRequestDiffViewModel : GitLabMergeRequestReviewViewModel, CodeReviewDiffProcessorViewModel<GitLabMergeRequestDiffChangeViewModel> {
+interface GitLabMergeRequestDiffViewModel : GitLabMergeRequestReviewViewModel,
+                                            CodeReviewDiffProcessorViewModel<GitLabMergeRequestDiffChangeViewModel> {
   val discussions: DiscussionsFlow
   val draftDiscussions: DraftDiscussionsFlow
   val newDiscussions: NewDiscussionsFlow
@@ -93,7 +94,7 @@ internal class GitLabMergeRequestDiffProcessorViewModelImpl(
   private val imageLoader: GitLabImageLoader,
 ) : GitLabMergeRequestDiffViewModel, GitLabMergeRequestReviewViewModelBase(
   parentCs.childScope("GitLab Merge Request Diff Review VM"),
-  currentUser, mergeRequest,
+  project, currentUser, mergeRequest,
   project.service<GitLabMergeRequestsPreferences>().diffReviewViewOption
 ) {
   private val preferences = project.service<GitLabMergeRequestsPreferences>()
@@ -163,7 +164,11 @@ internal class GitLabMergeRequestDiffProcessorViewModelImpl(
       val discussions = discussionsResult.getOrNull() ?: emptyList()
       val draftNotes = draftNotesResult.getOrNull() ?: emptyList()
 
-      (discussions + draftNotes + newDiscussions).associateBy { it.trackingId }
+      buildList {
+        addAll(discussions)
+        addAll(draftNotes)
+        addAll(newDiscussions)
+      }.associateBy { it.trackingId }
     }.stateInNow(cs, emptyMap())
 
   override fun showChange(change: GitLabMergeRequestDiffChangeViewModel, scrollRequest: DiffViewerScrollRequest?) =

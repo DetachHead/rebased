@@ -27,9 +27,7 @@
     <module name="intellij.libraries.jetbrains.annotations"/>
     <module name="intellij.libraries.jgoodies.common"/>
     <module name="intellij.libraries.jgoodies.forms"/>
-    <module name="intellij.libraries.jna"/>
     <module name="intellij.libraries.jsoup"/>
-    <module name="intellij.libraries.jvm.native.trusted.roots"/>
     <module name="intellij.libraries.kotlin.reflect"/>
     <module name="intellij.libraries.kotlinx.collections.immutable"/>
     <module name="intellij.libraries.kotlinx.coroutines.core"/>
@@ -44,20 +42,22 @@
     <module name="intellij.libraries.opentelemetry.semconv"/>
     <module name="intellij.libraries.oro.matcher"/>
     <module name="intellij.libraries.protobuf"/>
-    <module name="intellij.libraries.pty4j"/>
     <module name="intellij.libraries.rd.core"/>
-    <module name="intellij.libraries.stream"/>
-    <module name="intellij.libraries.swingx"/>
     <module name="intellij.libraries.winp"/>
     <module name="intellij.platform.analysis"/>
     <module name="intellij.platform.analysis.impl"/>
+    <module name="intellij.platform.backend.observation"/>
+    <module name="intellij.platform.backend.workspace"/>
+    <module name="intellij.platform.buildData"/>
     <module name="intellij.platform.builtInServer"/>
     <module name="intellij.platform.codeStyle"/>
     <module name="intellij.platform.codeStyle.impl"/>
+    <module name="intellij.platform.concurrency"/>
     <module name="intellij.platform.core"/>
     <module name="intellij.platform.core.impl"/>
     <module name="intellij.platform.core.ui"/>
     <module name="intellij.platform.credentialStore"/>
+    <module name="intellij.platform.diagnostic.startUpPerformanceReporter"/>
     <module name="intellij.platform.diagnostic.telemetry"/>
     <module name="intellij.platform.diagnostic.telemetry.impl"/>
     <module name="intellij.platform.diff"/>
@@ -65,39 +65,72 @@
     <module name="intellij.platform.editor.ui"/>
     <module name="intellij.platform.eel.impl"/>
     <module name="intellij.platform.eel.nioFs.impl"/>
-    <module name="intellij.platform.execution"/>
+    <module name="intellij.platform.eel.provider"/>
+    <module name="intellij.platform.icons"/>
     <module name="intellij.platform.ide"/>
     <module name="intellij.platform.ide.concurrency"/>
     <module name="intellij.platform.ide.core"/>
     <module name="intellij.platform.ide.core.impl"/>
     <module name="intellij.platform.ide.core.plugins"/>
+    <module name="intellij.platform.ide.observable"/>
     <module name="intellij.platform.ide.progress"/>
+    <module name="intellij.platform.ide.recentProjects"/>
+    <module name="intellij.platform.ide.rpc"/>
+    <module name="intellij.platform.ide.ui"/>
+    <module name="intellij.platform.ide.util.io.impl"/>
+    <module name="intellij.platform.ide.util.netty"/>
+    <module name="intellij.platform.ijent"/>
+    <module name="intellij.platform.ijent.community.buildConstants"/>
+    <module name="intellij.platform.ijent.community.impl"/>
     <module name="intellij.platform.indexing"/>
     <module name="intellij.platform.instanceContainer"/>
+    <module name="intellij.platform.jbr"/>
     <module name="intellij.platform.kernel"/>
     <module name="intellij.platform.lang"/>
     <module name="intellij.platform.lang.core"/>
     <module name="intellij.platform.locking.impl"/>
     <module name="intellij.platform.lvcs"/>
+    <module name="intellij.platform.objectSerializer"/>
+    <module name="intellij.platform.pasta"/>
+    <module name="intellij.platform.pluginSystem.parser.impl"/>
+    <module name="intellij.platform.pratt"/>
     <module name="intellij.platform.project"/>
     <module name="intellij.platform.projectFrame"/>
     <module name="intellij.platform.projectModel"/>
     <module name="intellij.platform.projectModel.impl"/>
     <module name="intellij.platform.rd.community"/>
     <module name="intellij.platform.refactoring"/>
+    <module name="intellij.platform.resources"/>
+    <module name="intellij.platform.resources.en"/>
     <module name="intellij.platform.runtime.product"/>
     <module name="intellij.platform.serviceContainer"/>
+    <module name="intellij.platform.settings"/>
     <module name="intellij.platform.statistics"/>
+    <module name="intellij.platform.syntax"/>
+    <module name="intellij.platform.syntax.extensions"/>
+    <module name="intellij.platform.syntax.i18n"/>
     <module name="intellij.platform.syntax.psi"/>
+    <module name="intellij.platform.syntax.tree"/>
+    <module name="intellij.platform.syntax.util"/>
+    <module name="intellij.platform.ui.tree"/>
+    <module name="intellij.platform.undo"/>
     <module name="intellij.platform.util.coroutines"/>
     <module name="intellij.platform.util.diff"/>
     <module name="intellij.platform.util.ex"/>
+    <module name="intellij.platform.util.io.storages"/>
+    <module name="intellij.platform.util.progress"/>
+    <module name="intellij.platform.util.text.matching"/>
     <module name="intellij.platform.util.ui"/>
+    <module name="intellij.platform.vfs.impl"/>
     <module name="intellij.platform.welcomeScreen.impl"/>
     <module name="intellij.platform.workspace.jps"/>
+    <module name="intellij.platform.workspace.storage"/>
   </dependencies>
   <!-- endregion -->
   <extensionPoints>
+    <extensionPoint qualifiedName="com.intellij.rdProtocolDetector"
+                    interface="com.intellij.platform.rd.RdProtocolDetector"
+                    dynamic="true"/>
     <extensionPoint qualifiedName="com.intellij.marketplaceCustomization"
                     interface="com.intellij.ide.plugins.marketplace.utils.MarketplaceCustomizationService"
                     dynamic="true"/>
@@ -134,8 +167,8 @@
     </extensionPoint>
     <extensionPoint qualifiedName="com.intellij.projectStoreClassProvider" interface="com.intellij.openapi.project.impl.ProjectStoreFactory" dynamic="false"/>
     <extensionPoint qualifiedName="com.intellij.configFolderChangedListener" interface="com.intellij.openapi.project.impl.shared.ConfigFolderChangedListener" dynamic="true"/>
-    <extensionPoint qualifiedName="com.intellij.editorAudioCueDetector" interface="com.intellij.ide.audioCues.EditorAudioCueDetector" dynamic="true"/>
-    <extensionPoint qualifiedName="com.intellij.audioCueProvider" interface="com.intellij.ide.audioCues.AudioCueProvider" dynamic="true"/>
+    <extensionPoint qualifiedName="com.intellij.editorSoundSignalDetector" interface="com.intellij.ide.soundSignals.EditorSoundSignalDetector" dynamic="true"/>
+    <extensionPoint qualifiedName="com.intellij.soundSignalProvider" interface="com.intellij.ide.soundSignals.SoundSignalProvider" dynamic="true"/>
     <extensionPoint qualifiedName="com.intellij.jps.plugin"
                     beanClass="com.intellij.jps.impl.JpsPluginBean" dynamic="true"/>
     <extensionPoint qualifiedName="com.intellij.groupConfigurable"
@@ -184,7 +217,7 @@
     <extensionPoint qualifiedName="com.intellij.projectTemplate"
                     beanClass="com.intellij.platform.ProjectTemplateEP" dynamic="true"/>
     <!--suppress PluginXmlValidity -->
-    <extensionPoint qualifiedName="com.intellij.ApplicationLoadListener" interface="com.intellij.ide.ApplicationLoadListener" dynamic="false"/>
+    <extensionPoint qualifiedName="com.intellij.applicationLoadHandler" interface="com.intellij.ide.ApplicationLoadHandler" dynamic="false"/>
     <!-- Please do not use this extension point. Consider using `nonLockedIdeEventQueueDispatcher` instead.-->
     <extensionPoint qualifiedName="com.intellij.ideEventQueueDispatcher" interface="com.intellij.ide.IdeEventQueue$EventDispatcher" dynamic="true"/>
     <extensionPoint qualifiedName="com.intellij.nonLockedIdeEventQueueDispatcher" interface="com.intellij.ide.IdeEventQueue$NonLockedEventDispatcher"
@@ -255,7 +288,6 @@
                     beanClass="com.intellij.ide.browsers.BrowserSettingsConfigurableEP" dynamic="true">
       <with attribute="instance" implements="com.intellij.openapi.options.UnnamedConfigurable"/>
     </extensionPoint>
-    <extensionPoint qualifiedName="org.jetbrains.javaScriptDebuggerStarter" interface="com.intellij.ide.browsers.JavaScriptDebuggerStarter" dynamic="true"/>
     <extensionPoint qualifiedName="com.intellij.tipAndTrick" beanClass="com.intellij.ide.util.TipAndTrickBean" dynamic="true"/>
     <extensionPoint qualifiedName="com.intellij.remote.customDataContextSerializer"
                     interface="com.intellij.ide.CustomDataContextSerializer"
@@ -272,6 +304,7 @@
                     dynamic="true"/>
     <extensionPoint qualifiedName="com.intellij.jbProtocolCommand" interface="com.intellij.openapi.application.JBProtocolCommand" dynamic="true"/>
     <extensionPoint qualifiedName="com.intellij.notification.group" beanClass="com.intellij.notification.impl.NotificationGroupBean" dynamic="false"/>
+    <extensionPoint qualifiedName="com.intellij.notificationSound" beanClass="com.intellij.notification.impl.NotificationSoundEP" dynamic="true"/>
     <extensionPoint qualifiedName="com.intellij.troubleInfoCollector" interface="com.intellij.troubleshooting.TroubleInfoCollector" dynamic="true"/>
     <extensionPoint qualifiedName="com.intellij.generalTroubleInfoCollector" interface="com.intellij.troubleshooting.GeneralTroubleInfoCollector" dynamic="true"/>
     <extensionPoint qualifiedName="com.intellij.updateSettingsProvider" interface="com.intellij.openapi.updateSettings.impl.UpdateSettingsProvider" dynamic="true"/>
@@ -303,10 +336,14 @@
                     dynamic="true"/>
     <extensionPoint qualifiedName="com.intellij.trustedProjectsLocator" interface="com.intellij.ide.trustedProjects.TrustedProjectsLocator"
                     dynamic="true"/>
+    <extensionPoint qualifiedName="com.intellij.trustedProjectsStateProvider"
+                    interface="com.intellij.ide.trustedProjects.TrustedProjectsStateProvider" dynamic="true"/>
     <extensionPoint qualifiedName="com.intellij.settingsEntryPointActionProvider" interface="com.intellij.ide.actions.SettingsEntryPointAction$ActionProvider" dynamic="true"/>
     <extensionPoint qualifiedName="com.intellij.settingsEntryPointIconCustomizer" interface="com.intellij.ide.actions.SettingsEntryPointAction$IconCustomizer" dynamic="true"/>
     <!--suppress PluginXmlValidity -->
     <extensionPoint qualifiedName="com.intellij.advancedSetting" beanClass="com.intellij.openapi.options.advanced.AdvancedSettingBean" dynamic="true"/>
+    <!-- Defaults are cached on first read, so a replaced default needs a restart -->
+    <extensionPoint qualifiedName="com.intellij.advancedSettingDefault" beanClass="com.intellij.openapi.options.advanced.AdvancedSettingDefaultBean"/>
     <extensionPoint qualifiedName="com.intellij.dependencyCollector" beanClass="com.intellij.ide.plugins.DependencyCollectorBean" dynamic="true">
       <with attribute="implementation" implements="com.intellij.ide.plugins.DependencyCollector"/>
     </extensionPoint>
@@ -347,6 +384,9 @@
     <extensionPoint qualifiedName="com.intellij.recentProjectsBranchesProvider"
                     interface="com.intellij.ide.vcs.RecentProjectsBranchesProvider"
                     dynamic="true"/>
+    <extensionPoint qualifiedName="com.intellij.recentProjectBrancher"
+                    interface="com.intellij.openapi.wm.impl.welcomeScreen.recentProjects.RecentProjectBrancher"
+                    dynamic="true"/>
     <extensionPoint qualifiedName="com.intellij.recentProjectsProvider"
                     interface="com.intellij.ide.RecentProjectProvider"
                     dynamic="true"/>
@@ -377,11 +417,17 @@
     <extensionPoint qualifiedName="com.intellij.uiPluginManagerController"
                     interface="com.intellij.ide.plugins.newui.UiPluginManagerController"
                     dynamic="true"/>
+    <extensionPoint qualifiedName="com.intellij.pluginUpdateHandlerProvider"
+                    interface="com.intellij.openapi.updateSettings.impl.PluginUpdateHandlerProvider"
+                    dynamic="true"/>
     <extensionPoint qualifiedName="com.intellij.pluginUpdatesProvider"
                     interface="com.intellij.ide.plugins.newui.PluginUpdatesProvider"
                     dynamic="true"/>
     <extensionPoint qualifiedName="com.intellij.pluginManagerCustomizer"
                     interface="com.intellij.ide.plugins.newui.PluginManagerCustomizer"
+                    dynamic="true"/>
+    <extensionPoint qualifiedName="com.intellij.customRepositoryProductModeMetadataProvider"
+                    interface="com.intellij.ide.plugins.newui.CustomRepositoryProductModeMetadataProvider"
                     dynamic="true"/>
     <extensionPoint qualifiedName="com.intellij.managedCacheFactory" interface="com.intellij.util.io.cache.ManagedCacheFactory" dynamic="true" />
     <extensionPoint qualifiedName="com.intellij.editorSkeletonPolicy" interface="com.intellij.openapi.fileEditor.impl.EditorSkeletonPolicy" dynamic="true"/>
@@ -400,6 +446,9 @@
     </extensionPoint>
     <extensionPoint qualifiedName="com.intellij.navbar" interface="com.intellij.ide.navigationToolbar.NavBarModelExtension" dynamic="true"/>
     <extensionPoint dynamic="true" qualifiedName="com.intellij.colorAndFontPanelFactory" interface="com.intellij.application.options.colors.ColorAndFontPanelFactory"/>
+    <extensionPoint dynamic="true" qualifiedName="com.intellij.colorSettings" beanClass="com.intellij.application.options.colors.ColorSettingsPageEP">
+      <with attribute="implementation" implements="com.intellij.openapi.options.colors.ColorSettingsPage"/>
+    </extensionPoint>
     <extensionPoint qualifiedName="com.intellij.commandLineInspectionProjectConfigurator" interface="com.intellij.ide.CommandLineInspectionProjectConfigurator" dynamic="true"/>
     <extensionPoint qualifiedName="com.intellij.marketplaceLocalRanker" dynamic="true"
                     interface="com.intellij.ide.plugins.marketplace.ranking.MarketplaceLocalRanker"/>
@@ -408,9 +457,13 @@
     <extensionPoint qualifiedName="com.intellij.lookup.charFilter" interface="com.intellij.codeInsight.lookup.CharFilter" dynamic="true"/>
     <extensionPoint qualifiedName="com.intellij.registerToolWindowTaskProvider" interface="com.intellij.toolWindow.RegisterToolWindowTaskProvider"/>
     <extensionPoint qualifiedName="com.intellij.diagnostic.freezeNotifier" interface="com.intellij.diagnostic.FreezeNotifier" dynamic="true"/>
+    <extensionPoint qualifiedName="com.intellij.platform.ide.welcomeScreenAccessPoint"
+                    interface="com.intellij.ide.welcomeScreen.WelcomeAccessPoint" dynamic="true"/>
   </extensionPoints>
   <extensions defaultExtensionNs="com.intellij">
     <iw.actionProvider implementation="com.intellij.openapi.editor.impl.multiverse.CodeInsightContextSwitcherProvider"/>
+    <applicationService serviceInterface="com.intellij.ide.TrustedFilesService"
+                        serviceImplementation="com.intellij.ide.trustedProjects.TrustedFilesServiceImpl"/>
     <applicationService serviceImplementation="com.intellij.openapi.updateSettings.UpdateStrategyCustomization" open="true"/>
     <applicationService serviceInterface="com.intellij.toolWindow.DefaultToolWindowLayoutProvider" open="true"
                         serviceImplementation="com.intellij.toolWindow.IntellijPlatformDefaultToolWindowLayoutProvider"/>
@@ -420,7 +473,7 @@
     <applicationService serviceImplementation="com.intellij.application.options.colors.FontPreviewService" open="true"/>
     <applicationService serviceInterface="com.intellij.openapi.ui.DialogBackgroundImageProvider" open="true"
                         serviceImplementation="com.intellij.openapi.wm.impl.DialogBackgroundImageProviderImpl"/>
-    <ApplicationLoadListener implementation="com.intellij.util.imageio.ImageReaderWriterSpiRegistrar"/>
+    <applicationLoadHandler implementation="com.intellij.util.imageio.ImageReaderWriterSpiRegistrar"/>
     <applicationActivity implementation="com.intellij.ide.debug.ImageDebugUtilLoader"/>
     <applicationService serviceImplementation="com.intellij.ui.WaylandAppIconPatcher"
                         preload="notHeadless"
@@ -432,8 +485,24 @@
     />
     <registryKey
       key="ide.update.toolbar.widget"
-      defaultValue="false"
+      defaultValue="true"
       description="Show an available IDE update as a main toolbar button instead of an item in the Settings menu"
+    />
+    <registryKey
+      key="ide.settings.header.centered"
+      defaultValue="true"
+      description="Center the Settings title and header actions vertically"
+    />
+    <registryKey
+      key="ide.merge.external.changes"
+      defaultValue="true"
+      description="Merge an external file change into the unsaved changes, for a client that asks for it. Turning this off makes such a client keep the unsaved changes, and it takes effect at once. Turning it on reaches a document once the document loads or saves again."
+    />
+    <registryKey
+      key="ide.welcome.screen.recent.project.vcs.actions"
+      defaultValue="false"
+      description="Show the VCS actions icon and menu for a recent version control project on the welcome screen"
+      restartRequired="true"
     />
     <registryKey
       key="ide.hide.default.project.directory.for.isolated.workspace"
@@ -447,15 +516,27 @@
       restartRequired="true"
     />
     <registryKey
-      key="ide.audio.cues.enabled"
-      defaultValue="false"
-      description="Enables the audio cues feature. The feature and its settings page are hidden when this is off."
+      key="ide.sound.signals.enabled"
+      defaultValue="true"
+      description="Enables the sound signals feature. The feature and its settings page are hidden when this is off."
       restartRequired="false"
     />
     <registryKey
-      key="ide.audio.cues.editor.settle.delay.ms"
+      key="ide.sound.signals.editor.settle.delay.ms"
       defaultValue="50"
-      description="How long the caret must rest, in milliseconds, before editor audio cues are detected"
+      description="How long the caret must rest, in milliseconds, before editor sound signals are detected"
+      restartRequired="true"
+    />
+    <registryKey
+      key="ide.sound.signals.progress.initial.delay.ms"
+      defaultValue="5000"
+      description="How long a status bar progress must run, in milliseconds, before the progress sound signal first plays"
+      restartRequired="true"
+    />
+    <registryKey
+      key="ide.sound.signals.progress.repeat.delay.ms"
+      defaultValue="10000"
+      description="How long the IDE waits, in milliseconds, before it repeats the progress sound signal"
       restartRequired="true"
     />
     <registryKey
@@ -469,7 +550,7 @@
       description="Pinned public key for the ITN error reporting endpoint. Required when ea.diagnostic.endpoint is set. Accepts Base64-encoded SubjectPublicKeyInfo bytes or PEM text"
     />
     <registryKey
-      key="ea.auto.report.feature.visible"
+      key="ea.auto.report.allowed"
       defaultValue="true"
       description="Makes the automatic error reporting feature visible in UI and available to enable/disable"
       restartRequired="true"/>
@@ -480,10 +561,21 @@
     <registryKey
       key="ea.auto.report.forced.tag" defaultValue=""
       description="Additional tag for error reports"/>
+    <registryKey
+      key="actionSystem.update.actions.share.dataRules.computation" defaultValue="true"
+      description="Whether BG action updates share computation instead of trying to compete"/>
 
     <statistics.counterUsagesCollector implementationClass="com.intellij.platform.ide.menu.MainMenuCollector"/>
     <editorEmptyStateComponentProvider implementation="com.intellij.openapi.fileEditor.impl.EditorEmptyTextComponentProvider" order="last"/>
     <editorEmptyTextProvider implementation="com.intellij.openapi.fileEditor.impl.DefaultEditorEmptyTextProvider" order="last"/>
+    <registryKey key="plugin.manager.unified.page" defaultValue="true"
+                 description="Enable the unified Plugins settings page"/>
+    <registryKey key="plugin.manager.unified.page.standalone.dialog" defaultValue="true"
+                 description="Open the unified Plugins page in its own dialog from the toolbar, menu, search, and welcome screen"
+                 restartRequired="false"/>
+    <registryKey key="plugin.manager.unified.page.density.options"
+                 defaultValue="[Baseline|32 px icons*|2 preview rows]"
+                 description="Select a temporary density variant for the unified Plugins settings page"/>
     <pluginUpdatesProvider implementation="com.intellij.ide.plugins.newui.DefaultPluginUpdatesProvider"/>
     <projectSettings service="com.intellij.openapi.updateSettings.impl.pluginsAdvertisement.UnknownFeaturesCollector"/>
     <projectSettings service="com.intellij.ui.RecentsManager"/>
@@ -493,12 +585,10 @@
     <projectSettings service="com.intellij.openapi.project.impl.ProjectRootPersistentStateComponent"/>
     <projectSettings service="com.intellij.ide.ProjectColorInfoManager"/>
     <projectSettings service="com.intellij.platform.OpenProjectSettingsService"/>
-    <applicationSettings service="com.intellij.diagnostic.ExceptionEAPAutoReportManager"/>
     <applicationSettings service="com.intellij.diagnostic.logs.LogLevelConfigurationManager"/>
     <projectSettings service="com.intellij.openapi.fileEditor.impl.EditorHistoryManager"/>
     <applicationSettings service="com.intellij.toolWindow.ButtonsStateService"/>
     <applicationSettings service="com.intellij.toolWindow.ToolWindowDefaultLayoutManager"/>
-    <applicationSettings service="com.intellij.toolWindow.xNext.toolbar.data.XNextPinnedService"/>
     <applicationSettings service="com.intellij.notification.impl.RemindLaterManager"/>
     <applicationSettings service="com.intellij.ide.plugins.org.PluginManagerConfigurableForOrgConfig"/>
     <applicationService serviceInterface="com.intellij.execution.wsl.GatewayNativeWslProjectOpener"
@@ -560,8 +650,6 @@
                        descriptionKey="configurable.group.other.settings.description"/>
     <applicationService serviceInterface="com.intellij.ide.actions.ReportFeedbackService" open="true"
                         serviceImplementation="com.intellij.ide.actions.DefaultReportFeedbackService"/>
-    <applicationService serviceInterface="com.intellij.util.net.ssl.OsCertificatesService"
-                        serviceImplementation="com.intellij.util.net.ssl.OsCertificatesServiceImpl"/>
     <applicationService serviceInterface="com.intellij.ide.plugins.PluginConflictReporter"
                         serviceImplementation="com.intellij.diagnostic.GuiPluginConflictReporter"/>
     <applicationService serviceInterface="com.intellij.openapi.vfs.newvfs.ManagingFS"
@@ -602,7 +690,7 @@
     <applicationService serviceInterface="com.intellij.openapi.keymap.KeymapManager"
                         serviceImplementation="com.intellij.openapi.keymap.impl.KeymapManagerImpl"/>
     <applicationService serviceImplementation="com.intellij.openapi.project.impl.shared.P3DynamicPluginSynchronizer"/>
-    <ApplicationLoadListener implementation="com.intellij.openapi.project.impl.shared.P3SharedConfigFolderApplicationLoadListener"/>
+    <applicationLoadHandler implementation="com.intellij.openapi.project.impl.shared.P3SharedConfigFolderApplicationLoadListener"/>
     <applicationActivity implementation="com.intellij.openapi.project.impl.shared.ProcessPerProjectSharedConfigFolderApplicationInitializedListener"/>
     <!-- listen VFS_CHANGES - it is a core service, so, don't want to use a lazy message bus listener without a reason -->
     <applicationService serviceInterface="com.intellij.openapi.command.undo.DocumentReferenceManager"
@@ -610,7 +698,9 @@
     <applicationService serviceImplementation="com.intellij.diagnostic.LowMemoryNotifier" preload="true" open="true"/>
     <applicationService serviceInterface="com.intellij.diagnostic.EditMemorySettingsService" open="true"
                         serviceImplementation="com.intellij.diagnostic.EditMemorySettingsServiceImpl" preload="true"/>
-    <backgroundPostStartupActivity implementation="com.intellij.diagnostic.IdeHeartbeatEventReporter"/>
+    <postStartupActivity implementation="com.intellij.diagnostic.IdeHeartbeatEventReporter"/>
+    <registryKey key="ide.heartbeat.delay" defaultValue="60000"
+                 description="Delay before the heartbeat thread starts reporting performance data"/>
     <applicationService serviceInterface="com.intellij.ide.plugins.PluginManagerConfigurableService"
                         serviceImplementation="com.intellij.ide.plugins.PluginManagerConfigurableServiceImpl"/>
     <applicationService serviceInterface="com.intellij.ide.plugins.UltimateDependencyChecker"
@@ -639,6 +729,8 @@
     <virtualFileSystem implementationClass="com.intellij.openapi.vfs.impl.local.AsyncableLocalFileSystemImpl" key="file" physical="true"/>
     <virtualFileSystem implementationClass="com.intellij.openapi.vfs.impl.jar.JarFileSystemImpl" key="jar" physical="true"/>
     <virtualFileSystem implementationClass="com.intellij.openapi.vfs.ex.temp.TempFileSystem" key="temp" physical="true"/>
+    <applicationService serviceInterface="com.intellij.openapi.vfs.WatchRoots"
+                        serviceImplementation="com.intellij.openapi.vfs.impl.local.WatchRootsServiceImpl"/>
     <applicationService serviceInterface="com.intellij.ide.ui.IdeUiService"
                         serviceImplementation="com.intellij.openapi.fileEditor.impl.IdeUiServiceImpl"/>
     <applicationService serviceInterface="com.intellij.openapi.wm.impl.FrameTitleBuilder" open="true"
@@ -680,6 +772,8 @@
     <editorCompositeProvider implementation="com.intellij.openapi.fileEditor.impl.StartupEditorCompositeProvider"/>
     <applicationService serviceInterface="com.intellij.ide.ui.search.SearchableOptionsRegistrar"
                         serviceImplementation="com.intellij.ide.ui.search.SearchableOptionsRegistrarImpl"/>
+    <search.optionContributor implementation="com.intellij.ide.ui.search.PluginSearchableOptionContributor"/>
+    <findActionSearchableOptionsFilter implementation="com.intellij.ide.ui.search.PluginSearchableOptionsActionFilter"/>
     <applicationService serviceInterface="com.intellij.openapi.editor.EditorCopyPasteHelper"
                         serviceImplementation="com.intellij.openapi.editor.impl.EditorCopyPasteHelperImpl"/>
     <actionConfigurationCustomizer implementation="com.intellij.openapi.actionSystem.ex.QuickListsManager$QuickListActionCustomizer"/>
@@ -735,6 +829,7 @@
                              instance="com.intellij.ide.impl.TrustedHostsConfigurable"
                              groupId="appearance"/>
     <trustedProjectsLocator implementation="com.intellij.ide.trustedProjects.impl.DefaultTrustedProjectsLocator"/>
+    <trustedProjectsStateProvider implementation="com.intellij.ide.trustedProjects.impl.TrustedPathsStateProvider" order="last"/>
     <activityTracker implementation="com.intellij.openapi.project.DumbServiceTracker"/>
     <activityTracker implementation="com.intellij.openapi.project.ScanningTracker"/>
     <activityTracker implementation="com.intellij.ide.startup.StartupActivityTracker"/>
@@ -813,10 +908,6 @@
                         serviceInterface="com.intellij.openapi.application.WriteDelayDiagnostics$WriteDelayDiagnosticsHandler"/>
     <applicationService serviceInterface="com.intellij.execution.process.ProcessHandlerFactory"
                         serviceImplementation="com.intellij.execution.process.ProcessHandlerFactoryImpl"/>
-    <applicationService serviceInterface="com.intellij.execution.process.LocalProcessService"
-                        serviceImplementation="com.intellij.execution.process.LocalProcessServiceImpl"/>
-    <applicationService serviceInterface="com.intellij.util.io.IoService"
-                        serviceImplementation="com.intellij.util.io.IoServiceImpl"/>
     <applicationService serviceInterface="com.intellij.diagnostic.EventWatcher"
                         serviceImplementation="com.intellij.diagnostic.EventWatcherService" headlessImplementation=""
                         open="true"/>
@@ -839,8 +930,8 @@
     <projectService serviceInterface="com.intellij.openapi.project.IncompleteDependenciesService"
                     serviceImplementation="com.intellij.openapi.project.IncompleteDependenciesServiceImpl"/>
     <statistics.counterUsagesCollector implementationClass="com.intellij.openapi.project.DumbModeBlockedFunctionalityCollector"/>
-    <projectService serviceInterface="com.intellij.openapi.project.DumbUtil"
-                    serviceImplementation="com.intellij.openapi.project.DumbUtilImpl"/>
+    <applicationService serviceInterface="com.intellij.openapi.project.DumbUtil"
+                        serviceImplementation="com.intellij.openapi.project.DumbUtilImpl"/>
     <projectService serviceInterface="com.intellij.openapi.project.ProjectReloadState"
                     serviceImplementation="com.intellij.openapi.project.impl.ProjectReloadStateImpl"/>
     <backgroundPostStartupActivity implementation="com.intellij.openapi.project.impl.ProjectRootsSynchronizer"/>
@@ -864,6 +955,8 @@
                         serviceImplementation="com.intellij.openapi.options.advanced.AdvancedSettingsImpl"/>
     <!--    <projectService serviceImplementation="com.intellij.ide.actions.DirectoryPathMatcherService"/>-->
         <projectService serviceImplementation="com.intellij.ide.impl.ProjectUtilService" open="true"/>
+    <projectFrameCapabilitiesProvider
+      implementation="com.intellij.openapi.wm.impl.welcomeScreen.recentProjects.RecentProjectFrameCapabilitiesProvider"/>
     <welcomeFrameProvider implementation="com.intellij.openapi.wm.impl.welcomeScreen.FlatWelcomeFrameProvider"/>
     <welcomeTabFactory id="ProjectsWelcomeTab" implementation="com.intellij.openapi.wm.impl.welcomeScreen.ProjectsTabFactory"/>
     <statistics.counterUsagesCollector
@@ -872,6 +965,8 @@
       implementationClass="com.intellij.openapi.wm.impl.welcomeScreen.statistics.WelcomeScreenCounterUsageCollector"/>
     <statistics.counterUsagesCollector
       implementationClass="com.intellij.openapi.wm.impl.welcomeScreen.statistics.WslPromoPanelUsageCollector"/>
+    <statistics.collectorExtension
+      implementation="com.intellij.openapi.wm.impl.welcomeScreen.statistics.RecentProjectsFusEventFields"/>
     <welcomeTabFactory id="CustomizeWelcomeTab" implementation="com.intellij.openapi.wm.impl.welcomeScreen.CustomizeTabFactory"
                        order="after ProjectsWelcomeTab"/>
     <welcomeTabFactory id="PluginsWelcomeTab" implementation="com.intellij.openapi.wm.impl.welcomeScreen.PluginsTabFactory"
@@ -923,13 +1018,14 @@
                              bundle="messages.IdeBundle"
                              key="configurable.notifications.name"/>
     <search.optionContributor implementation="com.intellij.notification.impl.NotificationSearchableOptionContributor"/>
-    <!-- Audio Cues -->
+    <!-- Accessibility -->
     <applicationConfigurable groupId="appearance"
                              groupWeight="140"
-                             id="ide.audiocues"
-                             provider="com.intellij.ide.audioCues.AudioCuesConfigurableProvider"
+                             id="preferences.accessibility"
+                             instance="com.intellij.accessibility.AccessibilityConfigurable"
                              bundle="messages.IdeBundle"
-                             key="configurable.AudioCuesConfigurable.display.name"/>
+                             key="configurable.AccessibilityConfigurable.display.name"/>
+    <applicationService serviceImplementation="com.intellij.accessibility.AccessibilitySettings"/>
     <!-- Plugins -->
     <applicationConfigurable groupId="root"
                              groupWeight="55"
@@ -985,6 +1081,7 @@
     <applicationService serviceInterface="com.intellij.openapi.actionSystem.AbbreviationManager"
                         serviceImplementation="com.intellij.openapi.actionSystem.impl.AbbreviationManagerImpl"/>
     <applicationConfigurable
+      id="editor.preferences.fonts.default"
       groupId="editor"
       groupWeight="188"
       bundle="messages.IdeBundle"
@@ -992,6 +1089,7 @@
       instance="com.intellij.application.options.editor.fonts.AppEditorFontConfigurable"
     />
     <applicationConfigurable
+      id="app.console.font"
       groupId="editor"
       groupWeight="188"
       bundle="messages.IdeBundle"
@@ -1175,15 +1273,14 @@
     <search.topHitProvider implementation="com.intellij.ide.ui.OptionsTopHitProvider$ProjectLevelProvidersAdapter"/>
     <postStartupActivity implementation="com.intellij.ide.ui.localization.statistics.StartupStatisticsListener"/>
     <postStartupActivity implementation="com.intellij.xml.breadcrumbs.BreadcrumbsInitializingActivity"/>
-    <applicationService serviceImplementation="com.intellij.ide.audioCues.EditorAudioCuesManager"
+    <applicationService serviceImplementation="com.intellij.ide.soundSignals.EditorSoundSignalsManager"
                         preload="notHeadless"/>
-    <applicationService serviceInterface="com.intellij.ide.audioCues.AudioCuePlayer"
-                        serviceImplementation="com.intellij.ide.audioCues.AudioCuePlayerImpl"/>
-    <applicationService serviceImplementation="com.intellij.ide.audioCues.AudioCuesSettings"/>
-    <statistics.validation.customValidationRule implementation="com.intellij.ide.audioCues.AudioCueIdValidationRule"/>
-    <audioCueProvider implementation="com.intellij.ide.audioCues.IdeAudioCueProvider"/>
-    <editorAudioCueDetector implementation="com.intellij.ide.audioCues.ErrorWarningAudioCueDetector"/>
-    <editorAudioCueDetector implementation="com.intellij.ide.audioCues.FoldedCodeAudioCueDetector"/>
+    <applicationService serviceInterface="com.intellij.ide.soundSignals.SoundSignalPlayer"
+                        serviceImplementation="com.intellij.ide.soundSignals.SoundSignalPlayerImpl"/>
+    <statistics.validation.customValidationRule implementation="com.intellij.ide.soundSignals.SoundSignalIdValidationRule"/>
+    <soundSignalProvider implementation="com.intellij.ide.soundSignals.IdeSoundSignalProvider"/>
+    <editorSoundSignalDetector implementation="com.intellij.ide.soundSignals.ErrorWarningSoundSignalDetector"/>
+    <editorSoundSignalDetector implementation="com.intellij.ide.soundSignals.FoldedCodeSoundSignalDetector"/>
     <applicationConfigurable parentId="preferences.editor" id="editor.breadcrumbs"
                              key="configurable.breadcrumbs" bundle="messages.ApplicationBundle"
                              instance="com.intellij.xml.breadcrumbs.BreadcrumbsConfigurable"/>
@@ -1199,12 +1296,7 @@
     <fileEditorProvider implementation="com.intellij.openapi.fileEditor.impl.text.LargeFileEditorProvider" id="LargeFileEditor"
                         allowedInUntrustedFiles="true"/>
     <fileEditorProvider id="jcomponent-editor" implementation="com.intellij.openapi.fileEditor.impl.JComponentEditorProvider"/>
-    <fileEditorProvider id="settingsWindow" implementation="com.intellij.openapi.options.newEditor.settings.SettingsFileEditorProvider"/>
-    <editorTabTitleProvider implementation="com.intellij.openapi.options.newEditor.settings.SettingsFileEditorProvider"/>
     <editorTabTitleProvider implementation="com.intellij.openapi.wm.impl.tabInEditor.ToolWindowEditorTabTitleProvider"/>
-    <editorNotificationProvider implementation="com.intellij.openapi.options.newEditor.settings.SettingModifiedExternallyNotificationProvider"/>
-    <virtualFileSystem implementationClass="com.intellij.openapi.options.newEditor.settings.SettingsFileSystem" key="settings" physical="false"/>
-    <navbar implementation="com.intellij.openapi.options.newEditor.settings.SettingsNavBarModelExtension"/>
     <editorAutoClosingHandler implementation="com.intellij.openapi.wm.impl.tabInEditor.ToolWindowEditorTabAutoClosingHandler"/>
     <virtualFilePreCloseCheck implementation="com.intellij.openapi.wm.impl.tabInEditor.ToolWindowEditorTabPreCloseCheck"/>
     <editorNotificationProvider implementation="com.intellij.openapi.fileEditor.impl.text.LargeFileNotificationProvider"/>
@@ -1266,7 +1358,6 @@
     <applicationConfigurable groupId="tools" instance="com.intellij.ide.browsers.BrowserSettings"
                              id="reference.settings.ide.settings.web.browsers"
                              key="browsers.settings" bundle="messages.IdeBundle"/>
-    <stepsBeforeRunProvider implementation="com.intellij.ide.browsers.LaunchBrowserBeforeRunTaskProvider"/>
     <selectInTarget implementation="com.intellij.ide.browsers.actions.SelectInDefaultBrowserTarget"/>
     <applicationService serviceInterface="com.intellij.ide.browsers.WebBrowserService"
                         serviceImplementation="com.intellij.ide.browsers.impl.WebBrowserServiceImpl"/>
@@ -1279,6 +1370,10 @@
                          nonDefaultProject="false"/>
     <search.optionContributor implementation="com.intellij.ide.actionsOnSave.ActionsOnSaveSearchableOptionsContributor"/>
     <!--troubleshooting-->
+    <registryKey key="ide.logs.troubleshoot.collector.timeout.seconds"
+                 defaultValue="-1"
+                 description="Timeout in seconds for troubleshooting collectors. A negative value disables the timeout."
+                 restartRequired="false"/>
     <generalTroubleInfoCollector implementation="com.intellij.ide.troubleshooting.AboutTroubleInfoCollector"/>
     <generalTroubleInfoCollector implementation="com.intellij.ide.troubleshooting.SystemTroubleInfoCollector"/>
     <generalTroubleInfoCollector implementation="com.intellij.ide.troubleshooting.DisplayTroubleInfoCollector"/>
@@ -1344,7 +1439,7 @@
     <notificationGroup id="Error Report" displayType="BALLOON" isLogByDefault="false" bundle="messages.DiagnosticBundle"
                        key="notification.group.error.report"/>
     <notificationGroup id="System Messages" displayType="BALLOON" bundle="messages.IdeBundle" key="notification.group.system.messages"
-                       notificationIds="cloud.config.alert;glibc.incompatible;reset.auto.reparse.settings.to.default"/>
+                       notificationIds="cloud.config.alert;glibc.incompatible;reset.auto.reparse.settings.to.default;plugin.permissions.reset;plugin.permissions.reset.nothing"/>
     <notificationGroup id="System shortcuts conflicts" displayType="STICKY_BALLOON" bundle="messages.KeyMapBundle"
                        key="notification.group.shortcut.conflicts"/>
     <notificationGroup id="Paid Plugins" displayType="STICKY_BALLOON" bundle="messages.IdeBundle"
@@ -1495,6 +1590,8 @@
     <applicationService serviceImplementation="com.intellij.openapi.options.NonModalSettingsAdvancedSettingService"/>
     <advancedSetting id="ide.ui.non.modal.settings.window" default="true" groupKey="group.advanced.settings.ui"
                      service="com.intellij.openapi.options.NonModalSettingsAdvancedSettingService" property="nonModalSettingsWindow"/>
+    <advancedSetting id="ide.ui.simplified.splash.image" default="false" groupKey="group.advanced.settings.ui"
+                     service="com.intellij.ide.ui.SimplifiedSplashSettingProvider" property="useSimplifiedSplashImage"/>
     <backgroundPostStartupActivity implementation="com.intellij.ide.plugins.DependencyFeatureCollector"/>
     <projectService serviceInterface="com.intellij.presentation.FilePresentationService"
                     serviceImplementation="com.intellij.presentation.impl.FilePresentationServiceImpl"/>
@@ -1518,17 +1615,6 @@
     <applicationService serviceInterface="com.intellij.openapi.wm.impl.headertoolbar.OpenProjectSelectionPredicateSupplier" open="true"
                         serviceImplementation="com.intellij.openapi.wm.impl.headertoolbar.DefaultOpenProjectSelectionPredicateSupplier"/>
     <multiverseEnabler implementation="com.intellij.codeInsight.multiverse.RegistryFlagMultiverseEnabler"/>
-    <!-- Presentation Assistant -->
-    <applicationService serviceImplementation="com.intellij.platform.ide.impl.presentationAssistant.PresentationAssistant"/>
-    <applicationConfigurable groupId="appearance"
-                             key="presentation.assistant.settings"
-                             bundle="messages.IdeBundle"
-                             groupWeight="-15"
-                             instance="com.intellij.platform.ide.impl.presentationAssistant.PresentationAssistantConfigurable"/>
-    <notificationGroup id="Presentation Assistant"
-                       displayType="BALLOON"
-                       bundle="messages.IdeBundle"
-                       key="presentation.assistant.notification"/>
     <actionPromoter implementation="com.intellij.ide.actions.speedSearch.SpeedSearchActionPromoter"/>
     <fileEditorProvider id="learnIde" implementation="com.intellij.openapi.wm.impl.welcomeScreen.learnIde.editorTab.LearnIdeFileEditorProvider"/>
     <interactiveCourseFactory implementation="com.intellij.openapi.wm.impl.welcomeScreen.learnIde.jbAcademy.JBAcademyInteractiveCourse"/>
@@ -1564,8 +1650,6 @@
                         serviceImplementation="com.intellij.ui.EditorTextFieldProviderImpl"/>
     <notificationRouter implementation="com.intellij.notification.impl.LocalNotificationRouter" order="last"/>
     <nonLockedIdeEventQueueDispatcher implementation="com.intellij.ide.ui.laf.LaFMnemonicDispatcher"/>
-    <actionConfigurationCustomizer
-      implementation="com.intellij.platform.ide.impl.presentationAssistant.PresentationAssistantListenerRegistrar"/>
     <applicationService serviceImplementation="com.intellij.ide.browsers.WebBrowserManager" />
     <applicationService serviceImplementation="com.intellij.ide.impl.TrustedPaths" />
     <applicationService serviceImplementation="com.intellij.ide.impl.TrustedPathsSettings" />
@@ -1589,15 +1673,8 @@
                             order="after ReadOnlyAttribute"/>
     <statusBarWidgetFactory id="FatalError" implementation="com.intellij.openapi.wm.impl.status.FatalErrorWidgetFactory"
                             order="after Notifications"/>
-    <statusBarWidgetFactory id="WriteThread" implementation="com.intellij.openapi.wm.impl.status.WriteThreadIndicatorWidgetFactory"
-                            order="last"/>
     <statusBarWidgetFactory id="Memory" implementation="com.intellij.openapi.wm.impl.status.MemoryIndicatorWidgetFactory"
                             order="last"/>
-    <statusBarWidgetFactory id="EditorAnimationCacheStatistics"
-                            implementation="com.intellij.openapi.editor.impl.view.animation.EditorAnimationCacheStatisticsWidgetFactory"
-                            order="first"/>
-    <statusBarWidgetFactory id="SmartModeIndicator" implementation="com.intellij.openapi.wm.impl.status.SmartModeIndicatorWidgetFactory"/>
-    <statusBarWidgetFactory id="IndexesAndVfsFlushIndicator" implementation="com.intellij.openapi.wm.impl.status.IndexesAndVfsFlushIndicatorWidgetFactory"/>
     <statusBarWidgetFactory id="settingsEntryPointWidget" implementation="com.intellij.ide.actions.SettingsEntryPointAction$StatusBarManager"
                             order="last"/>
     <applicationService serviceImplementation="com.intellij.openapi.wm.impl.WindowButtonsConfiguration" headlessImplementation=""
@@ -1632,13 +1709,18 @@
     <statistics.counterUsagesCollector implementationClass="com.intellij.execution.impl.EditorHyperlinkUsageCollector"/>
     <applicationService serviceInterface="com.intellij.openapi.updateSettings.impl.PluginUpdateSourceService"
                         serviceImplementation="com.intellij.openapi.updateSettings.impl.PluginUpdateSourceServiceImpl"/>
+    <applicationService serviceInterface="com.intellij.openapi.updateSettings.impl.MarketplaceChannelUrlService"
+                        serviceImplementation="com.intellij.openapi.updateSettings.impl.MarketplaceChannelUrlServiceImpl"/>
     <applicationService serviceInterface="com.intellij.openapi.updateSettings.impl.PluginUpdateSourcePluginsProvider"
                         serviceImplementation="com.intellij.openapi.updateSettings.impl.PluginUpdateSourcePluginsProviderImpl"/>
     <notificationGroup id="Plugin Update Sources Reset" displayType="BALLOON" bundle="messages.IdeBundle"
                        key="notification.plugin.update.sources.reset.action"/>
+    <notificationGroup id="Missing Plugin Update Source" displayType="STICKY_BALLOON" bundle="messages.IdeBundle"
+                       key="notification.missing.plugin.update.source.title"/>
     <backgroundPostStartupActivity implementation="com.intellij.openapi.updateSettings.impl.PluginUpdateSourceInitializationActivity"/>
-    <registryKey key="update.source.initialization.enabled" defaultValue="false"
+    <registryKey key="update.source.initialization.enabled" defaultValue="true"
                  description="Enable initialization of update plugin update sources once for an IDE" />
+    <troubleInfoCollector implementation="com.intellij.ide.plugins.CustomPluginRepositoriesTroubleInfoCollector"/>
     <universalFileChooserContributor implementation="com.intellij.openapi.fileChooser.universal.LocalFileChooserContributor"/>
     <projectSettings service="com.intellij.openapi.vcs.readOnlyHandler.ReadonlyStatusHandlerImpl"/>
     <projectSettings service="com.intellij.externalDependencies.impl.ExternalDependenciesManagerImpl"/>
@@ -1681,7 +1763,6 @@
     <projectSettings service="com.intellij.ide.util.ProjectPropertyService"/>
     <applicationSettings service="com.intellij.ide.util.AppPropertyService"/>
     <applicationSettings service="com.intellij.openapi.util.registry.RegistryManagerImpl"/>
-    <applicationSettings service="com.intellij.platform.ide.impl.presentationAssistant.PresentationAssistant"/>
     <applicationSettings service="com.intellij.openapi.editor.colors.impl.EditorColorsManagerImpl"/>
     <applicationSettings service="com.intellij.application.options.PathMacrosImpl"/>
     <fileIconProvider implementation="com.intellij.openapi.wm.impl.tabInEditor.ToolWindowEditorTabFileIconProvider"/>
@@ -1697,7 +1778,8 @@
       </description>
     </experimentalFeature>
     <advancedSetting id="project.view.show.scratches.and.consoles" groupKey="group.advanced.settings.project.view" default="true"/>
-    <colorSettingsPage implementation="com.intellij.openapi.options.colors.pages.GeneralColorsPage" id="general"/>
+    <colorSettings implementation="com.intellij.openapi.options.colors.pages.GeneralColorsPage"
+                   bundle="messages.OptionsBundle" key="options.general.display.name" priority="GENERAL_SETTINGS" id="general"/>
     <customScopesProvider implementation="com.intellij.openapi.fileEditor.impl.OpenFilesScope$Provider" order="last"/>
     <!--<navbar implementation="com.intellij.ide.navigationToolbar.DefaultNavBarExtension" id="defaultNavbar" order="last"/>-->
     <!-- Colors & Fonts-->
@@ -1812,6 +1894,7 @@
       implementation="com.intellij.toolWindow.DefaultToolWindowLayoutProviderToExtensionAdapter"
       order="after DefaultToolWindowLayoutPlatformExtension"
     />
+    <remote.customDataContextSerializer implementation="com.intellij.toolWindow.ToolWindowIdDataContextSerializer"/>
     <applicationService serviceInterface="com.intellij.openapi.wm.IdeFocusManager"
                         serviceImplementation="com.intellij.openapi.wm.impl.FocusManagerImpl"
                         headlessImplementation="com.intellij.openapi.wm.impl.IdeFocusManagerHeadless" preload="notHeadless"/>
@@ -1858,15 +1941,8 @@
                         serviceImplementation="com.intellij.openapi.editor.impl.inspector.InspectionsSettingContentServiceImpl"/>
     <applicationService serviceInterface="com.intellij.codeInsight.actions.ReaderModeDefaultsOverride" open="true"
                         serviceImplementation="com.intellij.codeInsight.actions.ReaderModeDefaultsOverrideImpl" />
-    <projectService serviceInterface="com.intellij.toolWindow.xNext.toolbar.data.XNextToolbarManager"
-                        serviceImplementation="com.intellij.toolWindow.xNext.toolbar.data.XNextToolbarManagerImpl"/>
     <applicationService serviceInterface="com.intellij.openapi.wm.ex.WelcomeScreenProjectSupport"
                         serviceImplementation="com.intellij.openapi.wm.ex.WelcomeScreenProjectSupportImpl"/>
-    <!--XNext-->
-    <applicationService serviceInterface="com.intellij.openapi.application.impl.InternalUICustomization"
-                        serviceImplementation="com.intellij.openapi.application.impl.islands.IslandsUICustomization"/>
-    <applicationService serviceInterface="com.intellij.ui.tabs.impl.IslandsPainterProvider"
-                        serviceImplementation="com.intellij.openapi.application.impl.islands.IslandsInternalPainterProvider"/>
     <applicationSettings service="com.intellij.ide.ui.laf.LafManagerImpl"/>
     <projectSettings service="com.intellij.openapi.wm.impl.ToolWindowManagerStateImpl"/>
     <applicationSettings service="com.intellij.openapi.wm.impl.WindowManagerImpl"/>
@@ -1876,6 +1952,9 @@
                         serviceImplementation="com.intellij.openapi.project.impl.ProjectManagerImpl"
                         testServiceImplementation="com.intellij.project.TestProjectManager"/>
     <settingsController id="LoggingSettingsController" implementation="com.intellij.ide.actions.LoggingSettingsController"/>
+
+    <applicationService serviceInterface="com.intellij.ide.plugins.PluginPermissionService"
+                        serviceImplementation="com.intellij.openapi.updateSettings.impl.PluginPermissionServiceImpl"/>
   </extensions>
   <applicationListeners>
     <listener class="com.intellij.ide.plugins.DynamicPluginsFrameStateListener"
@@ -1984,6 +2063,8 @@
               topic="com.intellij.ide.AppLifecycleListener"
               activeInHeadlessMode="true"
               activeInTestMode="false" />
+    <listener class="com.intellij.openapi.fileEditor.impl.FileDocumentCommonText"
+              topic="com.intellij.openapi.fileEditor.FileDocumentManagerListenerBackgroundable"/>
   </applicationListeners>
   <projectListeners>
     <listener class="com.intellij.openapi.fileEditor.impl.EditorHistoryManager$MyEditorManagerListener"

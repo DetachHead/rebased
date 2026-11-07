@@ -3,6 +3,7 @@
 
 package org.jetbrains.intellij.build.productLayout.dependency
 
+import com.intellij.platform.buildScripts.concurrency.SharedTaskOwner
 import com.intellij.platform.pluginGraph.ContentModuleName
 import com.intellij.platform.pluginGraph.PluginId
 import com.intellij.platform.pluginGraph.PluginModuleId
@@ -38,6 +39,13 @@ import java.nio.file.Path
  */
 @ExtendWith(TestFailureLogger::class)
 class PluginDependencyGeneratorTest {
+  private val owner = SharedTaskOwner("PluginDependencyGeneratorTest")
+
+  @org.junit.jupiter.api.AfterEach
+  fun closeSharedTasks() {
+    owner.close()
+  }
+
   // --- Graph-based resolution and validation tests ---
 
   @Test
@@ -578,7 +586,7 @@ class PluginDependencyGeneratorTest {
       )
 
       // Call the REAL function (graph is the source of truth for descriptor existence)
-      val descriptorCache = ModuleDescriptorCache(jps.outputProvider)
+      val descriptorCache = ModuleDescriptorCache(jps.outputProvider, owner = owner)
       val graph = pluginGraphWithDescriptors(descriptorCache) {
         moduleWithScopedDeps("intellij.python.processOutput.impl", "intellij.platform.jewel.intUi.standalone" to "COMPILE")
         product("TestProduct") { }
@@ -638,7 +646,7 @@ class PluginDependencyGeneratorTest {
         }
       )
 
-      val descriptorCache = ModuleDescriptorCache(jps.outputProvider)
+      val descriptorCache = ModuleDescriptorCache(jps.outputProvider, owner = owner)
       val graph = pluginGraphWithDescriptors(descriptorCache) {
         moduleWithScopedDeps("intellij.consumer.module", "intellij.libraries.private" to "COMPILE")
         product("TestProduct") { }
@@ -699,7 +707,7 @@ class PluginDependencyGeneratorTest {
         }
       )
 
-      val descriptorCache = ModuleDescriptorCache(jps.outputProvider)
+      val descriptorCache = ModuleDescriptorCache(jps.outputProvider, owner = owner)
       val graph = pluginGraphWithDescriptors(descriptorCache) {
         moduleWithScopedDeps("intellij.consumer.module", "intellij.libraries.private" to "COMPILE")
         product("TestProduct") { }
@@ -763,7 +771,7 @@ class PluginDependencyGeneratorTest {
         }
       )
 
-      val descriptorCache = ModuleDescriptorCache(jps.outputProvider)
+      val descriptorCache = ModuleDescriptorCache(jps.outputProvider, owner = owner)
       val graph = pluginGraphWithDescriptors(descriptorCache) {
         moduleWithScopedDeps("intellij.consumer.module")
         moduleWithScopedDeps("intellij.libraries.private")
@@ -827,7 +835,7 @@ class PluginDependencyGeneratorTest {
         }
       )
 
-      val descriptorCache = ModuleDescriptorCache(jps.outputProvider)
+      val descriptorCache = ModuleDescriptorCache(jps.outputProvider, owner = owner)
       val graph = pluginGraphWithDescriptors(descriptorCache) {
         moduleWithScopedDeps("intellij.consumer.module")
         moduleWithScopedDeps("intellij.libraries.public")
@@ -902,7 +910,7 @@ class PluginDependencyGeneratorTest {
         }
       )
 
-      val descriptorCache = ModuleDescriptorCache(jps.outputProvider)
+      val descriptorCache = ModuleDescriptorCache(jps.outputProvider, owner = owner)
       val graph = pluginGraphWithDescriptors(descriptorCache) {
         moduleWithScopedDeps("intellij.consumer.module", "intellij.libraries.private.with.deps" to "COMPILE")
         moduleWithScopedDeps("intellij.libraries.internal.dep")
@@ -930,133 +938,7 @@ class PluginDependencyGeneratorTest {
   }
 
   @Test
-  fun `computePluginContentFromDslSpec remaps JPS deps to test descriptor modules when only _test descriptor exists`(@TempDir tempDir: Path) {
-    runBlocking(Dispatchers.Default) {
-      val jps = jpsProject(tempDir) {
-        module("intellij.consumer.module") {
-          resourceRoot()
-          moduleDep("intellij.platform.testFramework.junit5.wsl")
-        }
-        module("intellij.platform.testFramework.junit5.wsl") {
-          resourceRoot()
-        }
-      }
-
-      val consumerResourcesDir = tempDir.resolve("intellij/consumer/module/resources")
-      java.nio.file.Files.createDirectories(consumerResourcesDir)
-      java.nio.file.Files.writeString(
-        consumerResourcesDir.resolve("intellij.consumer.module.xml"),
-        """<idea-plugin package="com.intellij.consumer.module"/>"""
-      )
-
-      val wslResourcesDir = tempDir.resolve("intellij/platform/testFramework/junit5/wsl/resources")
-      java.nio.file.Files.createDirectories(wslResourcesDir)
-      java.nio.file.Files.writeString(
-        wslResourcesDir.resolve("intellij.platform.testFramework.junit5.wsl._test.xml"),
-        """<idea-plugin package="com.intellij.testFramework.junit5.wsl._test"/>"""
-      )
-
-      val spec = org.jetbrains.intellij.build.productLayout.TestPluginSpec(
-        pluginId = PluginId("test.plugin"),
-        name = "Test Plugin",
-        pluginXmlPath = "test/plugin.xml",
-        spec = org.jetbrains.intellij.build.productLayout.productModules {
-          module("intellij.consumer.module")
-        }
-      )
-
-      val descriptorCache = ModuleDescriptorCache(jps.outputProvider)
-      val graph = pluginGraphWithDescriptors(descriptorCache) {
-        moduleWithScopedDeps("intellij.consumer.module", "intellij.platform.testFramework.junit5.wsl" to "COMPILE")
-        product("TestProduct") { }
-      }
-      val errorSink = ErrorSink()
-      val result = org.jetbrains.intellij.build.productLayout.discovery.computePluginContentFromDslSpec(
-        testPluginSpec = spec,
-        projectRoot = tempDir,
-        resolvableModules = emptySet(),
-        productName = "TestProduct",
-        pluginGraph = graph,
-        errorSink = errorSink,
-        descriptorCache = descriptorCache,
-      )
-
-      val contentModuleNames = result.contentModules.map { ContentModuleName(it.moduleId.name) }
-      assertThat(contentModuleNames)
-        .describedAs("JPS deps should resolve to *_test module when only *_test descriptor exists")
-        .contains(ContentModuleName("intellij.consumer.module"))
-        .contains(ContentModuleName("intellij.platform.testFramework.junit5.wsl._test"))
-        .doesNotContain(ContentModuleName("intellij.platform.testFramework.junit5.wsl"))
-      assertThat(errorSink.getErrors()).isEmpty()
-    }
-  }
-
-  @Test
-  fun `computePluginContentFromDslSpec keeps base module when both base and _test descriptors exist`(@TempDir tempDir: Path) {
-    runBlocking(Dispatchers.Default) {
-      val jps = jpsProject(tempDir) {
-        module("intellij.consumer.module") {
-          resourceRoot()
-          moduleDep("intellij.platform.testFramework.junit5.wsl")
-        }
-        module("intellij.platform.testFramework.junit5.wsl") {
-          resourceRoot()
-        }
-      }
-
-      val consumerResourcesDir = tempDir.resolve("intellij/consumer/module/resources")
-      java.nio.file.Files.createDirectories(consumerResourcesDir)
-      java.nio.file.Files.writeString(
-        consumerResourcesDir.resolve("intellij.consumer.module.xml"),
-        """<idea-plugin package="com.intellij.consumer.module"/>"""
-      )
-
-      val wslResourcesDir = tempDir.resolve("intellij/platform/testFramework/junit5/wsl/resources")
-      java.nio.file.Files.createDirectories(wslResourcesDir)
-      java.nio.file.Files.writeString(
-        wslResourcesDir.resolve("intellij.platform.testFramework.junit5.wsl.xml"),
-        """<idea-plugin package="com.intellij.testFramework.junit5.wsl"/>"""
-      )
-      java.nio.file.Files.writeString(
-        wslResourcesDir.resolve("intellij.platform.testFramework.junit5.wsl._test.xml"),
-        """<idea-plugin package="com.intellij.testFramework.junit5.wsl._test"/>"""
-      )
-
-      val spec = org.jetbrains.intellij.build.productLayout.TestPluginSpec(
-        pluginId = PluginId("test.plugin"),
-        name = "Test Plugin",
-        pluginXmlPath = "test/plugin.xml",
-        spec = org.jetbrains.intellij.build.productLayout.productModules {
-          module("intellij.consumer.module")
-        }
-      )
-
-      val descriptorCache = ModuleDescriptorCache(jps.outputProvider)
-      val graph = pluginGraphWithDescriptors(descriptorCache) {
-        moduleWithScopedDeps("intellij.consumer.module", "intellij.platform.testFramework.junit5.wsl" to "COMPILE")
-        product("TestProduct") { }
-      }
-      val result = org.jetbrains.intellij.build.productLayout.discovery.computePluginContentFromDslSpec(
-        testPluginSpec = spec,
-        projectRoot = tempDir,
-        resolvableModules = emptySet(),
-        productName = "TestProduct",
-        pluginGraph = graph,
-        errorSink = ErrorSink(),
-        descriptorCache = descriptorCache,
-      )
-
-      val contentModuleNames = result.contentModules.map { ContentModuleName(it.moduleId.name) }
-      assertThat(contentModuleNames)
-        .describedAs("Base descriptor should be preferred when both base and *_test descriptors exist")
-        .contains(ContentModuleName("intellij.consumer.module"))
-        .contains(ContentModuleName("intellij.platform.testFramework.junit5.wsl"))
-        .doesNotContain(ContentModuleName("intellij.platform.testFramework.junit5.wsl._test"))
-    }
-  }
-
-  @Test
-  fun `computePluginContentFromDslSpec auto-adds test descriptor deps`(@TempDir tempDir: Path) {
+  fun `computePluginContentFromDslSpec auto-adds descriptor-declared deps of test-only modules`(@TempDir tempDir: Path) {
     runBlocking(Dispatchers.Default) {
       val jps = jpsProject(tempDir) {
         module("intellij.foo") {
@@ -1070,11 +952,11 @@ class PluginDependencyGeneratorTest {
       val fooResourcesDir = tempDir.resolve("intellij/foo/resources")
       java.nio.file.Files.createDirectories(fooResourcesDir)
       java.nio.file.Files.writeString(
-        fooResourcesDir.resolve("intellij.foo._test.xml"),
+        fooResourcesDir.resolve("intellij.foo.xml"),
         """
-          <idea-plugin package="com.intellij.foo._test">
+          <idea-plugin package="com.intellij.foo">
             <dependencies>
-              <module name="intellij.bar._test"/>
+              <module name="intellij.bar"/>
             </dependencies>
           </idea-plugin>
         """.trimIndent()
@@ -1083,8 +965,8 @@ class PluginDependencyGeneratorTest {
       val barResourcesDir = tempDir.resolve("intellij/bar/resources")
       java.nio.file.Files.createDirectories(barResourcesDir)
       java.nio.file.Files.writeString(
-        barResourcesDir.resolve("intellij.bar._test.xml"),
-        """<idea-plugin package="com.intellij.bar._test"/>"""
+        barResourcesDir.resolve("intellij.bar.xml"),
+        """<idea-plugin package="com.intellij.bar"/>"""
       )
 
       val spec = org.jetbrains.intellij.build.productLayout.TestPluginSpec(
@@ -1092,12 +974,12 @@ class PluginDependencyGeneratorTest {
         name = "Test Plugin",
         pluginXmlPath = "test/plugin.xml",
         spec = org.jetbrains.intellij.build.productLayout.productModules {
-          module("intellij.foo._test")
+          module("intellij.foo")
         }
       )
 
       coroutineScope {
-        val descriptorCache = ModuleDescriptorCache(jps.outputProvider)
+        val descriptorCache = ModuleDescriptorCache(jps.outputProvider, owner = owner)
         val graph = pluginGraphWithDescriptors(descriptorCache) {
           target("intellij.foo")
           target("intellij.bar")
@@ -1115,9 +997,9 @@ class PluginDependencyGeneratorTest {
 
         val contentModuleNames = result.contentModules.map { ContentModuleName(it.moduleId.name) }
         assertThat(contentModuleNames)
-          .describedAs("computePluginContentFromDslSpec should auto-add test descriptor deps")
-          .contains(ContentModuleName("intellij.foo._test"))
-          .contains(ContentModuleName("intellij.bar._test"))
+          .describedAs("computePluginContentFromDslSpec should auto-add descriptor-declared deps")
+          .contains(ContentModuleName("intellij.foo"))
+          .contains(ContentModuleName("intellij.bar"))
       }
     }
   }
@@ -1158,7 +1040,7 @@ class PluginDependencyGeneratorTest {
         }
       )
 
-      val descriptorCache = ModuleDescriptorCache(jps.outputProvider)
+      val descriptorCache = ModuleDescriptorCache(jps.outputProvider, owner = owner)
       val graph = pluginGraphWithDescriptors(descriptorCache) {
         plugin("intellij.dep.plugin") {
           content("intellij.dep.with.descriptor")
@@ -1228,7 +1110,7 @@ class PluginDependencyGeneratorTest {
         }
       )
 
-      val descriptorCache = ModuleDescriptorCache(jps.outputProvider)
+      val descriptorCache = ModuleDescriptorCache(jps.outputProvider, owner = owner)
       val graph = pluginGraphWithDescriptors(descriptorCache) {
         moduleWithScopedDeps("intellij.test.module", "intellij.dep.with.descriptor" to "COMPILE")
         moduleWithScopedDeps("intellij.dep.with.descriptor")
@@ -1288,7 +1170,7 @@ class PluginDependencyGeneratorTest {
         }
       )
 
-      val descriptorCache = ModuleDescriptorCache(jps.outputProvider)
+      val descriptorCache = ModuleDescriptorCache(jps.outputProvider, owner = owner)
       val graph = pluginGraphWithDescriptors(descriptorCache) {
         plugin("intellij.java.plugin") {
           content("intellij.java.impl")
@@ -1353,7 +1235,7 @@ class PluginDependencyGeneratorTest {
         }
       )
 
-      val descriptorCache = ModuleDescriptorCache(jps.outputProvider)
+      val descriptorCache = ModuleDescriptorCache(jps.outputProvider, owner = owner)
       val graph = pluginGraphWithDescriptors(descriptorCache) {
         plugin("intellij.java.plugin") {
           content("intellij.java.impl")
@@ -1422,7 +1304,7 @@ class PluginDependencyGeneratorTest {
         }
       )
 
-      val descriptorCache = ModuleDescriptorCache(jps.outputProvider)
+      val descriptorCache = ModuleDescriptorCache(jps.outputProvider, owner = owner)
       val graph = pluginGraphWithDescriptors(descriptorCache) {
         moduleWithScopedDeps("intellij.test.module", "intellij.libraries.junit4" to "COMPILE")
         moduleWithScopedDeps("intellij.libraries.junit4")
@@ -1483,7 +1365,7 @@ class PluginDependencyGeneratorTest {
       )
 
       val errorSink = ErrorSink()
-      val descriptorCache = ModuleDescriptorCache(jps.outputProvider)
+      val descriptorCache = ModuleDescriptorCache(jps.outputProvider, owner = owner)
       val graph = pluginGraphWithDescriptors(descriptorCache) {
         moduleWithScopedDeps("intellij.test.module", "intellij.libraries.junit4" to "COMPILE")
         product("TestProduct") { }
@@ -1544,7 +1426,7 @@ class PluginDependencyGeneratorTest {
         }
       )
 
-      val descriptorCache = ModuleDescriptorCache(jps.outputProvider)
+      val descriptorCache = ModuleDescriptorCache(jps.outputProvider, owner = owner)
       val graph = pluginGraphWithDescriptors(descriptorCache) {
         moduleWithScopedDeps("intellij.content.module", "intellij.dep.resolvable" to "COMPILE")
         product("TestProduct") { }
@@ -1603,7 +1485,7 @@ class PluginDependencyGeneratorTest {
         }
       )
 
-      val descriptorCache = ModuleDescriptorCache(jps.outputProvider)
+      val descriptorCache = ModuleDescriptorCache(jps.outputProvider, owner = owner)
       val graph = pluginGraphWithDescriptors(descriptorCache) {
         product("TestProduct") { bundlesPlugin("intellij.owner.plugin") }
         plugin("intellij.owner.plugin") { content("intellij.owner.module") }
@@ -1663,7 +1545,7 @@ class PluginDependencyGeneratorTest {
         }
       )
 
-      val descriptorCache = ModuleDescriptorCache(jps.outputProvider)
+      val descriptorCache = ModuleDescriptorCache(jps.outputProvider, owner = owner)
       val graph = pluginGraphWithDescriptors(descriptorCache) {
         product("TestProduct") { bundlesPlugin("product.java.plugin") }
         plugin("product.java.plugin") { pluginId("com.intellij.java") }
@@ -1735,7 +1617,7 @@ class PluginDependencyGeneratorTest {
         }
       )
 
-      val descriptorCache = ModuleDescriptorCache(jps.outputProvider)
+      val descriptorCache = ModuleDescriptorCache(jps.outputProvider, owner = owner)
       val graph = pluginGraphWithDescriptors(descriptorCache) {
         product("TestProduct") { }
         plugin("language-server.plugins.java") {
@@ -1804,7 +1686,7 @@ class PluginDependencyGeneratorTest {
         }
       )
 
-      val descriptorCache = ModuleDescriptorCache(jps.outputProvider)
+      val descriptorCache = ModuleDescriptorCache(jps.outputProvider, owner = owner)
       val graph = pluginGraphWithDescriptors(descriptorCache) {
         product("TestProduct") { }
         plugin("intellij.java.plugin") {
@@ -1883,7 +1765,7 @@ class PluginDependencyGeneratorTest {
         allowedMissingPluginIds = listOf(PluginId("org.jetbrains.ls.plugin.java")),
       )
 
-      val descriptorCache = ModuleDescriptorCache(jps.outputProvider)
+      val descriptorCache = ModuleDescriptorCache(jps.outputProvider, owner = owner)
       val graph = pluginGraphWithDescriptors(descriptorCache) {
         product("TestProduct") { }
         plugin("language-server.plugins.java") {
@@ -1952,7 +1834,7 @@ class PluginDependencyGeneratorTest {
         additionalBundledPluginTargetNames = listOf(TargetName("intellij.owner.plugin")),
       )
 
-      val descriptorCache = ModuleDescriptorCache(jps.outputProvider)
+      val descriptorCache = ModuleDescriptorCache(jps.outputProvider, owner = owner)
       val graph = pluginGraphWithDescriptors(descriptorCache) {
         product("TestProduct") { }
         plugin("intellij.owner.plugin") { content("intellij.owner.module") }
@@ -2012,7 +1894,7 @@ class PluginDependencyGeneratorTest {
         }
       )
 
-      val descriptorCache = ModuleDescriptorCache(jps.outputProvider)
+      val descriptorCache = ModuleDescriptorCache(jps.outputProvider, owner = owner)
       val graph = pluginGraphWithDescriptors(descriptorCache) {
         product("TestProduct") { bundlesTestPlugin("intellij.owner.plugin") }
         testPlugin("intellij.owner.plugin") { content("intellij.owner.module") }
@@ -2077,7 +1959,7 @@ class PluginDependencyGeneratorTest {
         }
       )
 
-      val descriptorCache = ModuleDescriptorCache(jps.outputProvider)
+      val descriptorCache = ModuleDescriptorCache(jps.outputProvider, owner = owner)
       val graph = pluginGraphWithDescriptors(descriptorCache) {
         product("TestProduct") { }
         testPlugin("intellij.owner.plugin") { content("intellij.owner.module") }
@@ -2152,7 +2034,7 @@ class PluginDependencyGeneratorTest {
       )
 
       // Call the REAL function (graph is the source of truth for descriptor existence)
-      val descriptorCache = ModuleDescriptorCache(jps.outputProvider)
+      val descriptorCache = ModuleDescriptorCache(jps.outputProvider, owner = owner)
       val graph = pluginGraphWithDescriptors(descriptorCache) {
         moduleWithScopedDeps(
           "intellij.content.module",
@@ -2456,7 +2338,7 @@ class PluginDependencyGeneratorTest {
       }
 
       coroutineScope {
-        val descriptorCache = ModuleDescriptorCache(setup.jps.outputProvider)
+        val descriptorCache = ModuleDescriptorCache(setup.jps.outputProvider, owner = owner)
         val info = descriptorCache.getOrAnalyze("intellij.regexp")
 
         assertThat(info).isNotNull()
@@ -2483,7 +2365,7 @@ class PluginDependencyGeneratorTest {
         }
       }
 
-      val descriptorCache = ModuleDescriptorCache(setup.jps.outputProvider)
+      val descriptorCache = ModuleDescriptorCache(setup.jps.outputProvider, owner = owner)
       val info = descriptorCache.getOrAnalyze("intellij.nonstandard")
 
       assertThat(info).isNotNull()
@@ -2513,7 +2395,7 @@ class PluginDependencyGeneratorTest {
         }
       }
 
-      val descriptorCache = ModuleDescriptorCache(setup.jps.outputProvider)
+      val descriptorCache = ModuleDescriptorCache(setup.jps.outputProvider, owner = owner)
       val info = descriptorCache.getOrAnalyze("intellij.standard")
 
       assertThat(info).isNotNull()

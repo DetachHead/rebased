@@ -1,9 +1,12 @@
 // Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.jetbrains.python.sdk.pipenv
 
+import com.jetbrains.python.sdk.ModuleOrProject
 import com.intellij.openapi.projectRoots.Sdk
 import com.intellij.openapi.util.NlsSafe
 import com.intellij.platform.util.progress.withProgressText
+import com.intellij.python.sdk.backend.PythonInterpreter
+import com.intellij.python.sdk.backend.flavor
 import com.intellij.util.PathUtil
 import com.jetbrains.python.PyBundle
 import com.jetbrains.python.errorProcessing.PyResult
@@ -21,6 +24,10 @@ import java.nio.file.Path
 internal val Sdk.isPipEnv: Boolean
   get() = PythonSdkUtil.isPythonSdk(this) && pySdkAdditionalData.flavor == PyPipEnvSdkFlavor
 
+/** Whether the interpreter was added as a pipenv. */
+internal val PythonInterpreter.isPipEnv: Boolean
+  get() = flavor == PyPipEnvSdkFlavor
+
 @Internal
 fun suggestedSdkName(basePath: @NlsSafe String): @NlsSafe String = "Pipenv (${PathUtil.getFileName(basePath)})"
 
@@ -31,13 +38,14 @@ fun suggestedSdkName(basePath: @NlsSafe String): @NlsSafe String = "Pipenv (${Pa
  * environment per project, so [basePath] is what ties the SDK back to it.
  */
 internal suspend fun <P : PathHolder> createPipenvSdk(
+  moduleOrProject: ModuleOrProject,
   basePath: Path,
   pythonBinaryPath: P,
   fileSystem: FileSystem<P>,
   targetPanelExtension: TargetPanelExtension? = null,
-): PyResult<Sdk> = withProgressText(PyBundle.message("python.sdk.progress.pipenv.configuring")) {
+): PyResult<PythonInterpreter> = withProgressText(PyBundle.message("python.sdk.progress.pipenv.configuring")) {
   fileSystem.setupSdk(
-    project = null,
+    moduleOrProject = moduleOrProject,
     pythonBinaryPath = pythonBinaryPath,
     sdkAdditionalData = PyPipEnvSdkAdditionalData(basePath),
     targetPanelExtension = targetPanelExtension,

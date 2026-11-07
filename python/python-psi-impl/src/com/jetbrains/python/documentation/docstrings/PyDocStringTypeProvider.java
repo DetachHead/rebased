@@ -13,11 +13,12 @@ import com.jetbrains.python.psi.PyNamedParameter;
 import com.jetbrains.python.psi.PyQualifiedNameOwner;
 import com.jetbrains.python.psi.PyUtil;
 import com.jetbrains.python.psi.StructuredDocString;
+import com.jetbrains.python.psi.types.PyAnyType;
 import com.jetbrains.python.psi.types.PyCloningTypeVisitor;
 import com.jetbrains.python.psi.types.PyClassType;
 import com.jetbrains.python.psi.types.PyType;
 import com.jetbrains.python.psi.types.PyTypeChecker;
-import com.jetbrains.python.psi.types.PyTypeParser;
+import com.jetbrains.python.psi.types.PyLegacyDocstringTypeParser;
 import com.jetbrains.python.psi.types.PyTypeProviderBase;
 import com.jetbrains.python.psi.types.PyTypeUtil;
 import com.jetbrains.python.psi.types.PyTypeVarType;
@@ -47,11 +48,13 @@ public final class PyDocStringTypeProvider extends PyTypeProviderBase {
         final Ref<PyType> typeRef = parseType(func, typeText, context);
 
         if (param.isPositionalContainer()) {
-          return Ref.create(PyTypeUtil.toPositionalContainerType(param, typeRef.get()));
+          final PyType positionalContainerType = PyTypeUtil.toPositionalContainerType(param, typeRef.get());
+          return Ref.create(positionalContainerType != null ? positionalContainerType : PyAnyType.getUnknown());
         }
 
         if (param.isKeywordContainer()) {
-          return Ref.create(PyTypeUtil.toKeywordContainerType(param, typeRef.get()));
+          final PyType keywordContainerType = PyTypeUtil.toKeywordContainerType(param, typeRef.get());
+          return Ref.create(keywordContainerType != null ? keywordContainerType : PyAnyType.getUnknown());
         }
 
         return typeRef;
@@ -80,7 +83,7 @@ public final class PyDocStringTypeProvider extends PyTypeProviderBase {
   }
 
   private @NotNull Ref<PyType> parseType(@NotNull PyCallable callable, @NotNull String typeText, @NotNull TypeEvalContext context) {
-    final PyType type = PyTypeParser.getTypeByName(callable, typeText, context);
+    final PyType type = PyLegacyDocstringTypeParser.getTypeByName(callable, typeText, context);
     if (type != null) {
       type.assertValid("from docstring");
     }

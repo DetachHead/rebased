@@ -26,24 +26,25 @@
     <orderEntry type="module" module-name="intellij.java.psi.impl" scope="RUNTIME" />
     <orderEntry type="module-library" exported="">
       <library name="kotlinc.symbol-light-classes" type="repository">
-        <properties include-transitive-deps="false" maven-id="org.jetbrains.kotlin:symbol-light-classes-for-ide:2.5.0-dev-6438">
+        <properties include-transitive-deps="false" maven-id="org.jetbrains.kotlin:symbol-light-classes-for-ide:2.5.0-dev-9507">
           <verification>
-            <artifact url="file://$MAVEN_REPOSITORY$/org/jetbrains/kotlin/symbol-light-classes-for-ide/2.5.0-dev-6438/symbol-light-classes-for-ide-2.5.0-dev-6438.jar">
-              <sha256sum>affd2c145353d569a499efea61dc06f281a4efcb35bcc95fff4e940edb1099e9</sha256sum>
+            <artifact url="file://$MAVEN_REPOSITORY$/org/jetbrains/kotlin/symbol-light-classes-for-ide/2.5.0-dev-9507/symbol-light-classes-for-ide-2.5.0-dev-9507.jar">
+              <sha256sum>e3eb6e3c6a050502fb9d9e99c6d23b40328dccc57ae0b0e18d2e277521b20cfe</sha256sum>
             </artifact>
           </verification>
         </properties>
         <CLASSES>
-          <root url="jar://$MAVEN_REPOSITORY$/org/jetbrains/kotlin/symbol-light-classes-for-ide/2.5.0-dev-6438/symbol-light-classes-for-ide-2.5.0-dev-6438.jar!/" />
+          <root url="jar://$MAVEN_REPOSITORY$/org/jetbrains/kotlin/symbol-light-classes-for-ide/2.5.0-dev-9507/symbol-light-classes-for-ide-2.5.0-dev-9507.jar!/" />
         </CLASSES>
         <JAVADOC />
         <SOURCES>
-          <root url="jar://$MAVEN_REPOSITORY$/org/jetbrains/kotlin/symbol-light-classes-for-ide/2.5.0-dev-6438/symbol-light-classes-for-ide-2.5.0-dev-6438-sources.jar!/" />
+          <root url="jar://$MAVEN_REPOSITORY$/org/jetbrains/kotlin/symbol-light-classes-for-ide/2.5.0-dev-9507/symbol-light-classes-for-ide-2.5.0-dev-9507-sources.jar!/" />
         </SOURCES>
       </library>
     </orderEntry>
     <orderEntry type="module" module-name="intellij.platform.backend" scope="RUNTIME" />
     <orderEntry type="module" module-name="intellij.libraries.kotlinc.kotlin.compiler.common" scope="RUNTIME" />
+    <orderEntry type="module" module-name="intellij.libraries.kotlinc.analysis.api" scope="RUNTIME" />
     <orderEntry type="module" module-name="intellij.libraries.kotlinc.analysis.api.platform.interface" scope="RUNTIME" />
   </component>
 </module>

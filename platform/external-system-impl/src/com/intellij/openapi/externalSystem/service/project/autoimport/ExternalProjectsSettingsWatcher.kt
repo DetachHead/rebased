@@ -6,12 +6,11 @@ import com.intellij.openapi.externalSystem.ExternalSystemAutoImportAware
 import com.intellij.openapi.externalSystem.ExternalSystemManager
 import com.intellij.openapi.externalSystem.autoimport.ExternalSystemProjectId
 import com.intellij.openapi.externalSystem.autoimport.ExternalSystemProjectTracker
+import com.intellij.openapi.externalSystem.service.project.manage.ExternalProjectsManager
 import com.intellij.openapi.externalSystem.settings.ExternalProjectSettings
 import com.intellij.openapi.externalSystem.settings.ExternalSystemSettingsListenerEx
-import com.intellij.openapi.externalSystem.util.ExternalSystemActivityKey
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Disposer
-import com.intellij.platform.backend.observation.trackActivityBlocking
 
 internal class ExternalProjectsSettingsWatcher : ExternalSystemSettingsListenerEx {
   override fun onProjectsLoaded(
@@ -23,8 +22,8 @@ internal class ExternalProjectsSettingsWatcher : ExternalSystemSettingsListenerE
       return
     }
 
-    project.trackActivityBlocking(ExternalSystemActivityKey) {
-      val projectTracker = ExternalSystemProjectTracker.getInstance(project)
+    val projectTracker = ExternalSystemProjectTracker.getInstance(project)
+    ExternalProjectsManager.getInstance(project).runWhenInitialized {
       val systemId = manager.systemId
       for (projectSettings in settings) {
         projectTracker.activate(ExternalSystemProjectId(systemId = systemId, externalProjectPath = projectSettings.externalProjectPath))

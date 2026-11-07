@@ -1,6 +1,6 @@
 internal class A {
     fun acceptDouble(d: Double) {}
-    fun acceptDoubleBoxed(d: Double?) {}
+    fun acceptDoubleBoxed(d: Double) {}
 
     fun conversion() {
         val a = 10

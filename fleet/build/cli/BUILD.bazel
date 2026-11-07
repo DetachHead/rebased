@@ -1,3 +1,4 @@
+load("@bazel_skylib//rules:common_settings.bzl", "bool_flag")
 load("@rules_java//java:defs.bzl", "java_binary")
 load("@rules_jvm//:jvm.bzl", "jvm_library")
 load("//build:compiler-options.bzl", "create_kotlinc_options")
@@ -7,6 +8,15 @@ java_binary(
     main_class = "fleet.buildtool.cli.MainKt",
     visibility = ["//visibility:public"],
     runtime_deps = [":cli"],
+)
+
+# When enabled, the community Haven CLI workers serve telemetry, such as a coroutine dump, over a
+# loopback HTTP server. The worker log shows its URL. The flag is on by default.
+# Disable it with `--@community//fleet/build/cli:telemetry_server=false`.
+bool_flag(
+    name = "telemetry_server",
+    build_setting_default = True,
+    visibility = ["//visibility:public"],
 )
 
 ### auto-generated section `build fleet.build.cli` start
@@ -47,10 +57,10 @@ jvm_library(
     deps = [
         # do not sort,
         "@lib//:kotlin-stdlib",
-        "@lib//:kotlinx-io-core",
+        "//libraries/io",
         "@lib//:slf4j-api",
         "@lib//:fleet-logback-classic",
-        "@lib//:kotlinx-coroutines-core",
+        "//libraries/kotlinx/coroutines/core",
         "@lib//:fleet-google-devtools-ksp-symbol-processing-api",
         "@lib//:fleet-google-devtools-ksp-symbol-processing-aa-embeddable",
         "@lib//:fleet-google-devtools-ksp-symbol-processing-common-deps",
@@ -74,7 +84,12 @@ jvm_library(
         "@lib//:fleet-clikt-core",
         "@lib//:fleet-clikt",
     ],
-    runtime_deps = [":cli"],
+    runtime_deps = [
+        # do not sort,
+        ":cli",
+        "//libraries/io:io_test_lib",
+        "//libraries/kotlinx/coroutines/core:core_test_lib",
+    ],
 )
 ### auto-generated section `build fleet.build.cli` end
 

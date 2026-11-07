@@ -28,8 +28,13 @@
     <module name="intellij.libraries.opentelemetry"/>
     <module name="intellij.libraries.stream"/>
     <module name="intellij.platform.analysis"/>
+    <module name="intellij.platform.backend.observation"/>
+    <module name="intellij.platform.backend.workspace"/>
     <module name="intellij.platform.buildScripts.downloader"/>
+    <module name="intellij.platform.buildView"/>
     <module name="intellij.platform.codeStyle"/>
+    <module name="intellij.platform.concurrency"/>
+    <module name="intellij.platform.consoleView"/>
     <module name="intellij.platform.core"/>
     <module name="intellij.platform.core.impl"/>
     <module name="intellij.platform.core.ui"/>
@@ -38,6 +43,7 @@
     <module name="intellij.platform.diagnostic.telemetry.impl"/>
     <module name="intellij.platform.editor.ui"/>
     <module name="intellij.platform.eel.impl"/>
+    <module name="intellij.platform.eel.provider"/>
     <module name="intellij.platform.execution"/>
     <module name="intellij.platform.execution.impl"/>
     <module name="intellij.platform.externalSystem"/>
@@ -47,7 +53,9 @@
     <module name="intellij.platform.ide.core"/>
     <module name="intellij.platform.ide.core.impl"/>
     <module name="intellij.platform.ide.impl"/>
+    <module name="intellij.platform.ide.observable"/>
     <module name="intellij.platform.ide.progress"/>
+    <module name="intellij.platform.ijent"/>
     <module name="intellij.platform.indexing"/>
     <module name="intellij.platform.lang"/>
     <module name="intellij.platform.lang.core"/>
@@ -56,13 +64,19 @@
     <module name="intellij.platform.projectModel"/>
     <module name="intellij.platform.projectModel.impl"/>
     <module name="intellij.platform.refactoring"/>
+    <module name="intellij.platform.smRunner"/>
     <module name="intellij.platform.statistics"/>
     <module name="intellij.platform.testRunner"/>
     <module name="intellij.platform.usageView"/>
+    <module name="intellij.platform.util.annotations"/>
     <module name="intellij.platform.util.coroutines"/>
     <module name="intellij.platform.util.ex"/>
+    <module name="intellij.platform.util.progress"/>
+    <module name="intellij.platform.util.text.matching"/>
     <module name="intellij.platform.util.ui"/>
     <module name="intellij.platform.vcs"/>
+    <module name="intellij.platform.workspace.storage"/>
+    <module name="intellij.platform.wsl.impl"/>
     <module name="intellij.properties.backend"/>
     <module name="intellij.properties.backend.psi"/>
     <module name="intellij.properties.psi"/>
@@ -430,6 +444,11 @@
     <registryKey key="maven.use.scripts.debug.agent" defaultValue="true"
                  description="Use instrumentation agent when debugging with maven"/>
 
+    <advancedSetting id="maven.delegate.build.phase" default="PROCESS_TEST_CLASSES"
+                     enumClass="org.jetbrains.idea.maven.execution.build.MavenDelegateBuildPhase"
+                     bundle="messages.MavenConfigurableBundle"
+                     groupKey="group.advanced.settings.maven"/>
+
     <registryKey key="maven.dedicated.indexer.vmargs" defaultValue="-Xmx1024m"
                  description="Dedicated maven indexer VM arguments, restart maven server or IDEA after changing this parameter"/>
 
@@ -766,6 +785,7 @@
     <log.spy.parser implementation="org.jetbrains.idea.maven.externalSystemIntegration.output.quickfixes.InvalidTargetReleaseQuickFix"/>
     <log.spy.parser implementation="org.jetbrains.idea.maven.externalSystemIntegration.output.quickfixes.Maven4ModelVersionErrorParser"/>
 
+    <mavenRemoteConnectionCreator implementation="org.jetbrains.idea.maven.execution.SurefireRemoteConnectionCreator"/>
     <mavenRemoteConnectionCreator implementation="org.jetbrains.idea.maven.execution.ExecRemoteConnectionCreator" order="last"/>
 
   </extensions>
@@ -826,7 +846,6 @@
     <action id="Maven.AddFileAsMavenProject"
             class="org.jetbrains.idea.maven.project.actions.AddFileAsMavenProjectAction"
             icon="AllIcons.General.Add">
-      <add-to-group group-id="EditorPopupMenu" anchor="before" relative-to-action="Maven.GlobalProjectMenu"/>
       <add-to-group group-id="ProjectViewPopupMenu" anchor="before" relative-to-action="Maven.GlobalProjectMenu"/>
     </action>
 

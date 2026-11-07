@@ -1,4 +1,9 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
+
+### auto-generated section `dev intellij.java.compiler.impl` start
+content_module_jar(module = ":impl")
+### auto-generated section `dev intellij.java.compiler.impl` end
 
 ### auto-generated section `build intellij.java.compiler.impl` start
 jvm_library(
@@ -47,7 +52,6 @@ jvm_library(
         "//java/compiler/instrumentation-util",
         "//platform/platform-api:ide",
         "//platform/lang-impl",
-        "//java/jsp-openapi:jsp",
         "//java/java-impl:impl",
         "@community//build:build-javac-rt",
         "//jps/jps-builders:build",
@@ -82,8 +86,6 @@ jvm_library(
         "//libraries/jps-javac-extension",
         "//libraries/netty/buffer",
         "//libraries/winp",
-        "//libraries/jackson/jackson",
-        "//libraries/jackson/databind",
         "//libraries/kotlinx/coroutines/core",
         "//libraries/kotlin/reflect",
         "//libraries/kryo5",
@@ -98,9 +100,11 @@ jvm_library(
         "//xml/xml-psi-api:psi",
         "//xml/xml-parser:parser",
         "//platform/execution",
+        "//platform/consoleView",
         "//platform/forms_rt:java-guiForms-rt",
         "//java/java-frontback-psi-api:frontback-psi",
         "//platform/lang-api:lang",
+        "//platform/buildView",
     ],
 )
 
@@ -148,7 +152,6 @@ jvm_library(
         "//java/compiler/instrumentation-util:instrumentation-util_test_lib",
         "//platform/platform-api:ide_test_lib",
         "//platform/lang-impl:lang-impl_test_lib",
-        "//java/jsp-openapi:jsp_test_lib",
         "//java/java-impl:impl_test_lib",
         "@community//build:build-javac-rt_test_lib",
         "//jps/jps-builders:build_test_lib",
@@ -182,8 +185,6 @@ jvm_library(
         "//libraries/jps-javac-extension:jps-javac-extension_test_lib",
         "//libraries/netty/buffer:buffer_test_lib",
         "//libraries/winp:winp_test_lib",
-        "//libraries/jackson/jackson:jackson_test_lib",
-        "//libraries/jackson/databind:databind_test_lib",
         "//libraries/kotlinx/coroutines/core:core_test_lib",
         "//libraries/kotlin/reflect:reflect_test_lib",
         "//libraries/kryo5:kryo5_test_lib",
@@ -198,9 +199,11 @@ jvm_library(
         "//xml/xml-psi-api:psi_test_lib",
         "//xml/xml-parser:parser_test_lib",
         "//platform/execution:execution_test_lib",
+        "//platform/consoleView:consoleView_test_lib",
         "//platform/forms_rt:java-guiForms-rt_test_lib",
         "//java/java-frontback-psi-api:frontback-psi_test_lib",
         "//platform/lang-api:lang_test_lib",
+        "//platform/buildView:buildView_test_lib",
     ],
 )
 ### auto-generated section `build intellij.java.compiler.impl` end

@@ -3,8 +3,9 @@ package com.jetbrains.python.uv.sdk.evolution
 import com.intellij.openapi.projectRoots.Sdk
 import com.intellij.python.community.common.tools.ToolId
 import com.intellij.python.pyproject.PY_PROJECT_TOML
-import com.intellij.python.pytools.PyTool
+import com.intellij.python.pytools.backend.PyTool
 import com.intellij.python.sdk.backend.PySdkBundle
+import com.intellij.python.sdk.backend.PythonInterpreter
 import com.intellij.python.sdk.backend.evolution.DiscoveredVenv
 import com.intellij.python.sdk.backend.evolution.EvoPyProject
 import com.intellij.python.sdk.backend.evolution.EvoRecreateSpec
@@ -28,6 +29,7 @@ import com.intellij.python.uv.backend.UvPyTool
 import com.intellij.python.uv.backend.UvSystemPythonService
 import com.intellij.python.uv.backend.cli.uv.UvPythonEntry
 import com.intellij.python.uv.common.UV_TOOL_ID
+import com.intellij.python.uv.common.icons.PythonUvCommonIcons
 import com.jetbrains.python.errorProcessing.PyResult
 import com.jetbrains.python.packaging.PyVersionSpecifiers
 import com.jetbrains.python.sdk.add.v2.FileSystem
@@ -35,6 +37,7 @@ import com.jetbrains.python.sdk.add.v2.PathHolder
 import com.jetbrains.python.sdk.evolution.requiresPython
 import com.jetbrains.python.sdk.flavors.PythonSdkFlavor
 import com.jetbrains.python.sdk.uv.UvSdkFlavor
+import com.jetbrains.python.sdk.uv.detectUvMode
 import com.jetbrains.python.sdk.uv.setupExistingEnvAndSdk
 import com.jetbrains.python.sdk.uv.setupNewUvSdkAndEnv
 import com.jetbrains.python.venvReader.VirtualEnvReader
@@ -48,6 +51,8 @@ private const val VERSIONS_KEY: String = "uv.supportedPythonVersions"
 
 internal class UvEvoEnvironmentProvider : PyToolEvoEnvironmentProvider() {
   override val tool: PyTool get() = UvPyTool.getInstance()
+  override val label: String get() = PySdkBundle.message("evolution.node.label.uv")
+  override val icon get() = PythonUvCommonIcons.UV
   override val toolId: ToolId get() = UV_TOOL_ID
 
   /** An interpreter of this node's environments carries this flavor, which is what names this node as the active one. */
@@ -68,27 +73,29 @@ internal class UvEvoEnvironmentProvider : PyToolEvoEnvironmentProvider() {
    * make it — offered as a Python picker by [decorate] when there is nothing there yet. A row for the environment the
    * project is going to have reads better than a row for the act of adding one, and it is the same row afterwards.
    */
-  override suspend fun loadSections(pyProject: EvoPyProject, fileSystem: FileSystem<PathHolder.Eel>, discovered: List<DiscoveredVenv>): EvoLoadResultDto {
+  override suspend fun loadSections(context: EvoToolContext, discovered: List<DiscoveredVenv>): EvoLoadResultDto {
     return EvoLoadResultDto.Ok(discovered.toInProjectAndOtherSections(
       owner = this,
-      baseDir = pyProject.baseDir,
+      baseDir = context.workspace.baseDir,
       icon = icon,
       label = PySdkBundle.message("evolution.section.in.project"),
     ))
   }
 
   /**
-   * Adopts an existing virtualenv as a uv env — `usePip = false`, so the SDK is wired to uv rather than to pip even
-   * though the env itself is an ordinary virtualenv either tool could claim.
+   * Adopts an existing virtualenv as a uv env. The mode follows the directory: a `pyproject.toml` makes it a project,
+   * anything else a pip-mode environment.
    */
-  override suspend fun createSdkForExistingEnv(context: EvoToolContext, homePath: Path): PyResult<Sdk> {
+  override suspend fun createSdkForExistingEnv(context: EvoToolContext, homePath: Path): PyResult<PythonInterpreter> {
     val uvPath = executableOrNull(context.fileSystem) ?: return toolMissing()
+    val baseDir = context.workspace.baseDir
     return setupExistingEnvAndSdk(
+      moduleOrProject = context.workspace.moduleOrProject,
       pythonBinary = PathHolder.Eel(homePath),
       uvPath = uvPath,
-      workingDir = context.pyProject.baseDir,
+      workingDir = baseDir,
       fileSystem = context.fileSystem,
-      usePip = false,
+      mode = detectUvMode(baseDir),
     )
   }
 
@@ -96,18 +103,21 @@ internal class UvEvoEnvironmentProvider : PyToolEvoEnvironmentProvider() {
    * Creates a new uv env in the folder the add-new row named; `token` is the chosen Python version as `major.minor`
    * ("" = uv's default), which is all `uv venv --python` is given — see [supportedPythonVersions].
    */
-  override suspend fun createSdkForNewEnv(context: EvoToolContext, ref: PyInterpreterRef.CreateEnv): PyResult<Sdk> {
+  override suspend fun createSdkForNewEnv(context: EvoToolContext, ref: PyInterpreterRef.CreateEnv): PyResult<PythonInterpreter> {
     val uvExecutable = executableOrNull(context.fileSystem) ?: return toolMissing()
     val venvDir = context.resolveNewVenvDir(ref)
     if (venvDir.exists()) return envExistsError(venvDir.fileName.toString())
     val version = parseVersion(ref.token).getOr { return it }
+    val baseDir = context.workspace.baseDir
     return setupNewUvSdkAndEnv(
+      moduleOrProject = context.workspace.moduleOrProject,
       uvExecutable = uvExecutable,
-      workingDir = context.pyProject.baseDir,
+      workingDir = baseDir,
       venvPath = PathHolder.Eel(venvDir),
       fileSystem = context.fileSystem,
       version = version,
       errorSink = context.errorSink,
+      mode = detectUvMode(baseDir),
     )
   }
 
@@ -137,7 +147,7 @@ internal class UvEvoEnvironmentProvider : PyToolEvoEnvironmentProvider() {
   override suspend fun recreateSpecFor(context: EvoToolContext, leaf: EvoLeafDto): EvoRecreateDto? {
     val versions = context.cached(VERSIONS_KEY) { supportedPythonVersions(context) }.takeIf { it.isNotEmpty() } ?: return null
     // Without a `pyproject.toml` there is no project for `uv sync` to read, so the rebuilt env can only come back empty.
-    return EvoRecreateDto(options = versions, canSyncPackages = context.pyProject.baseDir.resolve(PY_PROJECT_TOML).exists())
+    return EvoRecreateDto(options = versions, canSyncPackages = context.workspace.baseDir.resolve(PY_PROJECT_TOML).exists())
   }
 
   /**
@@ -147,16 +157,19 @@ internal class UvEvoEnvironmentProvider : PyToolEvoEnvironmentProvider() {
    * create. That suits the rule the widget works to: a failure leaves the folder standing and broken, and says so,
    * instead of leaving the project with nothing where an environment used to be.
    */
-  override suspend fun recreateEnv(context: EvoToolContext, homePath: Path, spec: EvoRecreateSpec): PyResult<Sdk> {
+  override suspend fun recreateEnv(context: EvoToolContext, homePath: Path, spec: EvoRecreateSpec): PyResult<PythonInterpreter> {
     val uvExecutable = executableOrNull(context.fileSystem) ?: return toolMissing()
     val version = parseVersion(spec.baseToken).getOr { return it }
+    val baseDir = context.workspace.baseDir
     return setupNewUvSdkAndEnv(
+      moduleOrProject = context.workspace.moduleOrProject,
       uvExecutable = uvExecutable,
-      workingDir = context.pyProject.baseDir,
+      workingDir = baseDir,
       venvPath = PathHolder.Eel(VirtualEnvReader().resolvePythonHomeFromPythonBinary(homePath)),
       fileSystem = context.fileSystem,
       version = version,
       errorSink = context.errorSink,
+      mode = detectUvMode(baseDir),
       overrideExistingEnv = true,
       sync = spec.syncPackages,
     )
@@ -172,7 +185,7 @@ internal class UvEvoEnvironmentProvider : PyToolEvoEnvironmentProvider() {
   override suspend fun addNewEnvSpec(context: EvoToolContext, section: EvoSectionDto): EvoAddNewDto? {
     // Probed once per request, not once per section: a node with several folders offers the same versions in each.
     val versions = context.cached(VERSIONS_KEY) { supportedPythonVersions(context) }.takeIf { it.isNotEmpty() } ?: return null
-    val container = section.addNewFolderPath?.let { Path.of(it) } ?: context.pyProject.baseDir
+    val container = section.addNewFolderPath?.let { Path.of(it) } ?: context.workspace.baseDir
     val taken = listEntryNames(container)
     return EvoAddNewDto(
       name = firstFreeVenvDir(container).fileName.toString(),
@@ -194,7 +207,7 @@ internal class UvEvoEnvironmentProvider : PyToolEvoEnvironmentProvider() {
    * uv's to make, not the user's.
    */
   private suspend fun supportedPythonVersions(context: EvoToolContext): List<EvoAddNewOptionDto> {
-    val baseDir = context.pyProject.baseDir
+    val baseDir = context.workspace.baseDir
     // The listing every node shares, taken once per project — see [UvSystemPythonService]. This node used to ask uv
     // again with the project's `requires-python` as uv's own positional request, which cost a second scan of the
     // machine for a list the first one already held.
@@ -229,7 +242,7 @@ internal class UvEvoEnvironmentProvider : PyToolEvoEnvironmentProvider() {
     if (result !is EvoLoadResultDto.Ok) return result
     val versions = context.cached(VERSIONS_KEY) { supportedPythonVersions(context) }
     if (versions.isEmpty()) {
-      val requiresPython = requiresPython(context.pyProject.baseDir)
+      val requiresPython = requiresPython(context.workspace.baseDir)
       return EvoLoadResultDto.Warning(
         if (requiresPython == null) PyUvBundle.message("evolution.uv.no.pythons")
         else PyUvBundle.message("evolution.uv.no.pythons.for.requires", requiresPython)

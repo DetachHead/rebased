@@ -1,7 +1,6 @@
 // Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.grazie.utils
 
-import ai.grazie.rules.RuleClient
 import ai.grazie.rules.code.CodeDetector
 import ai.grazie.rules.settings.TextStyle
 import com.intellij.grazie.text.TextContent
@@ -121,8 +120,6 @@ enum class TextStyleDomain {
     }
 }
 
-fun TextStyle.getTextDomain(): TextStyleDomain = TextStyleDomain.entries.find { id == it.name } ?: Other
-
 fun TextContent.getTextDomain(): TextStyleDomain {
   val style = when (this.domain) {
     TextDomain.COMMENTS -> CodeComment
@@ -132,15 +129,6 @@ fun TextContent.getTextDomain(): TextStyleDomain {
   if (style != null) return style
   val file = this.containingFile
   if (CommitMessage.isCommitMessage(file)) return Commit
-  if ("ChatInput" == file.getLanguage().id) return AIPrompt
+  if ("ChatInput" == file.getLanguage().id || file.viewProvider.virtualFile.name.startsWith("AirPrompt")) return AIPrompt
   return Other
-}
-
-fun getOtherDomainStyles(): List<TextStyle> {
-  val client = object : RuleClient {
-    override fun showIdeStyles(): Boolean {
-      return false
-    }
-  }
-  return TextStyle.styles(client)
 }

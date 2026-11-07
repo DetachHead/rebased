@@ -2,6 +2,7 @@
 package org.jetbrains.plugins.terminal
 
 import com.intellij.diagnostic.PluginException
+import com.intellij.diagnostic.rethrowControlFlowException
 import com.intellij.execution.configuration.EnvironmentVariablesData
 import com.intellij.execution.wsl.WslPath
 import com.intellij.ide.trustedProjects.TrustedProjects
@@ -13,7 +14,6 @@ import com.intellij.openapi.components.State
 import com.intellij.openapi.components.Storage
 import com.intellij.openapi.components.StoragePathMacros
 import com.intellij.openapi.diagnostic.Logger
-import com.intellij.openapi.diagnostic.rethrowControlFlowException
 import com.intellij.openapi.progress.runBlockingMaybeCancellable
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.guessProjectDir
@@ -38,19 +38,33 @@ import com.intellij.platform.eel.provider.toEelApi
 import com.intellij.util.PathUtil
 import com.intellij.util.text.nullize
 import com.intellij.util.xmlb.annotations.Property
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.future.future
 import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.plugins.terminal.settings.TerminalLocalOptions
 import org.jetbrains.plugins.terminal.settings.impl.TerminalProjectOptionsMigration
-import org.jetbrains.plugins.terminal.startup.ShellExecOptionsCustomizer
+import org.jetbrains.plugins.terminal.startup.TerminalWorkingDirectoryCustomizer
 import java.nio.file.Files
+import java.util.concurrent.CompletableFuture
+import java.util.concurrent.ExecutionException
 import kotlin.reflect.KMutableProperty0
 import kotlin.reflect.KProperty
 
 @Service(Service.Level.PROJECT)
 @State(name = TerminalProjectOptionsProvider.COMPONENT_NAME, storages = [(Storage(StoragePathMacros.WORKSPACE_FILE))])
-class TerminalProjectOptionsProvider(val project: Project) : PersistentStateComponent<TerminalProjectOptionsProvider.State> {
+class TerminalProjectOptionsProvider(
+  val project: Project,
+  coroutineScope: CoroutineScope,
+) : PersistentStateComponent<TerminalProjectOptionsProvider.State> {
 
   private val state = State()
+
+  private val defaultStartingDirectoryFuture: CompletableFuture<String?> = coroutineScope.future(Dispatchers.IO) {
+    callWorkingDirectoryCustomizers(project)
+    ?: callDeprecatedWorkingDirectoryCustomizers(project)
+    ?: PathUtil.toSystemDependentName(getDefaultWorkingDirectory())
+  }
 
   override fun getState(): State {
     return state
@@ -105,38 +119,55 @@ class TerminalProjectOptionsProvider(val project: Project) : PersistentStateComp
 
   var startingDirectory: String? by ValueWithDefault(state::startingDirectory) { defaultStartingDirectory }
 
+  /**
+   * The value is computed once, in the background, when the service is created.
+   * The getter blocks the calling thread only if the computation is still running.
+   */
   val defaultStartingDirectory: String?
     get() {
-      for (customizer in ShellExecOptionsCustomizer.EP_NAME.extensionList) {
-        try {
-          val dir = customizer.getDefaultStartWorkingDirectory(project)
-          if (dir != null) {
-            return dir.toString()
-          }
-        }
-        catch (e: Throwable) {
-          rethrowControlFlowException(e)
-          LOG.error(PluginException.createByClass(
-            "Exception during getting start directory by ${customizer::class.java}",
-            e,
-            customizer::class.java
-          ))
-        }
+      try {
+        return defaultStartingDirectoryFuture.get()
       }
-      @Suppress("DEPRECATION")
-      for (customizer in LocalTerminalCustomizer.EP_NAME.extensionList) {
-        try {
-          val directory = customizer.getDefaultFolder(project)
-          if (directory != null) {
-            return PathUtil.toSystemDependentName(directory)
-          }
-        }
-        catch (e: Exception) {
-          LOG.error("Exception during getting default folder", e)
-        }
+      catch (e: ExecutionException) {
+        throw e.cause ?: e
       }
-      return PathUtil.toSystemDependentName(getDefaultWorkingDirectory())
     }
+
+  private fun callWorkingDirectoryCustomizers(project: Project): String? {
+    for (customizer in TerminalWorkingDirectoryCustomizer.EP_NAME.extensionList) {
+      try {
+        val dir = customizer.getDefaultStartWorkingDirectory(project)
+        if (dir != null) {
+          return dir.toString()
+        }
+      }
+      catch (e: Throwable) {
+        rethrowControlFlowException(e)
+        LOG.error(PluginException.createByClass(
+          "Exception during getting start directory by ${customizer::class.java}",
+          e,
+          customizer::class.java
+        ))
+      }
+    }
+    return null
+  }
+
+  private fun callDeprecatedWorkingDirectoryCustomizers(project: Project): String? {
+    @Suppress("DEPRECATION")
+    for (customizer in LocalTerminalCustomizer.EP_NAME.extensionList) {
+      try {
+        val directory = customizer.getDefaultFolder(project)
+        if (directory != null) {
+          return PathUtil.toSystemDependentName(directory)
+        }
+      }
+      catch (e: Exception) {
+        LOG.error("Exception during getting default folder", e)
+      }
+    }
+    return null
+  }
 
   private fun getDefaultWorkingDirectory(): String? {
     return if (ApplicationManager.getApplication().isUnitTestMode) {

@@ -9,12 +9,15 @@ import com.intellij.ide.plugins.PluginManagerCore.CORE_ID
 import com.intellij.ide.plugins.PluginManagerCore.JAVA_PLUGIN_ALIAS_ID
 import com.intellij.ide.plugins.PluginManagerCore.getPluginNameAndVendor
 import com.intellij.ide.plugins.PluginManagerCore.logger
+import com.intellij.ide.plugins.ProductModeCapabilities.computeEssentialPlugins
+import com.intellij.ide.plugins.ProductModeCapabilities.configureProductModeModules
 import com.intellij.ide.plugins.ProductRulesImposedExclusion.ProductRulesImposedExclusionReason
 import com.intellij.idea.AppMode
 import com.intellij.openapi.application.PathManager
 import com.intellij.openapi.application.impl.ApplicationInfoImpl
 import com.intellij.openapi.extensions.PluginId
 import com.intellij.openapi.util.BuildNumber
+import com.intellij.platform.productMode.ProductMode
 import com.intellij.ui.IconManager
 import com.intellij.ui.PlatformIcons
 import com.intellij.util.PlatformUtils
@@ -37,6 +40,7 @@ import javax.swing.JOptionPane
 @VisibleForTesting
 @ApiStatus.Internal
 class ProductPluginInitContext(
+  override val productMode: ProductMode = CurrentProductMode.value,
   private val buildNumberOverride: BuildNumber? = null,
   private val disabledPluginsOverride: Set<PluginId>? = null,
   private val expiredPluginsOverride: Set<PluginId>? = null,
@@ -45,7 +49,7 @@ class ProductPluginInitContext(
   override val essentialPlugins: Set<PluginId> by lazy {
     computeEssentialPlugins(
       declaredEssentialPlugins = ApplicationInfoImpl.getShadowInstance().getEssentialPluginIds(),
-      productModeId = currentProductModeId,
+      productMode = productMode,
     )
   }
 
@@ -91,6 +95,9 @@ class ProductPluginInitContext(
   override val disablePluginLoadingCompletely: Boolean
     get() = !System.getProperty("idea.load.plugins", "true").toBoolean()
 
+  override val disableRequiredIfAvailable: Boolean =
+    System.getProperty("idea.plugins.required.if.available.disabled").toBoolean()
+
   override val pluginsPerProjectConfig: PluginsPerProjectConfig? by lazy {
     if (java.lang.Boolean.getBoolean("ide.per.project.instance")) {
       PluginsPerProjectConfig(
@@ -100,14 +107,12 @@ class ProductPluginInitContext(
     else null
   }
 
-  override val currentProductModeId: String
-    get() = ProductLoadingStrategy.strategy.currentModeId
+  /** Read once, so the flag stays the same for the whole life of this context. */
+  private val aiEnabled: Boolean by lazy { AiEnabledState.isEnabled() }
 
-  override val environmentConfiguredModules: Map<PluginModuleId, EnvironmentConfiguredModuleData> by lazy {
-    buildMap {
-      configureProductModeModules(currentProductModeId)
-    }
-  }
+  // Not lazy: the mode is a constructor input now, so there is no global read left to defer.
+  override val environmentConfiguredModules: Map<PluginModuleId, EnvironmentConfiguredModuleData> =
+    buildMap { configureProductModeModules(productMode) }
 
   override fun provideCompatibilityDependencies(descriptor: IdeaPluginDescriptorImpl, pluginSet: UnambiguousPluginSet): Sequence<DependencyRef> =
     defaultProductCompatibilityDependenciesProvider(descriptor, pluginSet)
@@ -116,7 +121,7 @@ class ProductPluginInitContext(
     defaultProductCompatibilityDependenciesForRemainingCandidatesProvider(descriptor, remainingCandidates)
 
   override fun provideModuleExclusionsImposedByProductRules(pluginSet: UnambiguousPluginSet): Sequence<Pair<PluginModuleDescriptor, ProductRulesImposedExclusionReason>> =
-    defaultProductRulesImposedExclusions(pluginSet, expiredPlugins, thirdPartyPluginsWithoutConsentCheckResult)
+    defaultProductRulesImposedExclusions(pluginSet, expiredPlugins, thirdPartyPluginsWithoutConsentCheckResult, aiEnabled)
 
   override fun shouldIncludeContentModulesForDependsEdgeTarget(resolvedTarget: PluginMainDescriptor): Boolean =
     defaultShouldIncludeContentModulesForDependsEdgeTarget(resolvedTarget)
@@ -196,87 +201,6 @@ class ProductPluginInitContext(
   }
 
   companion object {
-    private enum class ProductModes(val id: String) {
-      MONOLITH("monolith"),
-      FRONTEND("frontend"),
-      BACKEND("backend"),
-      LIGHT("light"),
-      LIGHT_WITH_RD_CONNECTION("light_with_rd_connection"),
-      LANGUAGE_SERVER("language_server");
-
-      val hasBackend get() = this == MONOLITH || this == BACKEND || this == LANGUAGE_SERVER
-      val hasFrontend get() = this != BACKEND && this != LANGUAGE_SERVER
-      val isLight get() = this == LIGHT || this == LIGHT_WITH_RD_CONNECTION
-      // required by any split-mode process; monolith and language server run without it
-      val requiresRemoteDevPlugin get() = this != MONOLITH && this != LANGUAGE_SERVER
-    }
-
-    private fun productModeById(productModeId: String): ProductModes =
-      ProductModes.entries.firstOrNull { it.id == productModeId } ?: error("Unknown productMode $productModeId")
-
-    @VisibleForTesting
-    fun computeEssentialPlugins(
-      declaredEssentialPlugins: List<PluginId>,
-      productModeId: String,
-    ): Set<PluginId> = buildSet {
-      add(CORE_ID)
-      addAll(declaredEssentialPlugins)
-      if (productModeById(productModeId).requiresRemoteDevPlugin) {
-        add(REMOTE_DEVELOPMENT_PLUGIN_ID)
-      }
-    }
-
-    @VisibleForTesting
-    fun MutableMap<PluginModuleId, EnvironmentConfiguredModuleData>.configureProductModeModules(productModeId: String) {
-      val productMode = productModeById(productModeId)
-
-      fun setModuleAvailability(moduleId: PluginModuleId, isAvailable: Boolean) {
-        val moduleData =
-          if (isAvailable) EnvironmentConfiguredModuleData(null)
-          else EnvironmentConfiguredModuleData(UnsuitableProductModeModuleUnavailabilityReason(moduleId, productMode.id))
-        val replaced = this.put(moduleId, moduleData)
-        check(replaced == null) { "${moduleId.displayName} is already registered as environment-configured module" }
-      }
-
-      setModuleAvailability(FRONTEND_MODULE_ID, productMode.hasFrontend)
-      setModuleAvailability(BACKEND_MODULE_ID, productMode.hasBackend)
-
-      val platformSplit = PluginModuleId("intellij.platform.split", PluginModuleId.JETBRAINS_NAMESPACE)
-      val backendSplit = PluginModuleId("intellij.platform.backend.split", PluginModuleId.JETBRAINS_NAMESPACE)
-      setModuleAvailability(backendSplit, productMode == ProductModes.BACKEND)
-
-      val frontendSplitBase = PluginModuleId("intellij.platform.frontend.split.base", PluginModuleId.JETBRAINS_NAMESPACE)
-      val frontendSplit = PluginModuleId("intellij.platform.frontend.split", PluginModuleId.JETBRAINS_NAMESPACE)
-      when {
-        productMode.isLight -> {
-          val rpc = PluginModuleId("intellij.platform.rpc", PluginModuleId.JETBRAINS_NAMESPACE)
-          val platformSplitConnection = PluginModuleId("intellij.platform.split.connection", PluginModuleId.JETBRAINS_NAMESPACE)
-          val rdClient = PluginModuleId("intellij.rd.client", PluginModuleId.JETBRAINS_NAMESPACE)
-          val cwmPluginCommon = PluginModuleId("intellij.cwm.plugin.common", PluginModuleId.JETBRAINS_NAMESPACE)
-
-          setModuleAvailability(frontendSplitBase, true)
-
-          for (moduleId in listOf(frontendSplit, platformSplit, rpc, rdClient, cwmPluginCommon)) {
-            setModuleAvailability(moduleId, false)
-          }
-
-          for (moduleId in listOf(platformSplitConnection)) {
-            setModuleAvailability(moduleId, productMode == ProductModes.LIGHT_WITH_RD_CONNECTION)
-          }
-        }
-        else -> {
-          setModuleAvailability(platformSplit, productMode == ProductModes.FRONTEND || productMode == ProductModes.BACKEND)
-          setModuleAvailability(frontendSplitBase, productMode == ProductModes.FRONTEND)
-          setModuleAvailability(frontendSplit, productMode == ProductModes.FRONTEND)
-        }
-      }
-
-      if (productMode != ProductModes.LANGUAGE_SERVER) { // this condition is a workaround for LSP-1549
-        val backendJpsGraph = PluginModuleId("intellij.platform.jps.build.dependencyGraph", PluginModuleId.JETBRAINS_NAMESPACE)
-        setModuleAvailability(backendJpsGraph, productMode.hasBackend)
-      }
-    }
-
     @VisibleForTesting
     fun defaultProductCompatibilityDependenciesProvider(descriptor: IdeaPluginDescriptorImpl, pluginSet: UnambiguousPluginSet): Sequence<DependencyRef> {
       suspend fun SequenceScope<DependencyRef>.yieldIfResolves(ref: DependencyRef) {
@@ -418,6 +342,7 @@ class ProductPluginInitContext(
       pluginSet: UnambiguousPluginSet,
       expiredPlugins: Set<PluginId>,
       thirdPartyPluginsWithoutConsentCheckResult: ThirdPartyPluginsWithoutConsentCheckResult?,
+      aiEnabled: Boolean,
     ): Sequence<Pair<PluginModuleDescriptor, ProductRulesImposedExclusionReason>> {
       return sequence {
         for (expiredPluginId in expiredPlugins) {
@@ -429,6 +354,10 @@ class ProductPluginInitContext(
           for (plugin in it.pluginsToExcludeFromLoading) {
             yield(plugin to ThirdPartyPrivacyNoticeIsNotAccepted)
           }
+        }
+        if (!aiEnabled) {
+          // Every module that depends on the marker goes out with it.
+          pluginSet.resolveContentModuleId(AIR_AI_MARKER_MODULE_ID)?.let { yield(it to AiIsDisabled) }
         }
       }
     }
@@ -461,10 +390,9 @@ private val RIDER_MODULE_ID = PluginModuleId("intellij.rider", PluginModuleId.JE
 private val JSON_ALIAS_ID = PluginId.getId("com.intellij.modules.json")
 private val CWM_PLUGIN_ID = PluginId.getId("com.jetbrains.codeWithMe")
 private val CWM_RIDER_PLUGIN_ID = PluginId.getId("intellij.rider.plugins.cwm")
-private val REMOTE_DEVELOPMENT_PLUGIN_ID: PluginId = PluginId.getId("com.jetbrains.remoteDevelopment")
 private val REMOTE_DEVELOPMENT_RIDER_PLUGIN_ID: PluginId = PluginId.getId("intellij.rider.plugins.remoteDevelopment")
 private val JSON_BACKEND_MODULE_ID = PluginModuleId("intellij.json.backend", PluginModuleId.JETBRAINS_NAMESPACE)
-private val REMOTE_DEVELOPMENT_MODULE_ID = PluginModuleId("intellij.cwm", PluginModuleId.JETBRAINS_NAMESPACE)
+private val REMOTE_DEVELOPMENT_MODULE_ID = PluginModuleId("intellij.remoteDevelopment.plugin", PluginModuleId.JETBRAINS_NAMESPACE)
 private val REMOTE_DEVELOPMENT_RIDER_MODULE_ID = PluginModuleId("intellij.rider.plugins.cwm", PluginModuleId.JETBRAINS_NAMESPACE)
 private val PLATFORM_PLUGIN_ALIAS_ID = PluginId.getId("com.intellij.modules.platform")
 private val LANG_PLUGIN_ALIAS_ID = PluginId.getId("com.intellij.modules.lang")
@@ -493,6 +421,9 @@ private val externalNonBundledPluginCompatibilityDependencies = listOf(
  * plugin alias for compatibility.
  */
 private val vcsApiContentModules = arrayOf(
+  "intellij.platform.vcs.core",
+  "intellij.platform.vcs.shared",
+  "intellij.platform.vcs",
   "intellij.platform.vcs.impl",
   "intellij.platform.vcs.dvcs",
   "intellij.platform.vcs.dvcs.impl",
@@ -503,8 +434,16 @@ private val vcsApiContentModules = arrayOf(
 
 private val COLLABORATION_TOOLS_MODULE_ID = PluginModuleId("intellij.platform.collaborationTools", PluginModuleId.JETBRAINS_NAMESPACE)
 
-private val BACKEND_MODULE_ID = PluginModuleId("intellij.platform.backend", PluginModuleId.JETBRAINS_NAMESPACE)
-private val FRONTEND_MODULE_ID = PluginModuleId("intellij.platform.frontend", PluginModuleId.JETBRAINS_NAMESPACE)
+internal val BACKEND_MODULE_ID = PluginModuleId("intellij.platform.backend", PluginModuleId.JETBRAINS_NAMESPACE)
+
+/**
+ * The empty marker module that the Air plugin declares. The IDE takes it out of the plugin set while
+ * [AiEnabledState] says that AI is off, and every module that depends on it goes out too.
+ */
+@ApiStatus.Internal
+val AIR_AI_MARKER_MODULE_ID: PluginModuleId = PluginModuleId("intellij.air.aiEnabled", PluginModuleId.JETBRAINS_NAMESPACE)
+
+internal val FRONTEND_MODULE_ID = PluginModuleId("intellij.platform.frontend", PluginModuleId.JETBRAINS_NAMESPACE)
 private val RPC_MODULE_ID = PluginModuleId("intellij.platform.rpc", PluginModuleId.JETBRAINS_NAMESPACE)
 
 /**
@@ -515,14 +454,22 @@ private val RPC_MODULE_ID = PluginModuleId("intellij.platform.rpc", PluginModule
  * See [this article](https://youtrack.jetbrains.com/articles/IJPL-A-956#keep-compatibility-with-external-plugins) for more details.
  */
 private val contentModulesExtractedInCorePluginWhichCanBeUsedFromExternalPlugins = arrayOf(
+  "intellij.platform.buildView",
   "intellij.platform.collaborationTools.auth",
   "intellij.platform.collaborationTools.auth.base",
   "intellij.platform.debugger",
   "intellij.platform.debugger.impl",
   "intellij.platform.debugger.impl.shared",
   "intellij.platform.debugger.impl.ui",
+  "intellij.platform.execution.dashboard",
+  "intellij.platform.feedback",
+  "intellij.platform.ide.socketConnection",
+  "intellij.platform.ide.colorPicker",
+  "intellij.platform.externalSystem",
+  "intellij.platform.externalSystem.impl",
   "intellij.platform.tasks",
   "intellij.platform.tasks.impl",
+  "intellij.platform.remoteServers",
   "intellij.platform.remoteServers.impl",
   "intellij.platform.scriptDebugger.ui",
   "intellij.platform.scriptDebugger.backend",
@@ -542,11 +489,16 @@ private val contentModulesExtractedInCorePluginWhichCanBeUsedFromExternalPlugins
   "intellij.xml.psi.impl",
   "intellij.xml.syntax",
   "intellij.xml.ui.common",
+  "intellij.platform.webide",
   "intellij.platform.webide.impl",
+  "intellij.platform.wsl.impl",
+  "intellij.platform.ide.favoritesTreeView",
   "intellij.platform.ssh",
   "intellij.platform.ssh.core",
   "intellij.platform.ssh.core.ui",
   "intellij.platform.ssh.attach",
+  "intellij.platform.graph",
+  "intellij.platform.graph.impl",
 ).map { PluginModuleId(it, PluginModuleId.JETBRAINS_NAMESPACE) }
 
 /**

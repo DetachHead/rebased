@@ -15,11 +15,12 @@ import com.intellij.openapi.project.DumbServiceImpl.Companion.IDEA_FORCE_DUMB_QU
 import com.intellij.openapi.util.CheckedDisposable
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.util.registry.Registry
-import com.intellij.openapi.vfs.LocalFileSystem
+import com.intellij.openapi.vfs.StandardFileSystems
 import com.intellij.openapi.vfs.newvfs.impl.VirtualFileImpl
 import com.intellij.platform.ide.progress.withModalProgress
 import com.intellij.platform.util.coroutines.childScope
 import com.intellij.psi.impl.PsiManagerEx
+import com.intellij.serviceContainer.AlreadyDisposedException
 import com.intellij.testFramework.DumbModeTestUtils
 import com.intellij.testFramework.EdtRule
 import com.intellij.testFramework.PlatformTestUtil
@@ -62,6 +63,7 @@ import org.junit.AfterClass
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Before
@@ -243,6 +245,20 @@ class DumbServiceImplTest {
   }
 
   @Test
+  fun `test queueTask disposes the task and throws AlreadyDisposedException after the service is disposed`() = runBlocking {
+    val dumbService =
+      DumbServiceImpl(project, object : DumbService.DumbModeListener {}, object : DumbModeListenerBackgroundable {}, this)
+    runInEdtAndWait { Disposer.dispose(dumbService) }
+
+    val task = object : DumbModeTask() {
+      override fun performInDumbMode(indicator: ProgressIndicator) = Unit
+    }
+
+    assertThrows(AlreadyDisposedException::class.java) { dumbService.queueTask(task) }
+    assertTrue(Disposer.isDisposed(task))
+  }
+
+  @Test
   fun `test queueTask is async`() {
     val semaphore = Semaphore(1)
     dumbService.queueTask(object : DumbModeTask() {
@@ -314,7 +330,7 @@ class DumbServiceImplTest {
     dir.mkdirs()
     File(dir, "a.jsp").createNewFile()
 
-    val vDir = LocalFileSystem.getInstance().refreshAndFindFileByIoFile(dir)!!
+    val vDir = StandardFileSystems.local().refreshAndFindFileByPath(dir.absolutePath)!!
     assertEquals(1, vDir.children.size)
     val child = vDir.children[0]
     assertEquals("JSP", child.fileType.name)

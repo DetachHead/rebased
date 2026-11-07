@@ -4,18 +4,22 @@ package com.intellij.openapi.updateSettings.impl
 import com.intellij.icons.AllIcons
 import com.intellij.ide.BrowserUtil
 import com.intellij.ide.IdeBundle
+import com.intellij.ide.ui.LafManager
 import com.intellij.ide.ui.customization.NonCustomizableAction
+import com.intellij.ide.ui.laf.UIThemeLookAndFeelInfoImpl
+import com.intellij.ide.util.PropertiesComponent
 import com.intellij.openapi.actionSystem.ActionGroup
 import com.intellij.openapi.actionSystem.ActionManager
 import com.intellij.openapi.actionSystem.ActionPlaces
 import com.intellij.openapi.actionSystem.ActionUpdateThread
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.actionSystem.AnActionHolder
-import com.intellij.openapi.actionSystem.CustomizedDataContext
 import com.intellij.openapi.actionSystem.DataKey
+import com.intellij.openapi.actionSystem.DataSink
 import com.intellij.openapi.actionSystem.PlatformDataKeys
 import com.intellij.openapi.actionSystem.Presentation
 import com.intellij.openapi.actionSystem.RightAlignedToolbarAction
+import com.intellij.openapi.actionSystem.UiDataProvider
 import com.intellij.openapi.actionSystem.ex.CustomComponentAction
 import com.intellij.openapi.actionSystem.remoting.ActionRemoteBehaviorSpecification
 import com.intellij.openapi.application.ApplicationInfo
@@ -28,6 +32,8 @@ import com.intellij.openapi.ui.popup.JBPopupFactory
 import com.intellij.openapi.ui.popup.ListPopupStep
 import com.intellij.openapi.ui.popup.util.PopupUtil
 import com.intellij.openapi.util.NlsContexts
+import com.intellij.openapi.wm.impl.headertoolbar.isDarkHeader
+import com.intellij.ui.JBColor
 import com.intellij.ui.components.PillButton
 import com.intellij.ui.dsl.builder.AlignY
 import com.intellij.ui.dsl.builder.EmptySpacingConfiguration
@@ -41,6 +47,7 @@ import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
 import com.intellij.util.ui.accessibility.AccessibleContextUtil
 import com.intellij.util.ui.launchOnShow
+import java.awt.Color
 import java.awt.Component
 import javax.accessibility.AccessibleAction
 import javax.accessibility.AccessibleContext
@@ -51,10 +58,12 @@ import javax.swing.JList
 import javax.swing.JPanel
 import javax.swing.ListCellRenderer
 
+private const val WIDGET_CLICKED_KEY = "ide.update.toolbar.widget.clicked"
+
 /**
  * Announces an available IDE update in the main toolbar instead of the [com.intellij.ide.actions.SettingsEntryPointAction] menu.
  *
- * Shown only for updates from the release channel and only while [IdeUpdateWidgetState.isWidgetShown] holds,
+ * Shown only for updates from the release channel and only while [IdeUpdateWidgetState.isUpdateAvailable] holds,
  * see [UpdateSettingsEntryPointActionProvider].
  */
 internal class IdeUpdateToolbarWidget :
@@ -67,8 +76,8 @@ internal class IdeUpdateToolbarWidget :
   override fun getActionUpdateThread(): ActionUpdateThread = ActionUpdateThread.BGT
 
   override fun update(e: AnActionEvent) {
-    e.presentation.isVisible = e.place == ActionPlaces.MAIN_TOOLBAR && IdeUpdateWidgetState.isWidgetShown()
-    e.presentation.isEnabled = status != IdeUpdateWidgetState.Status.DOWNLOADING
+    e.presentation.isVisible = e.place == ActionPlaces.MAIN_TOOLBAR && IdeUpdateWidgetState.isUpdateAvailable()
+    e.presentation.isEnabled = IdeUpdateWidgetState.getInstance().isClickable()
   }
 
   override fun createCustomComponent(presentation: Presentation, place: String): JComponent {
@@ -81,11 +90,16 @@ internal class IdeUpdateToolbarWidget :
     when (status) {
       IdeUpdateWidgetState.Status.AVAILABLE -> showUpdatePopup(e)
       IdeUpdateWidgetState.Status.RESTART -> {
-        IdeUpdateUsageTriggerCollector.UPDATE_WIDGET_RESTART_CLICKED.log(e.project)
-        PlatformUpdateDialog.restartLaterAndRunCommand(IdeUpdateWidgetState.getInstance().restartCommand!!)
+        // restartCommand is available only when ApplicationManager.getApplication().isRestartCapable()
+        IdeUpdateWidgetState.getInstance().restartCommand?.let { command ->
+          IdeUpdateUsageTriggerCollector.UPDATE_WIDGET_RESTART_CLICKED.log(e.project)
+          PlatformUpdateDialog.restartLaterAndRunCommand(command)
+        }
       }
-      else -> {}
+      else -> return
     }
+
+    PropertiesComponent.getInstance().setValue(WIDGET_CLICKED_KEY, true)
   }
 
   private fun showUpdatePopup(e: AnActionEvent) {
@@ -98,9 +112,8 @@ internal class IdeUpdateToolbarWidget :
 
     val factory = JBPopupFactory.getInstance()
     val group = ActionManager.getInstance().getAction("IdeUpdateToolbarWidget.Popup") as ActionGroup
-    // the actions are registered in XML, so the update they act on is passed through the data context
-    val dataContext = CustomizedDataContext.withSnapshot(e.dataContext) { sink -> sink[UPDATE_KEY] = update }
-    val step = factory.createActionsStep(group, dataContext,
+    // the actions get the update from UpdateButtonWrapper, which provides UPDATE_KEY
+    val step = factory.createActionsStep(group, e.dataContext,
                                          ActionPlaces.getPopupPlace("IdeUpdateToolbarWidget"),
                                          false, true, null, null, false, -1, false)
     // the renderer is decorated before the list wraps it into ExpandedItemListCellRendererWrapper, so the wrapping stays single
@@ -239,8 +252,7 @@ internal class WhatsNewAction : UpdatePopupAction() {
 internal class SkipThisUpdateAction : UpdatePopupAction() {
 
   override fun actionPerformed(e: AnActionEvent, update: PlatformUpdates.Loaded) {
-    UpdateSettings.getInstance().ignoredBuildNumbers.add(update.newBuild.number.asStringWithoutProductCode())
-    UpdateSettingsEntryPointActionProvider.clearUpdatesInfo()
+    UpdateSettingsEntryPointActionProvider.skipUpdate(update)
   }
 }
 
@@ -285,7 +297,7 @@ private fun IdeUpdateWidgetState.Status.buttonTooltip(): @NlsContexts.Tooltip St
  *
  * @see com.intellij.platform.trialPromotion.idesWithFreeTier.TrialStateButtonWrapper
  */
-private class UpdateButtonWrapper(private val onClick: (JComponent) -> Unit) : JPanel(GridLayout()) {
+private class UpdateButtonWrapper(private val onClick: (JComponent) -> Unit) : JPanel(GridLayout()), UiDataProvider {
 
   private val button: PillButton = PillButton()
   private var status: IdeUpdateWidgetState.Status = IdeUpdateWidgetState.Status.AVAILABLE
@@ -301,6 +313,7 @@ private class UpdateButtonWrapper(private val onClick: (JComponent) -> Unit) : J
     button.launchOnShow("IdeUpdateButton") {
       IdeUpdateWidgetState.getInstance().status.collect(::applyStatus)
     }
+    updateColorState()
 
     RowsGridBuilder(this)
       .resizableRow()
@@ -309,9 +322,19 @@ private class UpdateButtonWrapper(private val onClick: (JComponent) -> Unit) : J
 
   private fun applyStatus(status: IdeUpdateWidgetState.Status) {
     this.status = status
-    button.isEnabled = status != IdeUpdateWidgetState.Status.DOWNLOADING
+    button.isEnabled = IdeUpdateWidgetState.getInstance().isClickable()
     button.text = status.buttonText()
     button.toolTipText = status.buttonTooltip()
+  }
+
+  override fun uiDataSnapshot(sink: DataSink) {
+    // the popup actions are registered in XML, so the update they act on is passed through the data context
+    sink.lazy(UPDATE_KEY) { UpdateSettingsEntryPointActionProvider.getPlatformUpdateInfo() }
+  }
+
+  override fun updateUI() {
+    super.updateUI()
+    updateColorState()
   }
 
   override fun getAccessibleContext(): AccessibleContext {
@@ -319,6 +342,14 @@ private class UpdateButtonWrapper(private val onClick: (JComponent) -> Unit) : J
       accessibleContext = AccessibleUpdateButtonWrapper()
     }
     return accessibleContext
+  }
+
+  private fun updateColorState() {
+    // Reached when the field is not initialized yet
+    @Suppress("SENSELESS_COMPARISON")
+    if (button != null) {
+      button.setColorState(if (forceDarkColors()) createDarkBlue() else PillButton.BLUE)
+    }
   }
 
   private inner class AccessibleUpdateButtonWrapper : AccessibleJPanel(), AccessibleAction {
@@ -349,6 +380,37 @@ private class UpdateButtonWrapper(private val onClick: (JComponent) -> Unit) : J
       else {
         false
       }
+    }
+  }
+}
+
+private fun forceDarkColors(): Boolean {
+  val theme = (LafManager.getInstance().currentUIThemeLookAndFeel as? UIThemeLookAndFeelInfoImpl)?.theme ?: return false
+  return isDarkHeader() && !theme.isDark
+}
+
+/**
+ * Uses default dark color if Light theme is used (because of the dark main toolbar)
+ */
+private fun createDarkBlue(): PillButton.ColorState {
+  return object : PillButton.ColorState {
+    override val foreground: Color?
+      get() = calcColor(PillButton.BLUE.foreground)
+    override val background: Color?
+      get() = calcColor(PillButton.BLUE.background)
+    override val borderColor: Color?
+      get() = calcColor(PillButton.BLUE.borderColor)
+    override val hoverForeground: Color?
+      get() = calcColor(PillButton.BLUE.hoverForeground)
+    override val hoverBackground: Color?
+      get() = calcColor(PillButton.BLUE.hoverBackground)
+    override val hoverBorderColor: Color?
+      get() = calcColor(PillButton.BLUE.hoverBorderColor)
+
+    private fun calcColor(color: Color?): Color? {
+      var c: JBColor = color as? JBColor ?: return null
+      c = c.defaultColor as? JBColor ?: return null
+      return c.darkVariant
     }
   }
 }

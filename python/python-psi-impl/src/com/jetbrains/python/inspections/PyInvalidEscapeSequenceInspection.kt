@@ -60,7 +60,7 @@ class PyInvalidEscapeSequenceInspection : PyInspection() {
             continue
           }
 
-          while (curValidEscape?.let { it.last < charIndex } == true) {
+          while (curValidEscape != null && curValidEscape.last < charIndex) {
             curValidEscape = if (validEscapes.hasNext()) validEscapes.next() else null
           }
           if (curValidEscape?.contains(charIndex) == true) {

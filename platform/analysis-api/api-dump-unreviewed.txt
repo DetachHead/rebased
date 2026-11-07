@@ -1575,7 +1575,7 @@ f:com.intellij.openapi.fileEditor.FileEditorComposite$Companion
 - f:createFileEditorComposite(java.util.List,java.util.List,Z):com.intellij.openapi.fileEditor.FileEditorComposite
 - bs:createFileEditorComposite$default(com.intellij.openapi.fileEditor.FileEditorComposite$Companion,java.util.List,java.util.List,Z,I,java.lang.Object):com.intellij.openapi.fileEditor.FileEditorComposite
 - f:fromPair(kotlin.Pair):com.intellij.openapi.fileEditor.FileEditorComposite
-a:com.intellij.openapi.fileEditor.FileEditorManager
+Fa:com.intellij.openapi.fileEditor.FileEditorManager
 - sf:SEPARATOR_BORDER:com.intellij.openapi.util.Key
 - sf:SEPARATOR_COLOR:com.intellij.openapi.util.Key
 - sf:SEPARATOR_DISABLED:com.intellij.openapi.util.Key

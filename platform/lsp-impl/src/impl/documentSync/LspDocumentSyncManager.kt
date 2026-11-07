@@ -9,11 +9,14 @@ import com.intellij.openapi.editor.Document
 import com.intellij.openapi.editor.event.DocumentEvent
 import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.fileEditor.FileEditorManager
+import com.intellij.openapi.roots.ProjectFileIndex
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.platform.lsp.api.LspServerState
 import com.intellij.platform.lsp.impl.LspClientImpl
 import com.intellij.platform.lsp.impl.LspClientManagerImpl
 import com.intellij.platform.lsp.impl.features.highlighting.LspHighlightingApplier
+import com.intellij.platform.lsp.impl.getDidSaveOptions
+import com.intellij.platform.lsp.impl.textDocumentSyncKind
 import com.intellij.util.application
 import com.intellij.util.concurrency.AppExecutorUtil
 import com.intellij.util.concurrency.annotations.RequiresBackgroundThread
@@ -47,6 +50,7 @@ internal class LspDocumentSyncManager(private val client: LspClientImpl) {
    * listening for document events). [close]/[shutdown] drop entries for files this instance's own open/close
    * lifecycle knows are done with, as a memory optimization only: correctness never depends on it, since a
    * fresh query for any file, closed or not, just restarts its own count from `0`.
+   * Reading a version adds no entry: only [nextDocumentVersion] does.
    *
    * This is deliberately independent of [com.intellij.openapi.editor.ex.DocumentEx.getModificationSequence],
    * which only promises to strictly increase on a text change, not by how much -- a delta some callers need
@@ -66,16 +70,14 @@ internal class LspDocumentSyncManager(private val client: LspClientImpl) {
   /**
    * The version last declared to the server for [file].
    */
-  fun currentDocumentVersion(file: VirtualFile): Int = versionCounter(file).get()
+  fun currentDocumentVersion(file: VirtualFile): Int = documentVersions[file]?.get() ?: 0
 
   /**
    * Advances and returns the version to declare for [file]'s next `didOpen`/`didChange`. Safe to call
    * regardless of when the underlying document mutation actually lands, since this owns the number outright.
    */
-  fun nextDocumentVersion(file: VirtualFile): Int = versionCounter(file).incrementAndGet()
-
-  private fun versionCounter(file: VirtualFile): AtomicInteger =
-    documentVersions.computeIfAbsent(file) { AtomicInteger(0) }
+  fun nextDocumentVersion(file: VirtualFile): Int =
+    documentVersions.computeIfAbsent(file) { AtomicInteger(0) }.incrementAndGet()
 
   fun shutdown() {
     shutdown.set(true)
@@ -83,7 +85,7 @@ internal class LspDocumentSyncManager(private val client: LspClientImpl) {
     documentVersions.clear()
   }
 
-  @RequiresWriteLock
+  @RequiresWriteLock(generateAssertion = false /* IJPL-115548 */)
   fun open(file: VirtualFile) {
     if (client.state != LspServerState.Running) {
       val message = "Server is not in the Running state. Ignoring open($file)"
@@ -112,7 +114,7 @@ internal class LspDocumentSyncManager(private val client: LspClientImpl) {
     }
   }
 
-  @RequiresWriteLock
+  @RequiresWriteLock(generateAssertion = false /* IJPL-115548 */)
   fun close(file: VirtualFile) {
     if (!openedFiles.remove(file) || shutdown.get()) {
       // Error should not be logged if the sync manager is disposed of, as the server state
@@ -124,6 +126,7 @@ internal class LspDocumentSyncManager(private val client: LspClientImpl) {
       return
     }
     documentVersions.remove(file)
+    client.fileClosed(file)
 
     val document = FileDocumentManager.getInstance().getDocument(file)
     if (document == null) {
@@ -170,16 +173,21 @@ internal class LspDocumentSyncManager(private val client: LspClientImpl) {
   }
 
   /**
-   * @return files that have been opened by this server (with `didOpen` request), but now they are neither opened in the editor nor unsaved
+   * @return files that have been opened by this server (with `didOpen` request), but now they are neither opened in the editor nor unsaved.
+   * Also the files that became excluded from the project, even when they are still open in the editor.
    */
-  @RequiresBackgroundThread
-  @RequiresReadLock
+  @RequiresBackgroundThread(generateAssertion = false /* IJPL-115548 */)
+  @RequiresReadLock(generateAssertion = false /* IJPL-115548 */)
   fun getFilesToClose(): Collection<VirtualFile> {
     val fileEditorManager = FileEditorManager.getInstance(client.project)
     val fileDocumentManager = FileDocumentManager.getInstance()
 
+    val fileIndex = ProjectFileIndex.getInstance(client.project)
+
     return openedFiles.filter { file ->
       val originFile = BackedVirtualFile.getOriginFileIfBacked(file)
+      // `didOpen` is never sent for an excluded file, so a file that became excluded is closed the same way
+      if (originFile.isInLocalFileSystem && fileIndex.isExcluded(originFile)) return@filter true
       if (fileEditorManager.isFileOpen(originFile)) return@filter false
 
       val cachedDoc = FileDocumentManager.getInstance().getCachedDocument(originFile)
@@ -209,7 +217,7 @@ internal class LspDocumentSyncManager(private val client: LspClientImpl) {
    * Incremental `DidChangeTextDocumentParams` must be created *before* the document mutation, because the params
    * encode line numbers as they were before the change.
    */
-  @RequiresEdt
+  @RequiresEdt(generateAssertion = false /* IJPL-115548 */)
   fun onBeforeDocumentChange(event: DocumentEvent, file: VirtualFile) {
     client.fileEdited(file, event)
 
@@ -223,7 +231,7 @@ internal class LspDocumentSyncManager(private val client: LspClientImpl) {
    *
    * Full `DidChangeTextDocumentParams` can only be calculated *after* the document mutation, because it needs the new text.
    */
-  @RequiresEdt
+  @RequiresEdt(generateAssertion = false /* IJPL-115548 */)
   fun onDocumentChanged(event: DocumentEvent, file: VirtualFile) {
     if (client.textDocumentSyncKind == TextDocumentSyncKind.Full && isFileOpened(file)) {
       client.documentMapping.getAdapterForFile(file).sendDidChangeFull(client, file, event.document)

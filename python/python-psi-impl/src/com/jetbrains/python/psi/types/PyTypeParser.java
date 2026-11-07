@@ -61,6 +61,19 @@ import static com.jetbrains.python.psi.types.functionalParser.FunctionalParserBa
 import static com.jetbrains.python.psi.types.functionalParser.FunctionalParserBase.maybe;
 import static com.jetbrains.python.psi.types.functionalParser.FunctionalParserBase.token;
 
+/**
+ * Parser for the legacy PEP-484-incompatible type hint format described in
+ * <a href="https://github.com/JetBrains/python-skeletons/blob/master/README-obsolete.md">the repository of python-skeletons</a>.
+ * It doesn't support many features of the modern Python type hints, e.g. intersections types, complex generic types, TypeIs/TypeGuard, etc.
+ * and uses different rules for name resolution (in short, importing names is not required).
+ * For most cases one should switch to {@link com.jetbrains.python.codeInsight.typing.PyTypingTypeProvider#getStringBasedType},
+ * but if you still need to support the legacy format for some reason, consider using the API alias {@link PyLegacyDocstringTypeParser}
+ * to make the intention more explicit.
+ *
+ * @see com.jetbrains.python.codeInsight.typing.PyTypingTypeProvider#getStringBasedType(String, PsiElement, TypeEvalContext)
+ * @deprecated Use {@link PyLegacyDocstringTypeParser} instead.
+ */
+@Deprecated
 public final class PyTypeParser {
   private static final ParseResult EMPTY_RESULT = new ParseResult(null, Collections.emptyMap(), Collections.emptyMap(),
                                                                   Collections.emptyMap());
@@ -337,7 +350,7 @@ public final class PyTypeParser {
             types.add(r.getType());
             result = result.merge(r);
           }
-          return result.withType(PyUnionType.union(types));
+          return result.withType(PyUnionType.unionOrUnknown(types));
         })
         .named("union-expr");
 
@@ -504,7 +517,7 @@ public final class PyTypeParser {
       if (!members.isEmpty()) {
         tokens.remove(0);
       }
-      return PyUnionType.union(members);
+      return PyUnionType.unionOrUnknown(members);
     }
 
     private @Nullable PyType getImplicitlyResolvedType(@NotNull List<Token<PyElementType>> tokens,

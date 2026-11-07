@@ -10,6 +10,10 @@ jps_test(
 )
 ### skip generation section `test intellij.java.guiForms.compiler.tests`
 
+### auto-generated section `dev intellij.java.guiForms.compiler` start
+content_module_jar(module = ":java-guiForms-compiler")
+### auto-generated section `dev intellij.java.guiForms.compiler` end
+
 ### auto-generated section `build intellij.java.guiForms.compiler` start
 jvm_library(
     name = "java-guiForms-compiler",
@@ -40,8 +44,6 @@ jvm_library(
     ],
 )
 
-content_module_jar(module = ":java-guiForms-compiler")
-
 jvm_library(
     name = "java-guiForms-compiler_test_lib",
     testonly = True,
@@ -65,8 +67,6 @@ jvm_library(
         "//libraries/asm:asm_test_lib",
         "//libraries/jgoodies/forms:forms_test_lib",
         "//java/compiler/instrumentation-util:instrumentation-util_test_lib",
-        "//platform/util",
-        "//platform/util:util_test_lib",
         "//libraries/jetbrains/annotations:annotations_test_lib",
         "//libraries/junit4",
         "//libraries/junit4:junit4_test_lib",
@@ -79,7 +79,6 @@ exports_files(
     [
         "intellij.java.guiForms.compiler.iml",
         "resources/intellij.java.guiForms.compiler.xml",
-        "module-content.yaml",
     ],
     visibility = ["//visibility:public"],
 )
@@ -137,8 +136,8 @@ jvm_library(
         "//platform/util/multiplatform:multiplatform_test_lib",
         "//libraries/jetbrains/annotations",
         "//libraries/jetbrains/annotations:annotations_test_lib",
-        "//libraries/junit5",
-        "//libraries/junit5:junit5_test_lib",
+        "//libraries/junit6",
+        "//libraries/junit6:junit6_test_lib",
     ],
 )
 ### auto-generated section `build intellij.java.guiForms.compiler.tests` end

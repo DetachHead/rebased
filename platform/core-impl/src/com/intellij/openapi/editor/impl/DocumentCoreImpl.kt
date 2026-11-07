@@ -6,6 +6,8 @@ import com.intellij.openapi.editor.ex.DocumentEventDispatcher
 import com.intellij.openapi.editor.ex.DocumentMutator
 import com.intellij.openapi.editor.ex.DocumentSettings
 import com.intellij.openapi.editor.ex.DocumentSnapshot
+import com.intellij.openapi.editor.ex.DocumentText
+import com.intellij.openapi.editor.impl.marker.SnapshotMarkerStores
 import java.util.concurrent.atomic.AtomicReferenceFieldUpdater
 import java.util.function.UnaryOperator
 import kotlin.concurrent.Volatile
@@ -79,6 +81,7 @@ internal class DocumentCoreImpl private constructor(
   }
 
   private inner class MutatorImpl : DocumentMutatorImpl(settings, dispatcher) {
+    override val snapshotMarkerStores: SnapshotMarkerStores = SnapshotMarkerStores()
     override fun getSnapshot(): DocumentSnapshot {
       return this@DocumentCoreImpl.snapshot
     }
@@ -93,7 +96,7 @@ internal class DocumentCoreImpl private constructor(
     fun createCore(chars: CharSequence, acceptSlashR: Boolean, forUseInNonAWTThread: Boolean): DocumentCore {
       val settings = DocumentSettingsImpl(!forUseInNonAWTThread, acceptSlashR, chars)
       val dispatcher = DocumentEventDispatcherImpl(settings)
-      val snapshot = DocumentSnapshotImpl(DocumentTextImpl(chars))
+      val snapshot = DocumentSnapshotImpl(DocumentText.createText(chars))
       return DocumentCoreImpl(snapshot, settings, dispatcher)
     }
 

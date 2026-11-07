@@ -5,6 +5,7 @@ import com.intellij.diagnostic.VMOptions;
 import com.intellij.ide.GeneralSettings;
 import com.intellij.internal.DebugAttachDetector;
 import com.intellij.internal.statistic.collectors.fus.MethodNameRuleValidator;
+import com.intellij.internal.statistic.collectors.fus.ProjectlessData;
 import com.intellij.internal.statistic.eventLog.EventLogGroup;
 import com.intellij.internal.statistic.eventLog.events.BooleanEventField;
 import com.intellij.internal.statistic.eventLog.events.ClassEventField;
@@ -23,10 +24,13 @@ import com.intellij.internal.statistic.utils.StatisticsUploadAssistant;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.diagnostic.UnhandledException;
+import com.intellij.openapi.diagnostic.UnhandledExceptionKind;
 import com.intellij.openapi.extensions.PluginId;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.project.ProjectManager;
 import com.intellij.openapi.util.text.Strings;
+import com.intellij.openapi.wm.ex.WelcomeScreenProjectProvider;
+import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -41,7 +45,7 @@ import static com.intellij.internal.statistic.utils.PluginInfoDetectorKt.getPlug
 public final class LifecycleUsageTriggerCollector extends CounterUsagesCollector {
   private static final Logger LOG = Logger.getInstance(LifecycleUsageTriggerCollector.class);
 
-  private static final EventLogGroup LIFECYCLE = new EventLogGroup("lifecycle", 80);
+  private static final EventLogGroup LIFECYCLE = new EventLogGroup("lifecycle", 82);
 
   private static final AtomicInteger MAX_SIMULTANEOUS_PROJECTS = new AtomicInteger(0);
 
@@ -59,10 +63,16 @@ public final class LifecycleUsageTriggerCollector extends CounterUsagesCollector
     EventFields.Enum("session_type", SessionType.class);
   private static final VarargEventId IDE_CLOSE = LIFECYCLE.registerVarargEvent("ide.close", restartField, sessionTypeField);
 
-  private static final EventId2<Long, Boolean> PROJECT_OPENING_FINISHED =
-    LIFECYCLE.registerEvent("project.opening.finished", EventFields.Long("duration_ms"), EventFields.Boolean("project_tab"));
+  private static final BooleanEventField isWelcomeScreenDummyProjectField =
+    EventFields.Boolean("is_non_modal_welcome_screen_project",
+                        "Flag is used to show if current project is dummy welcome screen project and not a real user project");
 
-  private static final EventId PROJECT_OPENED = LIFECYCLE.registerEvent("project.opened");
+  private static final EventId3<Long, Boolean, Boolean> PROJECT_OPENING_FINISHED =
+    LIFECYCLE.registerEvent("project.opening.finished", EventFields.Long("duration_ms"), EventFields.Boolean("project_tab"),
+                            isWelcomeScreenDummyProjectField);
+
+  private static final VarargEventId PROJECT_OPENED =
+    LIFECYCLE.registerVarargEvent("project.opened", EventFields.Projectless, isWelcomeScreenDummyProjectField);
 
   private static final EventId1<Integer> PROJECT_MAX_SIMULTANEOUS =
     LIFECYCLE.registerEvent("project.max.simultaneous",
@@ -174,11 +184,14 @@ public final class LifecycleUsageTriggerCollector extends CounterUsagesCollector
   }
 
   public static void onProjectOpenFinished(@NotNull Project project, long time, boolean isTab) {
-    PROJECT_OPENING_FINISHED.log(project, time, isTab);
+    PROJECT_OPENING_FINISHED.log(project, time, isTab, WelcomeScreenProjectProvider.isWelcomeScreenProject(project));
   }
 
   public static void onProjectOpened(@NotNull Project project) {
-    PROJECT_OPENED.log(project);
+    var data = new ArrayList<EventPair<?>>(2);
+    ContainerUtil.addIfNotNull(data, ProjectlessData.forProject(project));
+    data.add(isWelcomeScreenDummyProjectField.with(WelcomeScreenProjectProvider.isWelcomeScreenProject(project)));
+    PROJECT_OPENED.log(project, data);
     int current = ProjectManager.getInstance().getOpenProjects().length;
     MAX_SIMULTANEOUS_PROJECTS.updateAndGet(prev -> Math.max(prev, current));
   }
@@ -227,19 +240,24 @@ public final class LifecycleUsageTriggerCollector extends CounterUsagesCollector
     FREEZE_POPUP_SHOWN.log(null);
   }
 
+  /**
+   * @param realCause              the cause without an {@link UnhandledException} wrapper
+   * @param unhandledExceptionKind how the exception reached the collector. See IJPL-100 and IJPL-254578.
+   */
   public static void onError(
     @Nullable PluginId pluginId,
-    @NotNull Throwable throwable,
+    @NotNull Throwable realCause,
+    @NotNull UnhandledExceptionKind unhandledExceptionKind,
     @Nullable VMOptions.MemoryKind memoryErrorKind
   ) {
     try {
-      var description = new ThrowableDescription(throwable);
+      var description = new ThrowableDescription(realCause);
       var data = new ArrayList<EventPair<?>>();
       data.add(EventFields.PluginInfo.with(pluginId == null ? getPlatformPlugin() : getPluginInfoById(pluginId)));
       data.add(errorField.with(description.getThrowableClass()));
 
-      if (throwable instanceof UnhandledException uh) { // See IJPL-100
-        data.add(unhandledExceptionInteractiveField.with(uh.isInteractive()));
+      if (unhandledExceptionKind != UnhandledExceptionKind.HANDLED) {
+        data.add(unhandledExceptionInteractiveField.with(unhandledExceptionKind == UnhandledExceptionKind.INTERACTIVE));
       }
       if (memoryErrorKind != null) {
         data.add(memoryErrorKindField.with(memoryErrorKind));

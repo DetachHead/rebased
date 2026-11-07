@@ -1,6 +1,10 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library", "jvm_provided_library")
 load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
+### auto-generated section `dev intellij.xml.emmet.frontend` start
+content_module_jar(module = ":frontend")
+### auto-generated section `dev intellij.xml.emmet.frontend` end
+
 ### auto-generated section `build intellij.xml.emmet.frontend` start
 jvm_provided_library(
     name = "platform_core-ui_provided",
@@ -20,11 +24,6 @@ jvm_provided_library(
 jvm_provided_library(
     name = "libraries_jetbrains_annotations_provided",
     lib = "//libraries/jetbrains/annotations",
-)
-
-jvm_provided_library(
-    name = "platform_remote-topics_rpc-topics_provided",
-    lib = "//platform/remote-topics/shared:rpc-topics",
 )
 
 jvm_provided_library(
@@ -71,20 +70,18 @@ jvm_library(
         "@lib//:kotlin-stdlib-provided",
         "//xml/emmet",
         "//platform/platform-frontend:frontend",
+        "//platform/remote-topics/shared:rpc-topics",
         "//platform/util/coroutines",
         ":platform_core-ui_provided",
         ":platform_util_provided",
         ":platform_core_provided",
         ":libraries_jetbrains_annotations_provided",
-        ":platform_remote-topics_rpc-topics_provided",
         ":platform_ide-core_provided",
         ":platform_ide_provided",
         ":platform_util-ui_provided",
         ":platform_editor-ui_provided",
     ],
 )
-
-content_module_jar(module = ":frontend")
 
 jvm_library(
     name = "frontend_test_lib",
@@ -112,7 +109,6 @@ jvm_library(
         "//platform/platform-frontend:frontend_test_lib",
         "//libraries/jetbrains/annotations",
         "//libraries/jetbrains/annotations:annotations_test_lib",
-        "//platform/remote-topics/shared:rpc-topics",
         "//platform/remote-topics/shared:rpc-topics_test_lib",
         "//platform/ide-core",
         "//platform/ide-core:ide-core_test_lib",
@@ -132,7 +128,6 @@ exports_files(
     [
         "intellij.xml.emmet.frontend.iml",
         "resources/intellij.xml.emmet.frontend.xml",
-        "module-content.yaml",
     ],
     visibility = ["//visibility:public"],
 )

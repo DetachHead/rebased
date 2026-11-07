@@ -308,9 +308,9 @@ public class ChangeSignatureTest extends ChangeSignatureTestCase {
   }
 
   @Override
-  public final String getBasePath() {
+  public final String getTestDataPath() {
     return basePath;
   }
 
-  private final String basePath = TestUtils.getTestDataPath() + "refactoring/changeSignature/";
+  private final String basePath = TestUtils.getAbsoluteTestDataPath() + "refactoring/changeSignature/";
 }

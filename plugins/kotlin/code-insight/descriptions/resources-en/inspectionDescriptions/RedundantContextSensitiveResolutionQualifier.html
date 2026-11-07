@@ -1,0 +1,32 @@
+<html>
+<body>
+Reports explicit qualifiers that can be removed in favor of
+<a href="https://github.com/Kotlin/KEEP/issues/379">context-sensitive resolution</a> (CSR).
+<p>
+    When context-sensitive resolution is enabled, an enum entry or a sealed subclass can be referenced by its short name
+    in a position with a matching expected type, so the leading qualifier becomes unnecessary. This inspection informs on
+    such qualifiers and the associated 'Remove redundant qualifier name' quick-fix removes them.
+</p>
+<p>
+    Unlike the 'Redundant qualifier name' inspection, this inspection reports <i>only</i> qualifiers that are removable
+    thanks to context-sensitive resolution. It is disabled by default: enable it if you want to review and remove all such
+    qualifiers, for example across the whole project.
+</p>
+<p><b>Example:</b></p>
+<pre><code>
+  enum class Color { RED, GREEN }
+
+  fun paint(color: Color) {
+      if (color == Color.RED) { /* ... */ } // the 'Color.' qualifier is redundant
+  }
+</code></pre>
+<p>After the quick-fix is applied:</p>
+<pre><code>
+  enum class Color { RED, GREEN }
+
+  fun paint(color: Color) {
+      if (color == RED) { /* ... */ }
+  }
+</code></pre>
+</body>
+</html>

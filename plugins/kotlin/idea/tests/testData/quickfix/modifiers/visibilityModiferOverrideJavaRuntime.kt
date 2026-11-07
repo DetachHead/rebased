@@ -10,4 +10,3 @@ abstract class C : ClassLoader() {
 }
 
 // FUS_QUICKFIX_NAME: org.jetbrains.kotlin.idea.quickfix.UseInheritedVisibilityFix
-// FUS_K2_QUICKFIX_NAME: org.jetbrains.kotlin.idea.quickfix.UseInheritedVisibilityFix

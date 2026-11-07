@@ -10,4 +10,3 @@ fun main() {
     b.foo("a") {}<caret>
 }
 // FUS_QUICKFIX_NAME: org.jetbrains.kotlin.idea.quickfix.RemoveArgumentFix
-// FUS_K2_QUICKFIX_NAME: org.jetbrains.kotlin.idea.quickfix.RemoveArgumentFix

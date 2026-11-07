@@ -10,8 +10,8 @@ class GroovyDuplicateNamesInTheFileTest : GrHighlightingTestBase() {
     return GroovyProjectDescriptors.GROOVY_5_0
   }
 
-  override fun getBasePath(): String {
-    return TestUtils.getTestDataPath() + "highlighting/duplicateNamesInTheFile"
+  override fun getTestDataPath(): String {
+    return TestUtils.getAbsoluteTestDataPath() + "highlighting/duplicateNamesInTheFile"
   }
 
   override fun setUp() {

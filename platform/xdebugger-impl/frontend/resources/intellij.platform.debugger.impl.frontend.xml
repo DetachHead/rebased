@@ -6,6 +6,9 @@
     <module name="intellij.libraries.kotlinx.coroutines.core"/>
     <module name="intellij.platform.analysis"/>
     <module name="intellij.platform.codeStyle"/>
+    <module name="intellij.platform.concurrency"/>
+    <module name="intellij.platform.consoleView"/>
+    <module name="intellij.platform.consoleView.impl"/>
     <module name="intellij.platform.core"/>
     <module name="intellij.platform.core.impl"/>
     <module name="intellij.platform.core.ui"/>
@@ -23,6 +26,7 @@
     <module name="intellij.platform.ide.core"/>
     <module name="intellij.platform.ide.core.impl"/>
     <module name="intellij.platform.ide.impl"/>
+    <module name="intellij.platform.ide.rpc"/>
     <module name="intellij.platform.kernel"/>
     <module name="intellij.platform.lang"/>
     <module name="intellij.platform.lang.impl"/>
@@ -54,17 +58,23 @@
 
     <editorFloatingToolbarProvider implementation="com.intellij.platform.debugger.impl.frontend.hotswap.HotSwapFloatingToolbarProvider"/>
     <gutterMarkPreprocessor implementation="com.intellij.platform.debugger.impl.frontend.breakpoints.BreakpointGutterIconMerge"/>
-    <editorAudioCueDetector implementation="com.intellij.platform.debugger.impl.frontend.BreakpointLineAudioCueDetector"/>
-    <audioCueProvider implementation="com.intellij.platform.debugger.impl.frontend.DebuggerAudioCueProvider"/>
+    <editorSoundSignalDetector implementation="com.intellij.platform.debugger.impl.frontend.BreakpointLineSoundSignalDetector"/>
+    <soundSignalProvider implementation="com.intellij.platform.debugger.impl.frontend.DebuggerSoundSignalProvider"/>
+    <notificationSound group="Breakpoint hit" sound="sounds/breakpoint.wav" soundSignal="breakpoint.hit"/>
     <projectService serviceInterface="com.intellij.platform.debugger.impl.shared.CustomDescriptorStateManager"
                     serviceImplementation="com.intellij.platform.debugger.impl.frontend.FrontendCustomDescriptorStateManager"/>
     <postStartupActivity implementation="com.intellij.platform.debugger.impl.frontend.FrontendXDebuggerInitializationProjectActivity"/>
     <xdebugger.managerProxy implementation="com.intellij.platform.debugger.impl.frontend.FrontendXDebugManagerProxy" order="first"/>
-    <platform.rpc.projectRemoteTopicListener implementation="com.intellij.platform.debugger.impl.frontend.ShowBreakpointsDialogRemoteTopicListener"/>
-    <platform.rpc.projectRemoteTopicListener implementation="com.intellij.platform.debugger.impl.frontend.UpdateExecutionPositionRemoteTopicListener"/>
-    <platform.rpc.projectRemoteTopicListener implementation="com.intellij.platform.debugger.impl.frontend.frame.ShowImagePopupRemoteTopicListener"/>
-    <platform.rpc.projectRemoteTopicListener implementation="com.intellij.platform.debugger.impl.frontend.frame.FrameNotificationRemoteTopicListener"/>
-    <platform.rpc.projectRemoteTopicListener implementation="com.intellij.platform.debugger.impl.frontend.frame.ShowSessionTabRemoteTopicListener"/>
+    <platform.rpc.projectRemoteTopicListener implementation="com.intellij.platform.debugger.impl.frontend.ShowBreakpointsDialogRemoteTopicListener"
+                                             topicId="xdebugger.show.breakpoint.dialog"/>
+    <platform.rpc.projectRemoteTopicListener implementation="com.intellij.platform.debugger.impl.frontend.UpdateExecutionPositionRemoteTopicListener"
+                                             topicId="xdebugger.update.execution.position"/>
+    <platform.rpc.projectRemoteTopicListener implementation="com.intellij.platform.debugger.impl.frontend.frame.ShowImagePopupRemoteTopicListener"
+                                             topicId="xdebugger.show.image.popup"/>
+    <platform.rpc.projectRemoteTopicListener implementation="com.intellij.platform.debugger.impl.frontend.frame.FrameNotificationRemoteTopicListener"
+                                             topicId="xdebugger.show.frame.notification"/>
+    <platform.rpc.projectRemoteTopicListener implementation="com.intellij.platform.debugger.impl.frontend.frame.ShowSessionTabRemoteTopicListener"
+                                             topicId="xdebugger.show.session.tab"/>
 
   </extensions>
   <projectListeners>

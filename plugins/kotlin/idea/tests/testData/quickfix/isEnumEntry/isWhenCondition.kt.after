@@ -8,4 +8,3 @@ fun test(foo: Foo): Int = when (foo) {
 }
 
 // FUS_QUICKFIX_NAME: org.jetbrains.kotlin.idea.quickfix.RemoveIsFromIsEnumEntryFix
-// FUS_K2_QUICKFIX_NAME: org.jetbrains.kotlin.idea.quickfix.RemoveIsFromIsEnumEntryFix

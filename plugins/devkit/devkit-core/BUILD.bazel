@@ -2,6 +2,10 @@ load("@rules_jvm//:jvm.bzl", "jvm_library")
 load("//build:compiler-options.bzl", "create_kotlinc_options")
 load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
+### auto-generated section `dev intellij.devkit.core` start
+content_module_jar(module = ":core")
+### auto-generated section `dev intellij.devkit.core` end
+
 ### auto-generated section `build intellij.devkit.core` start
 create_kotlinc_options(
     name = "custom_core",
@@ -26,6 +30,7 @@ jvm_library(
     resource_strip_prefix = "resources",
     resources = glob(
         ["resources/**/*"],
+        exclude = ["resources/**/icon-robots.txt"],
     ),
     visibility = ["//visibility:public"],
     deps = [
@@ -74,6 +79,7 @@ jvm_library(
         "//java/idea-ui:ui",
         "//platform/usageView",
         "//jvm/jvm-analysis-api:analysis",
+        "//jvm/jvm-analysis-impl:analysis-impl",
         "//libraries/protobuf",
         "//aether-dependency-resolver",
         "//platform/service-container",
@@ -115,19 +121,21 @@ jvm_library(
         "//platform/usageView-impl",
         "//platform/util/concurrency",
         "//platform/execution",
+        "//platform/consoleView",
         "//platform/forms_rt:java-guiForms-rt",
         "//java/java-frontback-psi-api:frontback-psi",
         "//platform/buildData",
         "//platform/statistics",
         "//platform/testRunner",
-        "//libraries/jackson/jackson",
-        "//libraries/jackson/databind",
+        "//libraries/jackson3/jackson:libraries-jackson3",
+        "//libraries/jackson3/databind",
         "//libraries/kotlinx/collections-immutable:libraries-kotlinx-collections-immutable",
         "//platform/workspace/jps",
+        "//platform/util/coroutines",
+        "//platform/project-frame",
+        "//platform/platform-impl/internal",
     ],
 )
-
-content_module_jar(module = ":core")
 
 jvm_library(
     name = "core_test_lib",
@@ -186,6 +194,7 @@ jvm_library(
         "//java/idea-ui:ui_test_lib",
         "//platform/usageView:usageView_test_lib",
         "//jvm/jvm-analysis-api:analysis_test_lib",
+        "//jvm/jvm-analysis-impl:analysis-impl_test_lib",
         "//libraries/protobuf:protobuf_test_lib",
         "//aether-dependency-resolver:aether-dependency-resolver_test_lib",
         "//platform/service-container:service-container_test_lib",
@@ -227,15 +236,19 @@ jvm_library(
         "//platform/usageView-impl:usageView-impl_test_lib",
         "//platform/util/concurrency:concurrency_test_lib",
         "//platform/execution:execution_test_lib",
+        "//platform/consoleView:consoleView_test_lib",
         "//platform/forms_rt:java-guiForms-rt_test_lib",
         "//java/java-frontback-psi-api:frontback-psi_test_lib",
         "//platform/buildData:buildData_test_lib",
         "//platform/statistics:statistics_test_lib",
         "//platform/testRunner:testRunner_test_lib",
-        "//libraries/jackson/jackson:jackson_test_lib",
-        "//libraries/jackson/databind:databind_test_lib",
+        "//libraries/jackson3/jackson:libraries-jackson3_test_lib",
+        "//libraries/jackson3/databind:databind_test_lib",
         "//libraries/kotlinx/collections-immutable:libraries-kotlinx-collections-immutable_test_lib",
         "//platform/workspace/jps:jps_test_lib",
+        "//platform/util/coroutines:coroutines_test_lib",
+        "//platform/project-frame:project-frame_test_lib",
+        "//platform/platform-impl/internal:internal_test_lib",
     ],
 )
 ### auto-generated section `build intellij.devkit.core` end

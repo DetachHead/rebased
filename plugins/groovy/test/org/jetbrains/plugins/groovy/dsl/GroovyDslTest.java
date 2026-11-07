@@ -29,8 +29,8 @@ public class GroovyDslTest extends LightJavaCodeInsightFixtureTestCase {
   }
 
   @Override
-  protected String getBasePath() {
-    return TestUtils.getTestDataPath() + "groovy/dsl";
+  protected String getTestDataPath() {
+    return TestUtils.getAbsoluteTestDataPath() + "groovy/dsl";
   }
 
   private void doCustomTest(String s) {

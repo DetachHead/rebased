@@ -1,7 +1,6 @@
 // Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.wm.impl
 
-import com.intellij.configurationStore.runInAutoSaveDisabledMode
 import com.intellij.ide.AppLifecycleListener
 import com.intellij.ide.GeneralSettings
 import com.intellij.ide.SaveAndSyncHandler
@@ -66,7 +65,7 @@ open class CloseProjectWindowHelper {
     return frame.rootPane.getClientProperty(WindowTabsComponent.CLOSE_TAB_KEY) == true
   }
 
-  @RequiresEdt
+  @RequiresEdt(generateAssertion = false /* IJPL-115548 */)
   open fun windowClosing(project: Project?) {
     WriteIntentReadAction.run {
 
@@ -92,7 +91,7 @@ open class CloseProjectWindowHelper {
 
   protected open fun getNumberOfOpenedProjects(): Int = ProjectManager.getInstance().openProjects.size
 
-  @RequiresEdt
+  @RequiresEdt(generateAssertion = false /* IJPL-115548 */)
   protected open fun closeProjectAndShowWelcomeFrameIfNoProjectOpened(project: Project?) {
     if (project != null && project.isOpen && getNumberOfOpenedProjects() == 1) {
       val transitionHandler = findProjectClosingTransitionHandler(project)
@@ -105,7 +104,7 @@ open class CloseProjectWindowHelper {
       }
     }
 
-    runInAutoSaveDisabledMode {
+    SaveAndSyncHandler.getInstance().withDisabledAutoSaveBlocking {
       if (project != null && project.isOpen) {
         ProjectManager.getInstance().closeAndDispose(project)
       }

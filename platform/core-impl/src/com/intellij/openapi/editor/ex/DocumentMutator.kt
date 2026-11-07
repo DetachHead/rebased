@@ -2,7 +2,6 @@
 package com.intellij.openapi.editor.ex
 
 import com.intellij.openapi.editor.Document
-import com.intellij.openapi.util.Key
 import org.jetbrains.annotations.ApiStatus
 
 /**
@@ -126,15 +125,4 @@ interface DocumentMutator {
     newModStamp: Long,
     wholeTextReplaced: Boolean,
   )
-
-  /**
-   * Atomically attaches the sputnik returned by [sputnik] under [key], or detaches it if [sputnik] returns
-   * `null`.
-   *
-   * [sputnik] may be invoked more than once per call -- a lost publish race re-invokes it against the newly
-   * found snapshot -- so it must be pure and side-effect free.
-   *
-   * @see DocumentSnapshot.applyOp
-   */
-  fun <S : DocumentSputnik> setSputnik(key: Key<S>, sputnik: (DocumentSnapshot) -> S?): DocumentSnapshot
 }

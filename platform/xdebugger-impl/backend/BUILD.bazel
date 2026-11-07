@@ -1,6 +1,10 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
 load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
+### auto-generated section `dev intellij.platform.debugger.impl.backend` start
+content_module_jar(module = ":backend")
+### auto-generated section `dev intellij.platform.debugger.impl.backend` end
+
 ### auto-generated section `build intellij.platform.debugger.impl.backend` start
 jvm_library(
     name = "backend",
@@ -51,13 +55,12 @@ jvm_library(
         "//platform/execution-impl",
         "//platform/platform-util-io:ide-util-io",
         "//platform/execution-impl/backend",
+        "//platform/consoleView",
         "//platform/xdebugger-impl/shared",
         "//platform/xdebugger-impl/rpc",
         "//fleet/rhizomedb",
     ],
 )
-
-content_module_jar(module = ":backend")
 
 jvm_library(
     name = "backend_test_lib",
@@ -101,6 +104,7 @@ jvm_library(
         "//platform/execution-impl:execution-impl_test_lib",
         "//platform/platform-util-io:ide-util-io_test_lib",
         "//platform/execution-impl/backend:backend_test_lib",
+        "//platform/consoleView:consoleView_test_lib",
         "//platform/xdebugger-impl/shared:shared_test_lib",
         "//platform/xdebugger-impl/rpc:rpc_test_lib",
         "//fleet/rhizomedb:rhizomedb_test_lib",
@@ -114,7 +118,6 @@ exports_files(
         "intellij.platform.debugger.impl.backend.iml",
         "resources/intellij.platform.debugger.impl.backend.content.xml",
         "resources/intellij.platform.debugger.impl.backend.xml",
-        "module-content.yaml",
     ],
     visibility = ["//visibility:public"],
 )

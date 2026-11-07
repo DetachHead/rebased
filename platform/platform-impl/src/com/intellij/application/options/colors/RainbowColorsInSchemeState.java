@@ -3,16 +3,15 @@ package com.intellij.application.options.colors;
 
 import com.intellij.codeHighlighting.RainbowHighlighter;
 import com.intellij.codeInsight.daemon.DaemonCodeAnalyzer;
+import com.intellij.codeInsight.multiverse.EditorContextManager;
 import com.intellij.lang.Language;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.EditorFactory;
 import com.intellij.openapi.editor.colors.EditorColorsScheme;
 import com.intellij.openapi.editor.colors.TextAttributesKey;
-import com.intellij.openapi.options.colors.ColorSettingsPage;
 import com.intellij.openapi.options.colors.RainbowColorSettingsPage;
 import com.intellij.openapi.project.Project;
-import com.intellij.psi.PsiDocumentManager;
 import com.intellij.psi.PsiFile;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
@@ -65,7 +64,7 @@ public final class RainbowColorsInSchemeState {
     for (Editor editor : allEditors) {
       final Project project = editor.getProject();
       if (project != null) {
-        PsiFile file = PsiDocumentManager.getInstance(project).getPsiFile(editor.getDocument());
+        PsiFile file = EditorContextManager.getPsiFileForEditor(editor, project);
         if (file != null) {
           DaemonCodeAnalyzer.getInstance(project).restart(file, reason);
         }
@@ -83,21 +82,21 @@ public final class RainbowColorsInSchemeState {
 
   private static @NotNull @UnmodifiableView Set<String> getRainbowOnLanguageIds(@NotNull EditorColorsScheme scheme) {
     TreeSet<String> rainbowOnLanguages = new TreeSet<>();
-    ColorSettingsPage.EP_NAME.forEachExtensionSafe(
-      it -> {
-          if (it instanceof RainbowColorSettingsPage rcp  && RainbowHighlighter.isRainbowEnabledWithInheritance(scheme, rcp.getLanguage())) {
-            Language language = rcp.getLanguage();
-            if (language != Language.ANY) {
-              // Here we skip [Language.ANY] as the language that has no frontend representation
-              // Instead, the [null] language is the Default language
-              // See the [com.jetbrains.rdclient.colorSchemes.ProtocolRainbowColorSettingsPage.getLanguage] implementation
-              rainbowOnLanguages.add(language != null
-                                     ? language.getID()
-                                     : DEFAULT_LANGUAGE_NAME);
-            }
-          }
+    // the catalog, and not the extension point, because a page of a declaration is not in that point
+    for (ColorSettingsPageEntry entry : ColorSettingsPageCatalog.getEntries()) {
+      if (entry.getPage() instanceof RainbowColorSettingsPage rcp
+          && RainbowHighlighter.isRainbowEnabledWithInheritance(scheme, rcp.getLanguage())) {
+        Language language = rcp.getLanguage();
+        if (language != Language.ANY) {
+          // Here we skip [Language.ANY] as the language that has no frontend representation
+          // Instead, the [null] language is the Default language
+          // See the [com.jetbrains.rdclient.colorSchemes.ProtocolRainbowColorSettingsPage.getLanguage] implementation
+          rainbowOnLanguages.add(language != null
+                                 ? language.getID()
+                                 : DEFAULT_LANGUAGE_NAME);
         }
-    );
+      }
+    }
     return Collections.unmodifiableSet(rainbowOnLanguages);
   }
 

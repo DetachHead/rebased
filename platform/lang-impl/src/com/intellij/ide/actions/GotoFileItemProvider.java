@@ -47,7 +47,7 @@ import com.intellij.util.indexing.FindSymbolParameters;
 import com.intellij.util.indexing.ProcessorWithThrottledCancellationCheck;
 import com.intellij.util.text.matching.MatchedFragment;
 import com.intellij.util.text.matching.MatchingMode;
-import one.util.streamex.StreamEx;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -373,16 +373,42 @@ public class GotoFileItemProvider extends DefaultChooseByNameItemProvider {
       .build();
   }
 
+  /**
+   * The characters every haystack accepted by {@link #getQualifiedNameMatcher} must contain, in order:
+   * {@code '*'} is a wildcard and {@code ' '} a separator the matcher never requires in the haystack,
+   * everything else is mandatory. Kept next to the matcher construction so the two cannot drift apart;
+   * used as a coarse server-side pre-filter that must over-match, never under-match.
+   */
+  @ApiStatus.Internal
+  public static @NotNull String getMandatorySubsequence(@NotNull String pattern) {
+    return pattern.replace("*", "").replace(" ", "");
+  }
+
   private static @NotNull String removeSlashes(@NotNull String s) {
     return UriUtil.trimLeadingSlashes(UriUtil.trimTrailingSlashes(s));
   }
 
   private @Nullable PsiFileSystemItem getFileByAbsolutePath(@NotNull String pattern) {
+    return findFileSystemItemByAbsolutePath(myProject, pattern);
+  }
+
+  /**
+   * Resolves a Go to File pattern that is an absolute path, or a path relative to the project base directory.
+   * <p>
+   * The line and column suffix of the pattern is ignored. A file outside the project content and libraries
+   * is found only for an absolute path, and only when {@code search.everywhere.absolute.path.outside.project} is on.
+   * Needs a read action.
+   *
+   * @return the file or directory the pattern points to, or {@code null} if the pattern is not such a path
+   */
+  @ApiStatus.Internal
+  public static @Nullable PsiFileSystemItem findFileSystemItemByAbsolutePath(@NotNull Project project, @NotNull String pattern) {
     if (!pattern.contains("/") && !pattern.contains("\\")) {
       return null;
     }
 
-    String path = FileUtil.toSystemIndependentName(ChooseByNamePopup.getTransformedPattern(pattern, myModel));
+    // the line and column detection is the same for every model that is not a class or symbol model
+    String path = FileUtil.toSystemIndependentName(ChooseByNamePopup.getTransformedPattern(pattern, null));
     if (Registry.is("search.everywhere.absolute.path.outside.project")) {
       if (!SystemInfo.isWindows) {
         // '~' is a shell convention, not a Windows one
@@ -392,19 +418,19 @@ public class GotoFileItemProvider extends DefaultChooseByNameItemProvider {
       if (OSAgnosticPathUtil.isAbsolute(path) && !isFileSystemRoot(path)) {
         // an absolute path is an explicit navigation request, so the file doesn't have to belong to the project
         VirtualFile vFile = findFileByAbsolutePathWithoutCaching(path);
-        return vFile == null ? null : PsiUtilCore.findFileSystemItem(myProject, vFile);
+        return vFile == null ? null : PsiUtilCore.findFileSystemItem(project, vFile);
       }
     }
 
     VirtualFile vFile = LocalFileSystem.getInstance().findFileByPathIfCached(path);
     if (vFile == null) {
-      String unitedPath = unitePaths(myProject.getBasePath(), path);
+      String unitedPath = unitePaths(project.getBasePath(), path);
       if (unitedPath != null) vFile = LocalFileSystem.getInstance().findFileByPathIfCached(unitedPath);
     }
     if (vFile != null) {
-      ProjectFileIndex index = ProjectFileIndex.getInstance(myProject);
+      ProjectFileIndex index = ProjectFileIndex.getInstance(project);
       if (index.isInContent(vFile) || index.isInLibrary(vFile)) {
-        return PsiUtilCore.findFileSystemItem(myProject, vFile);
+        return PsiUtilCore.findFileSystemItem(project, vFile);
       }
     }
     return null;
@@ -711,14 +737,14 @@ public class GotoFileItemProvider extends DefaultChooseByNameItemProvider {
       Comparator<MatchResult> byNameWithoutExtension = Comparator.comparing(
         mr -> StringUtil.toLowerCase(FileUtilRt.getNameWithoutExtension(mr.elementName)));
       Comparator<MatchResult> matchingDegreeComparator = matchingDegreeComparator();
-      matchingNames = ContainerUtil.sorted(matchingNames, matchingDegreeComparator);
+      matchingNames = ContainerUtil.sorted(matchingNames, cancellable(matchingDegreeComparator));
       // comparator1.thenComparing(comparator2) is too slow, let's lazily apply comparator2 as needed below
       Function<List<MatchResult>, List<MatchResult>> sortGroup = new Function<>() {
         final Set<Object> sortedGroups = CollectionFactory.createCustomHashingStrategySet(HashingStrategy.identity());
         @Override
         public List<MatchResult> apply(List<MatchResult> results) {
           if (sortedGroups.add(results)) {
-            results.sort(byNameWithoutExtension);
+            results.sort(cancellable(byNameWithoutExtension));
           }
           return results;
         }
@@ -787,6 +813,15 @@ public class GotoFileItemProvider extends DefaultChooseByNameItemProvider {
   }
 
   private static @NotNull <T> List<List<T>> group(@NotNull List<T> items, @NotNull Comparator<? super T> comparator) {
-    return StreamEx.of(items).groupRuns((n1, n2) -> comparator.compare(n1, n2) == 0).toList();
+    List<List<T>> groups = new ArrayList<>();
+    List<T> current = null;
+    for (T item : items) {
+      if (current == null || comparator.compare(current.getLast(), item) != 0) {
+        current = new ArrayList<>();
+        groups.add(current);
+      }
+      current.add(item);
+    }
+    return groups;
   }
 }

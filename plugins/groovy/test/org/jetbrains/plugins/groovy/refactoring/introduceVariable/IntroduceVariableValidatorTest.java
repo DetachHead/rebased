@@ -39,8 +39,8 @@ import java.util.List;
 public class IntroduceVariableValidatorTest extends LightJavaCodeInsightFixtureTestCase {
 
   @Override
-  protected String getBasePath() {
-    return TestUtils.getTestDataPath() + "groovy/refactoring/introduceVariableValidator/";
+  protected String getTestDataPath() {
+    return TestUtils.getAbsoluteTestDataPath() + "groovy/refactoring/introduceVariableValidator/";
   }
 
   public void testAll1() { doTest(); }

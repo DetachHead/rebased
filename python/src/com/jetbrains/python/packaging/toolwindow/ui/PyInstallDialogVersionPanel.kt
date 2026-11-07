@@ -23,13 +23,13 @@ import com.intellij.util.ui.UIUtil
 import com.jetbrains.python.PyBundle.message
 import com.jetbrains.python.Result
 import com.jetbrains.python.packaging.common.PythonPackageDetails
-import com.jetbrains.python.packaging.management.PythonPackageManager
 import com.jetbrains.python.packaging.repository.PyPiPackageRepository
 import com.jetbrains.python.packaging.repository.PyPackageRepository
 import com.jetbrains.python.packaging.toolwindow.PyPackageIcons
 import com.jetbrains.python.packaging.toolwindow.PyPackagingToolWindowService
 import com.jetbrains.python.packaging.toolwindow.details.PyPackageDetailsHtmlRender
-import com.jetbrains.python.packaging.toolwindow.details.PyPackagingJcefHtmlPanel
+import com.jetbrains.python.ui.PyEmbeddedBrowserProvider
+import com.jetbrains.python.ui.PyHtmlPanel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -75,7 +75,7 @@ internal class PyInstallDialogVersionPanel(
   private val presenter = PyInstallDialogVersionPresenter()
   private var loadedDetailsKey: String? = null
   private val detailsLoadMutex = kotlinx.coroutines.sync.Mutex()
-  private val htmlPanel: PyPackagingJcefHtmlPanel = PyPackagingJcefHtmlPanel(project)
+  private val htmlPanel: PyHtmlPanel = PyEmbeddedBrowserProvider.createHtmlPanel(project)
 
   val packageInfoLabel: JBLabel = JBLabel().apply { icon = PyPackageIcons.PackageGray; isVisible = false }
   val versionButton: JPanel = buildVersionSelectorPanel().apply { isVisible = false }
@@ -207,10 +207,8 @@ internal class PyInstallDialogVersionPanel(
     packageDescription = null
     packageSummary = null
     packageDescriptionContentType = null
-    val sdk = packagingService.currentSdk
-    selectedRepository = sdk?.let {
-      PythonPackageManager.forSdk(project, it).repositoryManager.repositories.find { r -> r.name == repoName }
-    }
+    selectedRepository = packagingService.currentPackageManager
+      ?.repositoryManager?.repositories?.find { r -> r.name == repoName }
     if (presenter.isDescriptionVisible) {
       htmlPanel.setHtml("")
       packagingService.serviceScope.launch(Dispatchers.Default) {
@@ -305,12 +303,12 @@ internal class PyInstallDialogVersionPanel(
   private suspend fun ensurePackageDetailsLoaded(): Boolean {
     val packageName = selectedPackageName ?: return false
     val repository = selectedRepository ?: return false
-    val sdk = packagingService.currentSdk ?: return false
+    val packageManager = packagingService.currentPackageManager ?: return false
     val key = "${repository.name}|$packageName"
     if (loadedDetailsKey == key) return true
     return detailsLoadMutex.withLock {
       if (loadedDetailsKey == key) return@withLock true
-      val repoManager = PythonPackageManager.forSdk(project, sdk).repositoryManager
+      val repoManager = packageManager.repositoryManager
       when (val result = repoManager.getPackageDetails(packageName, repository)) {
         is Result.Success -> {
           val details = result.result
@@ -407,7 +405,7 @@ internal class PyInstallDialogVersionPanel(
   }
 
   private suspend fun renderDescription() {
-    val render = PyPackageDetailsHtmlRender(project, packagingService.currentSdk)
+    val render = PyPackageDetailsHtmlRender(project, packagingService.currentInterpreter)
     htmlPanel.setHtml(buildDescriptionHtml(render))
   }
 

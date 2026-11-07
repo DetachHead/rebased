@@ -6,8 +6,8 @@ import org.jetbrains.plugins.groovy.LightGroovyTestCase
 import org.jetbrains.plugins.groovy.util.TestUtils
 
 class GrRenameActionTest : LightGroovyTestCase() {
-  override fun getBasePath(): @NonNls String {
-    return TestUtils.getTestDataPath() + "rename"
+  override fun getTestDataPath(): @NonNls String {
+    return TestUtils.getAbsoluteTestDataPath() + "rename"
   }
 
   fun testPatternVariableSimple() = doTest("newB")

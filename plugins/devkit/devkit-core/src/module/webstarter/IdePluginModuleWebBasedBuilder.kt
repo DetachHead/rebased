@@ -1,9 +1,6 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.idea.devkit.module.webstarter
 
-import com.fasterxml.jackson.databind.JsonNode
-import com.fasterxml.jackson.databind.node.ArrayNode
-import com.fasterxml.jackson.databind.node.ObjectNode
 import com.intellij.icons.AllIcons
 import com.intellij.ide.projectView.actions.MarkRootsManager
 import com.intellij.ide.starters.local.StarterModuleBuilder.Companion.INVALID_PACKAGE_NAME_SYMBOL_PATTERN
@@ -38,7 +35,7 @@ import com.intellij.openapi.roots.ModifiableRootModel
 import com.intellij.openapi.util.IconLoader
 import com.intellij.openapi.util.Key
 import com.intellij.openapi.util.registry.Registry
-import com.intellij.openapi.vfs.LocalFileSystem
+import com.intellij.openapi.vfs.StandardFileSystems
 import com.intellij.openapi.vfs.VfsUtilCore
 import com.intellij.ui.dsl.builder.BottomGap
 import com.intellij.ui.dsl.builder.Panel
@@ -54,6 +51,9 @@ import org.jetbrains.idea.devkit.module.DEVKIT_NEWLY_GENERATED_PROJECT
 import org.jetbrains.idea.devkit.module.PluginModuleType
 import org.jetbrains.idea.devkit.projectRoots.IdeaJdk
 import org.jetbrains.jps.model.java.JavaResourceRootType
+import tools.jackson.databind.JsonNode
+import tools.jackson.databind.node.ArrayNode
+import tools.jackson.databind.node.ObjectNode
 import java.io.File
 import java.util.function.Supplier
 import javax.swing.Icon
@@ -107,11 +107,11 @@ internal open class IdePluginModuleWebBasedBuilder : WebStarterModuleBuilder() {
   }
 
   private fun ArrayNode.findPropertyDefaultValue(propertyName: String): JsonNode? {
-    return find { it["key"].asText() == propertyName }?.get("default")
+    return find { it["key"].asString() == propertyName }?.get("default")
   }
 
   private fun parseAndGetOrCreateCategory(info: ObjectNode, categories: MutableMap<String, PackCategory>): PackCategory? {
-    val groupId = info["group"]?.get("id")?.asText().takeIf { it != PLUGIN_TYPE_PACK_GROUP_ID } ?: return null
+    val groupId = info["group"]?.get("id")?.asString().takeIf { it != PLUGIN_TYPE_PACK_GROUP_ID } ?: return null
     val groupTitle = messageOrNull("$CATEGORY_MESSAGE_PREFIX$groupId$CATEGORY_MESSAGE_SUFFIX")
       ?: buildTitleFromGroupId(groupId)
     return categories.getOrPut(groupId) { PackCategory(groupTitle, groupId) }
@@ -136,9 +136,9 @@ internal open class IdePluginModuleWebBasedBuilder : WebStarterModuleBuilder() {
   }
 
   private fun createDependency(info: ObjectNode): WebStarterDependency {
-    val id = info["id"].asText()
-    val name = info["name"].asText()
-    val description = info["description"]?.asText()
+    val id = info["id"].asString()
+    val name = info["name"].asString()
+    val description = info["description"]?.asString()
     val links = (info["links"] as? ObjectNode)?.let { linksObj ->
       buildList {
         addLinkIfPresent(linksObj, "home", LibraryLinkType.WEBSITE)
@@ -147,7 +147,7 @@ internal open class IdePluginModuleWebBasedBuilder : WebStarterModuleBuilder() {
         addLinkIfPresent(linksObj, "specification", LibraryLinkType.SPECIFICATION)
       }
     } ?: emptyList()
-    val icon = info["icon"]?.asText()?.let {
+    val icon = info["icon"]?.asString()?.let {
       // now KASTLE prepends icon paths with the pack ID, for example:
       // org.jetbrains.intellij.platform.dependencies/compose/AllIcons.FileTypes
       val normalizedIconPath = it.substringAfterLast("/")
@@ -165,7 +165,7 @@ internal open class IdePluginModuleWebBasedBuilder : WebStarterModuleBuilder() {
   }
 
   private fun MutableList<LibraryLink>.addLinkIfPresent(linksObj: ObjectNode, key: String, type: LibraryLinkType) {
-    linksObj[key]?.asText()?.let { add(LibraryLink(type, it)) }
+    linksObj[key]?.asString()?.let { add(LibraryLink(type, it)) }
   }
 
   private fun sortCategoriesByOrder(categories: MutableMap<String, PackCategory>): List<PackCategory> =
@@ -173,7 +173,7 @@ internal open class IdePluginModuleWebBasedBuilder : WebStarterModuleBuilder() {
       PACK_GROUPS_ORDER.indexOf(category.id).takeIf { it >= 0 } ?: Int.MAX_VALUE
     }
 
-  @RequiresBackgroundThread
+  @RequiresBackgroundThread(generateAssertion = false /* IJPL-115548 */)
   override fun downloadResult(progressIndicator: ProgressIndicator, tempFile: File): DownloadResult {
     val payload = objectMapper.createObjectNode().apply {
       put("group", starterContext.group) // ignored for themes on the generator side but required by KASTLE
@@ -234,7 +234,7 @@ internal open class IdePluginModuleWebBasedBuilder : WebStarterModuleBuilder() {
     return Urls.newFromEncoded(starterContext.serverUrl + "/api/generate/download")
   }
 
-  @RequiresBackgroundThread
+  @RequiresBackgroundThread(generateAssertion = false /* IJPL-115548 */)
   override fun extractGeneratorResult(tempZipFile: File, contentEntryDir: File) {
     ZipUtil.extract(tempZipFile, contentEntryDir, null)
   }
@@ -322,7 +322,7 @@ internal open class IdePluginModuleWebBasedBuilder : WebStarterModuleBuilder() {
     if (getPluginType() == PluginType.THEME) {
       val contentEntryPath = contentEntryPath ?: return
       val resourceRootPath = "$contentEntryPath/resources" //NON-NLS
-      val contentRoot = LocalFileSystem.getInstance().findFileByPath(contentEntryPath) ?: return
+      val contentRoot = StandardFileSystems.local().findFileByPath(contentEntryPath) ?: return
 
       val contentEntry = MarkRootsManager.findContentEntry(modifiableRootModel, contentRoot)
       contentEntry?.addSourceFolder(VfsUtilCore.pathToUrl(resourceRootPath), JavaResourceRootType.RESOURCE)

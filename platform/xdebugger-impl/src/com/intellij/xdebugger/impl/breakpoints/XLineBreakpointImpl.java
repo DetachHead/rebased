@@ -3,6 +3,7 @@ package com.intellij.xdebugger.impl.breakpoints;
 
 import com.intellij.openapi.editor.markup.RangeHighlighter;
 import com.intellij.openapi.project.ProjectUtil;
+import com.intellij.openapi.util.TextRange;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.vfs.LocalFileSystem;
 import com.intellij.openapi.vfs.VfsUtilCore;
@@ -127,6 +128,21 @@ public final class XLineBreakpointImpl<P extends XBreakpointProperties> extends 
   }
 
   public void resetSourcePosition(long requestId) {
+    resetSourcePosition(requestId, null);
+  }
+
+  /**
+   * Drops the cached source position after a document edit.
+   * The frontend sends the range its marker tracks with the position request.
+   * The type sees the range in {@link XLineBreakpointType#highlightRangeMoved} before the change event fires.
+   *
+   * @param requestId      the frontend request id, or {@code -1} for a local call
+   * @param highlightRange the range the frontend marker tracks, or {@code null} when no marker exists
+   */
+  public void resetSourcePosition(long requestId, @Nullable TextRange highlightRange) {
+    if (highlightRange != null) {
+      myType.highlightRangeMoved(this, highlightRange);
+    }
     mySourcePosition = null;
     if (getBreakpointManager().getRequestCounter().setRequestCompleted(getBreakpointId(), requestId)) {
       fireBreakpointChanged();
@@ -161,6 +177,22 @@ public final class XLineBreakpointImpl<P extends XBreakpointProperties> extends 
   }
 
   public void setLine(long requestId, int line) {
+    setLine(requestId, line, null);
+  }
+
+  /**
+   * Moves the breakpoint to {@code line} after a document edit.
+   * The frontend sends the range its marker tracks with the set-line request.
+   * The type sees the range in {@link XLineBreakpointType#highlightRangeMoved} before the change event fires.
+   *
+   * @param requestId      the frontend request id, or {@code -1} for a local call
+   * @param line           the new zero-based line
+   * @param highlightRange the range the frontend marker tracks, or {@code null} when no marker exists
+   */
+  public void setLine(long requestId, int line, @Nullable TextRange highlightRange) {
+    if (highlightRange != null) {
+      myType.highlightRangeMoved(this, highlightRange);
+    }
     updateStateIfNeededAndNotify(requestId, line, this::getLine, (l) -> {
       myState.setLine(line);
       resetSourcePosition();

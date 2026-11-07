@@ -16,6 +16,7 @@
     <module name="intellij.libraries.jackson.module.kotlin"/>
     <module name="intellij.libraries.javax.activation"/>
     <module name="intellij.libraries.javax.annotation"/>
+    <module name="intellij.libraries.jaxb"/>
     <module name="intellij.libraries.jetbrains.annotations"/>
     <module name="intellij.libraries.jna"/>
     <module name="intellij.libraries.kotlin.logging"/>
@@ -51,6 +52,8 @@
     <module name="intellij.platform.serviceContainer"/>
     <module name="intellij.platform.statistics"/>
     <module name="intellij.platform.util.coroutines"/>
+    <module name="intellij.platform.util.progress"/>
+    <module name="intellij.platform.util.text.matching"/>
     <module name="intellij.platform.util.ui"/>
     <module name="intellij.platform.vcs"/>
     <module name="intellij.platform.vcs.impl"/>

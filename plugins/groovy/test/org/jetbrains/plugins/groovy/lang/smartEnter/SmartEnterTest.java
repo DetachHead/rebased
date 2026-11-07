@@ -13,8 +13,8 @@ import java.util.List;
 
 public class SmartEnterTest extends LightGroovyTestCase {
   @Override
-  public final String getBasePath() {
-    return TestUtils.getTestDataPath() + "groovy/actions/smartEnter/";
+  public final String getTestDataPath() {
+    return TestUtils.getAbsoluteTestDataPath() + "groovy/actions/smartEnter/";
   }
 
   public void testMethCallComma() { doTest(); }

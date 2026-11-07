@@ -1,6 +1,28 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
 load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
+### auto-generated section `dev intellij.tips` start
+content_module_jar(
+    libraries = [
+        # do not sort,
+        "@lib//:tips-tips-idea-ce",
+        "@lib//:tips-tips-idea",
+        "@lib//:tips-tips-goland",
+        "@lib//:tips-tips-clion",
+        "@lib//:tips-tips-appcode",
+        "@lib//:tips-tips-phpstorm",
+        "@lib//:tips-tips-webstorm",
+        "@lib//:tips-tips-datagrip",
+        "@lib//:tips-tips-database-plugin",
+        "@lib//:tips-tips-big-data-tools",
+        "@lib//:tips-tips-rubymine",
+        "@lib//:tips-tips-pycharm-community",
+        "@lib//:tips-tips-pycharm-pro",
+    ],
+    module = ":tips",
+)
+### auto-generated section `dev intellij.tips` end
+
 ### auto-generated section `build intellij.tips` start
 jvm_library(
     name = "tips",
@@ -48,8 +70,6 @@ jvm_library(
         "//platform/util:util-ui",
         "//libraries/jsoup",
         "//libraries/fastutil",
-        "//libraries/jackson/jackson",
-        "//libraries/jackson/databind",
         "//platform/ide-core-impl",
         "//platform/ide-core",
         "//platform/progress/shared:ide-progress",
@@ -61,26 +81,6 @@ jvm_library(
         "//platform/util/concurrency",
         "//platform/project-frame",
     ],
-)
-
-content_module_jar(
-    libraries = [
-        # do not sort,
-        "@lib//:tips-tips-idea-ce",
-        "@lib//:tips-tips-idea",
-        "@lib//:tips-tips-goland",
-        "@lib//:tips-tips-clion",
-        "@lib//:tips-tips-appcode",
-        "@lib//:tips-tips-phpstorm",
-        "@lib//:tips-tips-webstorm",
-        "@lib//:tips-tips-datagrip",
-        "@lib//:tips-tips-database-plugin",
-        "@lib//:tips-tips-big-data-tools",
-        "@lib//:tips-tips-rubymine",
-        "@lib//:tips-tips-pycharm-community",
-        "@lib//:tips-tips-pycharm-pro",
-    ],
-    module = ":tips",
 )
 
 jvm_library(
@@ -107,8 +107,6 @@ jvm_library(
         "//platform/util:util-ui_test_lib",
         "//libraries/jsoup:jsoup_test_lib",
         "//libraries/fastutil:fastutil_test_lib",
-        "//libraries/jackson/jackson:jackson_test_lib",
-        "//libraries/jackson/databind:databind_test_lib",
         "//platform/ide-core-impl:ide-core-impl_test_lib",
         "//platform/ide-core:ide-core_test_lib",
         "//platform/progress/shared:ide-progress_test_lib",

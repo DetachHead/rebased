@@ -8,13 +8,23 @@
       ],
       "class": "org.jetbrains.intellij.build.RebasedProperties"
     },
-    "AndroidStudio": {
+    "Idea": {
       "modules": [
         "intellij.idea.community.build",
         "intellij.idea.community.build.dependencies",
         "intellij.platform.buildScripts"
       ],
-      "class": "org.jetbrains.intellij.build.AndroidStudioProperties"
+      "class": "org.jetbrains.intellij.build.RebasedProperties"
+    },
+    "MPS": {
+      "modules": [
+        "intellij.mps.build",
+        "intellij.idea.community.build",
+        "intellij.idea.community.build.dependencies",
+        "intellij.platform.buildScripts",
+        "intellij.platform.buildScripts.licenses"
+      ],
+      "class": "org.jetbrains.intellij.build.mps.MPSProperties"
     }
   }
 }

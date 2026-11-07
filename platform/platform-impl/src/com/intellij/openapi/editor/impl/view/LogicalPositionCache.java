@@ -3,14 +3,13 @@ package com.intellij.openapi.editor.impl.view;
 
 import com.intellij.diagnostic.Dumpable;
 import com.intellij.openapi.Disposable;
-import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.LogicalPosition;
 import com.intellij.openapi.editor.event.DocumentEvent;
+import com.intellij.openapi.editor.ex.DocumentEx;
 import com.intellij.openapi.editor.ex.DocumentText;
 import com.intellij.openapi.editor.ex.PrioritizedDocumentListener;
 import com.intellij.openapi.editor.ex.ElfCandidate;
 import com.intellij.openapi.editor.impl.EditorDocumentPriorities;
-import com.intellij.util.DocumentInternalUtil;
 import kotlinx.collections.immutable.ExtensionsKt;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
@@ -29,14 +28,16 @@ public final class LogicalPositionCache implements PrioritizedDocumentListener, 
     AtomicReferenceFieldUpdater.newUpdater(LogicalPositionCache.class, LogicalLines.class, "snapshot");
 
   private volatile LogicalLines snapshot;
+  private final DocumentEx document;
   private final Runnable throwEditorDisposed;
 
-  LogicalPositionCache(@NotNull Document document, @NotNull Runnable throwEditorDisposed) {
+  LogicalPositionCache(@NotNull DocumentEx document, @NotNull Runnable throwEditorDisposed) {
     this.snapshot = new LogicalLines(
-      DocumentInternalUtil.getDocumentText(document),
+      document.getDocText(),
       ExtensionsKt.persistentListOf(),
       -1
     );
+    this.document = document;
     this.throwEditorDisposed = throwEditorDisposed;
     document.addDocumentListener(this, this);
   }
@@ -70,6 +71,10 @@ public final class LogicalPositionCache implements PrioritizedDocumentListener, 
     return getSnapshotWithLine(snapshot, pos.line).logicalColumnToOffset(pos.line, pos.column);
   }
 
+  /**
+   * A forced reset also reads the document text again,
+   * because {@link com.intellij.openapi.editor.impl.EditorTextFieldRendererDocument} changes its text without events.
+   */
   void reset(boolean force, int newTabSize) {
     while (true) {
       LogicalLines snapshot = getSnapshot();
@@ -77,7 +82,8 @@ public final class LogicalPositionCache implements PrioritizedDocumentListener, 
       if (!force && tabSize == newTabSize) {
         return;
       }
-      LogicalLines newSnapshot = snapshot.withInvalidatedLines(newTabSize, force);
+      DocumentText newDocument = force ? document.getDocText() : snapshot.document;
+      LogicalLines newSnapshot = snapshot.withInvalidatedLines(newDocument, newTabSize, force);
       if (SNAPSHOT_UPDATER.compareAndSet(this, snapshot, newSnapshot)) {
         return;
       }
@@ -93,7 +99,7 @@ public final class LogicalPositionCache implements PrioritizedDocumentListener, 
   public void documentChanged(@NotNull DocumentEvent event) {
     LogicalLines snapshot = getSnapshot();
     DocumentText oldDocument = snapshot.document;
-    DocumentText newDocument = DocumentInternalUtil.getDocumentText(event.getDocument());
+    DocumentText newDocument = ((DocumentEx) event.getDocument()).getDocText();
     int oldEndLine = getAdjustedLineNumber(oldDocument, event.getOffset() + event.getOldLength());
     int newEndLine = getAdjustedLineNumber(newDocument, event.getOffset() + event.getNewLength());
     int startLine = newDocument.lineNumber(event.getOffset());

@@ -1,16 +1,6 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.projectRoots;
 
-import com.intellij.execution.CantRunException;
-import com.intellij.execution.ExecutionException;
-import com.intellij.execution.configurations.GeneralCommandLine;
-import com.intellij.execution.configurations.SimpleJavaParameters;
-import com.intellij.execution.runners.ExecutionUtil;
-import com.intellij.execution.target.TargetEnvironmentRequest;
-import com.intellij.execution.target.TargetProgressIndicator;
-import com.intellij.execution.target.TargetedCommandLineBuilder;
-import com.intellij.execution.target.local.LocalTargetEnvironment;
-import com.intellij.execution.target.local.LocalTargetEnvironmentRequest;
 import com.intellij.ide.util.PropertiesComponent;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Key;
@@ -39,6 +29,8 @@ public final class JdkUtil {
   /// The VM property is needed to workaround incorrect escaped URLs handling in WebSphere,
   /// see [IDEA-126859](https://youtrack.jetbrains.com/issue/IDEA-126859#comment=27-778948) for additional details
   public static final String PROPERTY_DO_NOT_ESCAPE_CLASSPATH_URL = "idea.do.not.escape.classpath.url";
+  @ApiStatus.Internal
+  public static final String PROPERTY_DYNAMIC_CLASSPATH = "dynamic.classpath";
 
   private JdkUtil() { }
 
@@ -107,34 +99,10 @@ public final class JdkUtil {
     return Files.isDirectory(homePath.resolve("modules/java.base"));
   }
 
-  @ApiStatus.Internal
-  public static @NotNull TargetedCommandLineBuilder setupJVMCommandLine(
-    @NotNull SimpleJavaParameters javaParameters,
-    @NotNull TargetEnvironmentRequest request
-  ) throws CantRunException {
-    var setup = new JdkCommandLineSetup(request);
-    setup.setupJavaExePath(javaParameters);
-    setup.setupCommandLine(javaParameters);
-    return setup.getCommandLine();
-  }
-
-  public static @NotNull GeneralCommandLine setupJVMCommandLine(@NotNull SimpleJavaParameters javaParameters) throws CantRunException {
-    var request = new LocalTargetEnvironmentRequest();
-    var builder = setupJVMCommandLine(javaParameters, request);
-    LocalTargetEnvironment environment;
-    try {
-      environment = request.prepareEnvironment(TargetProgressIndicator.EMPTY);
-    }
-    catch (ExecutionException e) {
-      throw new CantRunException(e.getMessage(), e);
-    }
-    return environment.createGeneralCommandLine(builder.build());
-  }
-
   public static boolean useDynamicClasspath(@Nullable Project project) {
     var hasDynamicProperty = Boolean.parseBoolean(System.getProperty("idea.dynamic.classpath", "false"));
     return project != null
-           ? PropertiesComponent.getInstance(project).getBoolean(ExecutionUtil.PROPERTY_DYNAMIC_CLASSPATH, hasDynamicProperty)
+           ? PropertiesComponent.getInstance(project).getBoolean(PROPERTY_DYNAMIC_CLASSPATH, hasDynamicProperty)
            : hasDynamicProperty;
   }
 

@@ -2,11 +2,15 @@
 // Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.platform.projectView.frontend.window
 
+import com.intellij.configurationStore.SettingsSavingComponent
 import com.intellij.diagnostic.rethrowControlFlowException
 import com.intellij.ide.projectView.impl.ProjectViewPane
+import com.intellij.openapi.actionSystem.ActionGroup
 import com.intellij.openapi.actionSystem.ActionManager
 import com.intellij.openapi.actionSystem.DefaultActionGroup
+import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.application.UI
+import com.intellij.openapi.application.asContextElement
 import com.intellij.openapi.components.PersistentStateComponent
 import com.intellij.openapi.components.State
 import com.intellij.openapi.components.Storage
@@ -27,16 +31,19 @@ import com.intellij.openapi.wm.ToolWindowManager
 import com.intellij.openapi.wm.impl.content.ToolWindowContentUi
 import com.intellij.platform.projectView.actions.ProjectViewActionSupport
 import com.intellij.platform.projectView.frontend.actions.ProjectViewActionSupportImpl
+import com.intellij.platform.projectView.frontend.actions.ProjectViewToolbarActionGroup
 import com.intellij.platform.projectView.frontend.actions.SplitProjectViewAutoscrollFromSource
 import com.intellij.platform.projectView.frontend.impl.FrontendProjectViewUpdateRequestsService
 import com.intellij.platform.projectView.frontend.impl.TreeBasedFrontendProjectViewPane
 import com.intellij.platform.projectView.frontend.pane.FrontendProjectViewPane
 import com.intellij.platform.projectView.frontend.pane.FrontendProjectViewPaneAggregator
 import com.intellij.platform.projectView.frontend.pane.id
+import com.intellij.platform.projectView.pane.ProjectViewClearStateEvent
 import com.intellij.platform.projectView.pane.ProjectViewNodePath
 import com.intellij.platform.projectView.pane.ProjectViewPaneDescriptorImpl
 import com.intellij.platform.projectView.pane.ProjectViewPaneId
 import com.intellij.platform.projectView.pane.projectViewPaneId
+import com.intellij.platform.projectView.runSafelyCancellable
 import com.intellij.platform.projectView.window.ProjectViewToolWindowService
 import com.intellij.ui.content.Content
 import com.intellij.ui.content.ContentFactory
@@ -60,6 +67,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
@@ -80,7 +88,7 @@ import kotlin.time.Duration.Companion.seconds
 @State(name = "FrontendProjectView", storages = [Storage(StoragePathMacros.PRODUCT_WORKSPACE_FILE)])
 internal class ProjectViewToolWindowServiceImpl(
   val project: Project,
-) : ProjectViewToolWindowService, PersistentStateComponent<Element> {
+) : ProjectViewToolWindowService, PersistentStateComponent<Element>, SettingsSavingComponent {
   companion object {
     fun getInstance(project: Project): ProjectViewToolWindowServiceImpl =
       ProjectViewToolWindowService.getInstance(project) as ProjectViewToolWindowServiceImpl
@@ -94,6 +102,7 @@ internal class ProjectViewToolWindowServiceImpl(
   val currentPaneFlow: StateFlow<FrontendProjectViewPane?> = currentPaneMutableFlow.asStateFlow()
   val panes: Map<ProjectViewPaneId, FrontendProjectViewPane>
     field = ConcurrentHashMap<ProjectViewPaneId, FrontendProjectViewPane>()
+  private val activePanes = ConcurrentHashMap.newKeySet<ProjectViewPaneId>()
   private val currentPaneListener: ContentManagerListener = object : ContentManagerListener {
     override fun selectionChanged(event: ContentManagerEvent) {
       if (event.operation == ContentManagerEvent.ContentOperation.add) {
@@ -117,11 +126,11 @@ internal class ProjectViewToolWindowServiceImpl(
 
   override fun getActionSupport(): ProjectViewActionSupport = optionService
 
-  @RequiresEdt
+  @RequiresEdt(generateAssertion = false /* IJPL-115548 */)
   override fun setupToolWindow(toolWindow: ToolWindow) {
     toolWindow.setDefaultContentUiType(ToolWindowContentUiType.COMBO)
-    val action = ActionManager.getInstance().getAction("ProjectViewToolbar")
-    if (action != null) toolWindow.setTitleActions(listOf(action))
+    val action = ActionManager.getInstance().getAction("ProjectViewToolbar") as? ActionGroup?
+    if (action != null) toolWindow.setTitleActions(listOf(ProjectViewToolbarActionGroup(action)))
     toolWindow.setAdditionalGearActions(menuActionGroup)
     toolWindow.component.putClientProperty(ToolWindowContentUi.HIDE_ID_LABEL, "true")
   }
@@ -315,8 +324,23 @@ internal class ProjectViewToolWindowServiceImpl(
     pane.selectNode(nodePath)
   }
 
+  override suspend fun save() {
+    // Not sure if this thing can be invoked under a modal state, but it better run fast regardless.
+    withContext(Dispatchers.UI + ModalityState.any().asContextElement()) {
+      // Only save the current pane, because other panes either:
+      // 1. already saved their state when they were hidden the last time or,
+      // 2. even worse, may have never been loaded, which means they have empty states,
+      // and we don't want to overwrite whatever was loaded from the persistent storage.
+      val currentPane = currentPaneFlow.value
+      if (currentPane != null) {
+        savePaneStateIfActive(currentPane)
+      }
+    }
+  }
+
   override fun getState(): Element = Element("projectView").also { element ->
     persistentState.writeStateTo(element)
+    LOG.debug { "Serialized the state to save" }
   }
 
   override fun noStateLoaded() {
@@ -326,6 +350,26 @@ internal class ProjectViewToolWindowServiceImpl(
   override fun loadState(state: Element) {
     persistentState.readStateFrom(state)
     stateInitJob.complete(Unit)
+    LOG.debug { "Restored the saved state" }
+  }
+  
+  private fun loadPaneState(pane: FrontendProjectViewPane) {
+    val paneState = persistentState.getPaneState(pane.id)
+    pane.restoreStateFrom(paneState)
+    LOG.debug { "Applied the loaded state for ${pane.id}" }
+  }
+  
+  @RequiresEdt
+  private fun savePaneStateIfActive(pane: FrontendProjectViewPane) {
+    if (pane.id !in activePanes) {
+      LOG.debug { "Not saving the state of ${pane.id} because it's not active" }
+      return
+    }
+    val paneElement = Element("pane")
+    paneElement.setAttribute("pane", pane.id.idString)
+    pane.saveStateTo(paneElement)
+    persistentState.putPaneState(pane.id, paneElement)
+    LOG.debug { "Saved the last state for ${pane.id}" }
   }
 
   private inner class PaneManager(
@@ -350,17 +394,11 @@ internal class ProjectViewToolWindowServiceImpl(
         launch(Dispatchers.UI + CoroutineName("Manage TW content for PV pane ${pane.id}")) {
           pane.component.launchOnShow("Pane ${pane.id} service state saving/restoring") {
             try {
-              val paneState = persistentState.getPaneState(pane.id)
-              pane.restoreStateFrom(paneState)
-              LOG.debug { "Applied the loaded state for ${pane.id}" }
+              loadPaneState(pane)
               awaitCancellation()
             }
             finally {
-              val paneElement = Element("pane")
-              paneElement.setAttribute("pane", pane.id.idString)
-              pane.saveStateTo(paneElement)
-              persistentState.putPaneState(pane.id, paneElement)
-              LOG.debug { "Saved the last state for ${pane.id}" }
+              savePaneStateIfActive(pane)
             }
           }
           val selectedPaneId = persistentState.getSelectedPaneState() ?: defaultSelection
@@ -410,17 +448,18 @@ internal class ProjectViewToolWindowServiceImpl(
                   }
                   else {
                     paneStateFlow.collect { event ->
-                      try {
+                      runSafelyCancellable(LOG, taskDescription = { "updating the pane ${pane.id} state, event $event" }) {
                         LOG.trace { "Update pane state for ${pane.id}: $event" }
+                        if (event is ProjectViewClearStateEvent) {
+                          withContext(Dispatchers.UI) {
+                            savePaneStateIfActive(pane) // save before clearing
+                          }
+                          activePanes -= pane.id
+                        }
+                        else {
+                          activePanes += pane.id
+                        }
                         pane.applyStateChange(event)
-                      }
-                      catch (e: Exception) {
-                        rethrowControlFlowException(e)
-                        LOG.error(
-                          "An error has occurred when updating the pane ${pane.id} state, the state might be inconsistent. " +
-                          "The problematic event was $event",
-                          e
-                        )
                       }
                     }
                   }
@@ -454,17 +493,9 @@ internal class ProjectViewToolWindowServiceImpl(
             LOG.debug { "Sending pane requests for ${pane.id}" }
             try {
               for (request in inChannel) {
-                try {
+                runSafelyCancellable(LOG, taskDescription = { "sending a request to the backend: $request" }) {
                   LOG.trace { "Sent request for pane ${pane.id}: $request" }
                   outChannel.send(request)
-                }
-                catch (e: Exception) {
-                  rethrowControlFlowException(e)
-                  LOG.error(
-                    "An error has occurred when trying to send a request to the backend. " +
-                    "The problematic request was $request",
-                    e
-                  )
                 }
               }
             }
@@ -482,7 +513,7 @@ internal class ProjectViewToolWindowServiceImpl(
       initialized.await()
     }
 
-    @RequiresEdt
+    @RequiresEdt(generateAssertion = false /* IJPL-115548 */)
     private fun addOrReplaceContent(): PaneContent? {
       paneContentManager.ensureContentsOrdered()
 
@@ -514,7 +545,7 @@ internal class ProjectViewToolWindowServiceImpl(
       get() = pane.descriptor as ProjectViewPaneDescriptorImpl
   }
   
-  private inner class PaneContentManager @RequiresEdt constructor(toolWindow: ToolWindow) {
+  private inner class PaneContentManager @RequiresEdt(generateAssertion = false /* IJPL-115548 */) constructor(toolWindow: ToolWindow) {
     private val contentManager = toolWindow.contentManager
     
     suspend fun manageContent() {
@@ -533,7 +564,7 @@ internal class ProjectViewToolWindowServiceImpl(
       }
     }
 
-    @RequiresEdt
+    @RequiresEdt(generateAssertion = false /* IJPL-115548 */)
     fun findContent(id: ProjectViewPaneId): PaneContent? {
       for (i in 0 until contentManager.contentCount) {
         val content = contentManager.getContent(i) ?: continue
@@ -543,12 +574,12 @@ internal class ProjectViewToolWindowServiceImpl(
       return null
     }
     
-    @RequiresEdt
+    @RequiresEdt(generateAssertion = false /* IJPL-115548 */)
     fun isSelected(paneContent: PaneContent): Boolean {
       return contentManager.isSelected(paneContent.content)
     }
 
-    @RequiresEdt
+    @RequiresEdt(generateAssertion = false /* IJPL-115548 */)
     fun createAndAddContent(pane: FrontendProjectViewPane): PaneContent? {
       val newContent = ContentFactory.getInstance().createContent(
         /* component = */ pane.component,
@@ -591,12 +622,12 @@ internal class ProjectViewToolWindowServiceImpl(
       return index
     }
 
-    @RequiresEdt
+    @RequiresEdt(generateAssertion = false /* IJPL-115548 */)
     fun setSelectedContent(newContent: PaneContent) {
       contentManager.setSelectedContent(newContent.content)
     }
 
-    @RequiresEdt
+    @RequiresEdt(generateAssertion = false /* IJPL-115548 */)
     fun removeAndDisposeContent(paneContent: PaneContent) {
       if (contentManager.removeContent(paneContent.content, true)) {
         panes -= paneContent.id
@@ -604,7 +635,7 @@ internal class ProjectViewToolWindowServiceImpl(
       }
     }
 
-    @RequiresEdt
+    @RequiresEdt(generateAssertion = false /* IJPL-115548 */)
     fun ensureContentsOrdered() {
       val order = descriptorOrder() // take a snapshot as it's updated concurrently
       val currentDescriptorOrder = (0 until contentManager.contentCount).mapNotNull { i ->
@@ -641,6 +672,10 @@ internal class ProjectViewToolWindowServiceImpl(
         contentManager.addContent(content, contentManager.contentCount)
       }
     }
+  }
+
+  override suspend fun awaitInitialization() {
+    currentPaneMutableFlow.first { it != null } as TreeBasedFrontendProjectViewPane
   }
 }
 

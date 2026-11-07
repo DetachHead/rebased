@@ -6,6 +6,7 @@ import com.intellij.devkit.uiDsl.sandbox.components.BadgePanel
 import com.intellij.devkit.uiDsl.sandbox.components.ComboBoxPanel
 import com.intellij.devkit.uiDsl.sandbox.components.ComboBoxWithWidePopupPanel
 import com.intellij.devkit.uiDsl.sandbox.components.IconsPanel
+import com.intellij.devkit.uiDsl.sandbox.components.InlineBannerPanel
 import com.intellij.devkit.uiDsl.sandbox.components.JBIntSpinnerPanel
 import com.intellij.devkit.uiDsl.sandbox.components.JBOptionButtonPanel
 import com.intellij.devkit.uiDsl.sandbox.components.JBPasswordFieldPanel
@@ -53,6 +54,7 @@ import com.intellij.devkit.uiDsl.sandbox.tests.accessibility.AccessibilityFailed
 import com.intellij.devkit.uiDsl.sandbox.tests.components.JBTabsPanel
 import com.intellij.devkit.uiDsl.sandbox.tests.components.JBTextAreaTestPanel
 import com.intellij.devkit.uiDsl.sandbox.tests.components.JEditorPaneCopyableTestPanel
+import com.intellij.devkit.uiDsl.sandbox.tests.components.JTabbedPaneTestPanel
 import com.intellij.devkit.uiDsl.sandbox.tests.components.TreeWithComplexEditors
 import com.intellij.devkit.uiDsl.sandbox.tests.dsl.CellsWithSubPanelsPanel
 import com.intellij.devkit.uiDsl.sandbox.tests.dsl.CheckBoxRadioButtonPanel
@@ -144,6 +146,8 @@ internal class UISandboxDialog(private val project: Project?) : DialogWrapper(pr
     BadgePanel(),
     ComboBoxPanel(),
     ComboBoxWithWidePopupPanel(),
+    IconsPanel(),
+    InlineBannerPanel(),
     JBIntSpinnerPanel(),
     JButtonPanel(),
     JBOptionButtonPanel(),
@@ -160,7 +164,6 @@ internal class UISandboxDialog(private val project: Project?) : DialogWrapper(pr
     SearchTextFieldPanel(),
     ShimmerLabelPanel(),
     ThreeStateCheckBoxPanel(),
-    IconsPanel()
   ))
 
   private fun createKotlinUIDSLNode() = Group("Kotlin UI DSL", children = listOf(
@@ -181,6 +184,7 @@ internal class UISandboxDialog(private val project: Project?) : DialogWrapper(pr
       JEditorPaneCopyableTestPanel(),
       JBTabsPanel(),
       JBTextAreaTestPanel(),
+      JTabbedPaneTestPanel(),
       TreeWithComplexEditors(),
     )),
     Group("Kotlin UI DSL", children = listOf(

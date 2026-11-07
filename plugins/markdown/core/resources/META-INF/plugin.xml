@@ -12,9 +12,6 @@
     <module name="intellij.libraries.caffeine"/>
     <module name="intellij.libraries.fastutil"/>
     <module name="intellij.libraries.guava"/>
-    <module name="intellij.libraries.jackson"/>
-    <module name="intellij.libraries.jackson.databind"/>
-    <module name="intellij.libraries.jackson.module.kotlin"/>
     <module name="intellij.libraries.jsoup"/>
     <module name="intellij.libraries.kotlinx.coroutines.core"/>
     <module name="intellij.libraries.kotlinx.serialization.core"/>
@@ -23,12 +20,14 @@
     <module name="intellij.libraries.miglayout.swing"/>
     <module name="intellij.libraries.netty.buffer"/>
     <module name="intellij.libraries.netty.codec.http"/>
+    <module name="intellij.libraries.snakeyaml"/>
     <module name="intellij.platform.analysis"/>
     <module name="intellij.platform.analysis.impl"/>
     <module name="intellij.platform.builtInServer"/>
     <module name="intellij.platform.builtInServer.impl"/>
     <module name="intellij.platform.codeStyle"/>
     <module name="intellij.platform.codeStyle.impl"/>
+    <module name="intellij.platform.concurrency"/>
     <module name="intellij.platform.core"/>
     <module name="intellij.platform.core.impl"/>
     <module name="intellij.platform.core.ui"/>
@@ -40,7 +39,12 @@
     <module name="intellij.platform.ide.core"/>
     <module name="intellij.platform.ide.core.impl"/>
     <module name="intellij.platform.ide.impl"/>
+    <module name="intellij.platform.ide.observable"/>
+    <module name="intellij.platform.ide.progress"/>
+    <module name="intellij.platform.ide.rpc"/>
+    <module name="intellij.platform.ide.util.netty"/>
     <module name="intellij.platform.indexing"/>
+    <module name="intellij.platform.indexing.impl"/>
     <module name="intellij.platform.kernel"/>
     <module name="intellij.platform.lang"/>
     <module name="intellij.platform.lang.impl"/>
@@ -55,6 +59,7 @@
     <module name="intellij.platform.usageView.impl"/>
     <module name="intellij.platform.util.coroutines"/>
     <module name="intellij.platform.util.ex"/>
+    <module name="intellij.platform.util.text.matching"/>
     <module name="intellij.platform.util.ui"/>
     <!-- endregion -->
   </dependencies>
@@ -73,12 +78,12 @@
     <module name="intellij.markdown.compose.preview"/>
     <module name="intellij.markdown.frontend"/>
     <module name="intellij.markdown.frontend.split"/>
-    <module name="intellij.markdown.backend.split"/>
     <module name="intellij.markdown.backend"/>
     <module name="intellij.markdown.java"/>
     <module name="intellij.markdown.fenceInjector.textMate"/>
     <module name="intellij.markdown.projectView"/>
     <module name="intellij.markdown.figmaAdvertiser"/>
+    <module name="intellij.markdown.vcs"/>
   </content>
 
   <description><![CDATA[
@@ -237,23 +242,21 @@
     <projectConfigurable id="Settings.Markdown"
                          bundle="messages.MarkdownBundle"
                          groupId="language"
-                         nonDefaultProject="false"
                          key="markdown.settings.name"
                          instance="org.intellij.plugins.markdown.settings.MarkdownSettingsConfigurable"/>
 
     <editorSmartKeysConfigurable instance="org.intellij.plugins.markdown.settings.MarkdownSmartKeysConfigurable"
                                  id="editor.preferences.markdownOptions"/>
 
-    <applicationService serviceImplementation="org.intellij.plugins.markdown.ui.preview.html.MarkdownCodeFenceHtmlCache"/>
     <applicationService serviceImplementation="org.intellij.plugins.markdown.settings.MarkdownCodeFoldingSettings" />
     <applicationService serviceImplementation="org.intellij.plugins.markdown.settings.MarkdownCodeInsightSettings" />
     <applicationService serviceImplementation="org.intellij.plugins.markdown.settings.MarkdownExtensionsSettings" />
 
+    <applicationSettings service="org.intellij.plugins.markdown.settings.MarkdownApplicationSettings"/>
     <applicationSettings service="org.intellij.plugins.markdown.settings.MarkdownCodeInsightSettings"/>
-    <applicationSettings service="org.intellij.plugins.markdown.settings.MarkdownPreviewSettings"/>
     <applicationSettings service="org.intellij.plugins.markdown.settings.MarkdownExtensionsSettings"/>
-
-    <projectSettings service="org.intellij.plugins.markdown.settings.MarkdownSettings"/>
+    <applicationSettings service="org.intellij.plugins.markdown.settings.MarkdownSettings"/>
+    <projectSettings service="org.intellij.plugins.markdown.settings.MarkdownStylesheetSettings"/>
 
     <stripTrailingSpacesFilterFactory implementation="org.intellij.plugins.markdown.editor.MarkdownStripTrailingSpacesFilterFactory"/>
     <httpRequestHandler implementation="org.intellij.plugins.markdown.ui.preview.PreviewStaticServer"/>
@@ -264,9 +267,6 @@
                              implementationClass="org.intellij.plugins.markdown.lang.psi.impl.MarkdownAutoLink$Manipulator"/>
     <lang.elementManipulator forClass="org.intellij.plugins.markdown.lang.psi.impl.MarkdownCodeSpan"
                              implementationClass="org.intellij.plugins.markdown.lang.psi.impl.MarkdownCodeSpan$Manipulator"/>
-    <referencesSearch implementation="org.intellij.plugins.markdown.lang.references.backtick.BacktickReferenceSearcher"/>
-    <referencesSearch implementation="org.intellij.plugins.markdown.lang.references.paths.UrlEncodedFileReferenceSearcher"/>
-    <useScopeEnlarger implementation="org.intellij.plugins.markdown.lang.references.MarkdownReferenceUseScopeEnlarger"/>
     <usageViewElementsListener implementation="org.intellij.plugins.markdown.lang.references.backtick.BacktickUsageViewElementsListener"/>
 
     <todoIndexer filetype="Markdown" implementationClass="org.intellij.plugins.markdown.highlighting.MarkdownTodoIndexer"/>
@@ -351,10 +351,6 @@
                  defaultValue="false"
                  description="Enables experimental support for inferring header level"/>
 
-    <registryKey key="markdown.experimental.show.frontmatter.in.preview"
-                 defaultValue="false"
-                 description="Enables displaying of front matter headers in the preview."/>
-
     <registryKey key="markdown.experimental.allow.external.requests"
                  defaultValue="true"
                  description="Enables requests for external resources from the preview (e.g. non-local images)."/>
@@ -370,6 +366,7 @@
     <applicationSettings service="org.intellij.plugins.markdown.settings.MarkdownCodeFoldingSettings"/>
     <projectSettings service="org.intellij.plugins.markdown.settings.DocumentLinksSafeState"/>
     <projectSettings service="org.intellij.plugins.markdown.settings.pandoc.PandocSettings"/>
+    <applicationSettings service="org.intellij.plugins.markdown.settings.pandoc.PandocApplicationSettings"/>
   </extensions>
 
   <applicationListeners>
@@ -377,16 +374,17 @@
               class="org.intellij.plugins.markdown.settings.SettingsChangeLafListener"/>
     <listener topic="com.intellij.ide.ui.LafManagerListener"
               class="org.intellij.plugins.markdown.extensions.common.highlighter.HtmlCacheManager$InvalidateHtmlCacheLafListener"/>
-  </applicationListeners>
-
-  <projectListeners>
+    <listener topic="org.intellij.plugins.markdown.settings.MarkdownSettings$ChangeListener"
+              class="org.intellij.plugins.markdown.settings.MarkdownSettingsCompatibilityListener"/>
     <listener topic="org.intellij.plugins.markdown.settings.MarkdownSettings$ChangeListener"
               class="org.intellij.plugins.markdown.injection.MarkdownCodeFenceErrorHighlightingIntention$CodeAnalyzerRestartListener"/>
-  </projectListeners>
+  </applicationListeners>
 
   <extensions defaultExtensionNs="org.intellij.markdown">
     <fenceLanguageProvider implementation="org.intellij.plugins.markdown.extensions.common.plantuml.PlantUMLCodeFenceLanguageProvider"/>
     <fenceLanguageProvider id="default" implementation="org.intellij.plugins.markdown.injection.DefaultCodeFenceLanguageProvider" order="last"/>
+    <fenceLanguageProvider implementation="org.intellij.plugins.markdown.injection.PowerShellCodeFenceLanguageProvider"
+                           order="last, after default, before textmate"/>
     <!--suppress PluginXmlValidity -->
     <fenceGeneratingProvider implementation="org.intellij.plugins.markdown.extensions.common.plantuml.PlantUMLCodeGeneratingProvider"/>
 
@@ -515,6 +513,9 @@
     </action>
 
     <group id="Markdown.Toolbar.Floating">
+      <!-- enables AI actions -->
+      <reference ref="Floating.CodeToolbar.Extensions"/>
+
       <action id="Markdown.Styling.SetHeaderLevel"
               class="org.intellij.plugins.markdown.ui.actions.styling.SetHeaderLevelAction"/>
       <separator/>

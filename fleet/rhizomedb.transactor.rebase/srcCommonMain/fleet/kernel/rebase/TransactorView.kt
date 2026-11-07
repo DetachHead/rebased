@@ -38,6 +38,7 @@ import fleet.fastutil.ints.IntList
 import fleet.fastutil.ints.contains
 import fleet.fastutil.ints.retainAll
 import fleet.kernel.DbSource
+import fleet.kernel.SpeculativeChangeKey
 import fleet.kernel.shouldFailFast
 import fleet.reporting.shared.tracing.spannedScope
 import fleet.openmap.MutableOpenMap
@@ -198,7 +199,10 @@ private fun <T> ChangeScope.withTransactorView(kernelViewEntity: TransactorViewE
   let { changeScope ->
     val hiddenPart = kernelViewEntity[TransactorViewEntity2.HiddenPart]
     val visiblePart = kernelViewEntity[TransactorViewEntity2.DefaultPart]
-    val queryCache = kernelViewEntity[TransactorViewEntity2.QueryCache]
+    // A speculative pass reads an uncommitted state and its writes are replayed verbatim later, so it neither
+    // fills the live cache nor records one; the replay then resets both caches, which the replayed novelty requires.
+    val speculative = meta[SpeculativeChangeKey] == true
+    val queryCache = if (speculative) QueryCache.empty() else kernelViewEntity[TransactorViewEntity2.QueryCache]
     val mut = context.impl.mutableDb
     val oldQueryCache = mut.queryCache
     val partsExceptHidden = AllParts.except(hiddenPart)
@@ -259,10 +263,13 @@ private fun <T> ChangeScope.withTransactorView(kernelViewEntity: TransactorViewE
     val novelty = meta[MutableNoveltyKey]!!
 
     mut.queryCache = oldQueryCache.invalidate(novelty)
-    kernelViewEntity[TransactorViewEntity2.QueryCache] = newQueryCache
+    kernelViewEntity[TransactorViewEntity2.QueryCache] = if (speculative) QueryCache.empty() else newQueryCache
 
     kernelViewEntity.counterPart()?.let { counterpart ->
-      counterpart[TransactorViewEntity2.QueryCache] = counterpart[TransactorViewEntity2.QueryCache].invalidate(novelty)
+      counterpart[TransactorViewEntity2.QueryCache] = when {
+        speculative -> QueryCache.empty()
+        else -> counterpart[TransactorViewEntity2.QueryCache].invalidate(novelty)
+      }
     }
     res
   }

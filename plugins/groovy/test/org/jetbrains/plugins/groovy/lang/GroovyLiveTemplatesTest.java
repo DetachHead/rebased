@@ -15,8 +15,8 @@ import org.jetbrains.plugins.groovy.util.TestUtils;
 
 public class GroovyLiveTemplatesTest extends LightJavaCodeInsightFixtureTestCase {
   @Override
-  protected String getBasePath() {
-    return TestUtils.getTestDataPath() + "liveTemplates/";
+  protected String getTestDataPath() {
+    return TestUtils.getAbsoluteTestDataPath() + "liveTemplates/";
   }
 
   public void testJavaTemplatesWorkInGroovyContext() {

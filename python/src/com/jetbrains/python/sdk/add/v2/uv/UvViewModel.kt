@@ -11,18 +11,29 @@ import com.jetbrains.python.sdk.add.v2.PathHolder
 import com.jetbrains.python.sdk.add.v2.PythonToolViewModel
 import com.jetbrains.python.sdk.add.v2.ToolValidator
 import com.jetbrains.python.sdk.add.v2.ValidatedPath
+import com.jetbrains.python.sdk.uv.UvMode
+import com.jetbrains.python.sdk.uv.hasPyProjectToml
 import com.intellij.python.uv.backend.UvPyTool
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.launchIn
+import kotlinx.coroutines.flow.onEach
 
 internal class UvViewModel<P : PathHolder>(
   fileSystem: FileSystem<P>,
   propertyGraph: PropertyGraph,
-  projectPathFlows: ProjectPathFlows,
+  private val projectPathFlows: ProjectPathFlows,
 ) : PythonToolViewModel {
   val uvExecutable: ObservableMutableProperty<ValidatedPath.Executable<P>?> = propertyGraph.property(null)
   val uvVenvPath: ObservableMutableProperty<ValidatedPath.Folder<P>?> = propertyGraph.property(null)
   val inheritSitePackages: GraphProperty<Boolean> = propertyGraph.property(false)
+
+  /** The box "Use pyproject.toml (uv init)". [initialize] selects the box when the project directory holds a `pyproject.toml`. */
+  val projectMode: GraphProperty<Boolean> = propertyGraph.property(true)
+
+  /** The mode that [projectMode] selects. */
+  val mode: UvMode
+    get() = if (projectMode.get()) UvMode.Project else UvMode.Pip()
 
   val toolValidator: ToolValidator<P> = ToolValidator(
     fileSystem = fileSystem,
@@ -45,5 +56,6 @@ internal class UvViewModel<P : PathHolder>(
   override fun initialize(scope: CoroutineScope) {
     toolValidator.initialize(scope)
     uvVenvValidator.initialize(scope)
+    projectPathFlows.projectPathWithDefault.onEach { projectMode.set(hasPyProjectToml(it)) }.launchIn(scope)
   }
 }

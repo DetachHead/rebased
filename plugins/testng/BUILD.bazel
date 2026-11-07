@@ -1,7 +1,6 @@
 load("@community//build:tests-options.bzl", "jps_test")
-load("@community//platform/build-scripts/bazel-rules:dev_dist_plugin.bzl", "dev_dist_plugin")
+load("@jps_dynamic_deps_community//:targets.bzl", "dev_dist_plugin")
 load("@rules_jvm//:jvm.bzl", "jvm_library", "resourcegroup")
-load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "dev_dist_plugin_jar")
 
 jps_test(
     name = "testng-tests_test",
@@ -10,6 +9,27 @@ jps_test(
     runtime_deps = [":testng-tests_test_lib"],
 )
 ### skip generation section `test intellij.testng.tests`
+
+### auto-generated section `dev intellij.testng` start
+dev_dist_plugin(
+    content_modules = [
+        # do not sort,
+        "intellij.libraries.testng",
+        "intellij.testng.langInjection",
+        "intellij.testng.rt",
+    ],
+    descriptor = "resources/META-INF/plugin.xml",
+    jars = {
+        "lib/intellij.libraries.testng.jar": [
+            "intellij.libraries.testng",
+            "@lib//:libraries-testng-_test_n_g",
+        ],
+        "lib/testng-rt.jar": ["intellij.testng.rt"],
+        "lib/testng-plugin.jar": ["intellij.testng"],
+    },
+    main_module = "intellij.testng",
+)
+### auto-generated section `dev intellij.testng` end
 
 ### auto-generated section `build intellij.testng` start
 resourcegroup(
@@ -62,7 +82,6 @@ jvm_library(
         "//plugins/testng_rt:testng-rt",
         "//java/execution/openapi:java-execution",
         "//java/java-impl:impl",
-        "//java/jsp-openapi:jsp",
         "//libraries/testng",
         "//java/java-indexing-api:indexing",
         "//platform/smRunner",
@@ -79,6 +98,7 @@ jvm_library(
         "//xml/xml-psi-api:psi",
         "//libraries/jgoodies/forms",
         "//platform/execution",
+        "//platform/consoleView",
         "//libraries/kotlinx/collections-immutable:libraries-kotlinx-collections-immutable",
         "//jps/model-api:model",
         "//jps/model-serialization",
@@ -110,29 +130,20 @@ jvm_library(
         "//platform/editor-ui-api:editor-ui_test_lib",
         "//platform/execution-impl:execution-impl_test_lib",
         "//platform/platform-impl:ide-impl_test_lib",
-        "//xml/xml-analysis-api:analysis",
-        "//xml/xml-analysis-api:analysis_test_lib",
         "//java/debugger/impl:impl_test_lib",
         "//platform/indexing-api:indexing_test_lib",
         "//platform/lang-core:lang-core_test_lib",
         "//platform/projectModel-api:projectModel_test_lib",
-        "//platform/testFramework",
-        "//platform/testFramework:testFramework_test_lib",
         "//java/debugger/openapi:java-debugger_test_lib",
         "//platform/ide-core-impl:ide-core-impl_test_lib",
         "//platform/ide-core:ide-core_test_lib",
         "//platform/testRunner:testRunner_test_lib",
         "//java/java-runtime:rt_test_lib",
         "//plugins/testng_rt:testng-rt_test_lib",
-        "//java/testFramework",
-        "//java/testFramework:testFramework_test_lib",
         "//java/execution/openapi:java-execution_test_lib",
         "//java/java-impl:impl_test_lib",
-        "//java/jsp-openapi:jsp_test_lib",
         "//libraries/testng:testng_test_lib",
         "//java/java-indexing-api:indexing_test_lib",
-        "//xml/impl",
-        "//xml/impl:impl_test_lib",
         "//platform/smRunner:smRunner_test_lib",
         "//java/typeMigration:typeMigration_test_lib",
         "//platform/external-system-api:externalSystem_test_lib",
@@ -149,6 +160,7 @@ jvm_library(
         "//xml/xml-psi-api:psi_test_lib",
         "//libraries/jgoodies/forms:forms_test_lib",
         "//platform/execution:execution_test_lib",
+        "//platform/consoleView:consoleView_test_lib",
         "//libraries/kotlinx/collections-immutable:libraries-kotlinx-collections-immutable_test_lib",
         "//jps/model-api:model_test_lib",
         "//jps/model-serialization:model-serialization_test_lib",
@@ -168,31 +180,6 @@ exports_files(
 )
 ### auto-generated section `iml intellij.testng` end
 
-### auto-generated section `dev intellij.testng` start
-dev_dist_plugin(
-    descriptor = "resources/META-INF/plugin.xml",
-    descriptor_module = ":testng",
-    descriptors = {
-        "@community//libraries/testng:resources/intellij.libraries.testng.xml": "intellij.libraries.testng.xml",
-        "@community//plugins/testng/langInjection:resources/intellij.testng.langInjection.xml": "intellij.testng.langInjection.xml",
-    },
-    libraries = ["@lib//:test_n_g"],
-    main_jar_name = "testng-plugin.jar",
-    main_module = "intellij.testng",
-    prepacked_content_modules = ["//plugins/testng/langInjection:langInjection_content_module_jar"],
-    prepacked_jars = {
-        "//libraries/testng:testng_content_module_jar": "intellij.libraries.testng.jar",
-    },
-    prepacked_layout_jars = [":testng-rt_dev_dist_plugin_jar"],
-)
-
-dev_dist_plugin_jar(
-    modules = ["//plugins/testng_rt:testng-rt"],
-    plugin_main_module = "intellij.testng",
-    relative_output_file = "testng-rt.jar",
-)
-### auto-generated section `dev intellij.testng` end
-
 ### auto-generated section `build intellij.testng.tests` start
 jvm_library(
     name = "testng-tests",
@@ -202,6 +189,11 @@ jvm_library(
     ),
     module_name = "intellij.testng.tests",
     visibility = ["//visibility:public"],
+    runtime_deps = [
+        # do not sort,
+        "//platform/vcs/plugin",
+        "//xml/plugin",
+    ],
 )
 
 jvm_library(
@@ -227,10 +219,12 @@ jvm_library(
     runtime_deps = [
         # do not sort,
         ":testng-tests",
+        "//platform/vcs/plugin:plugin_test_lib",
         "//platform/platform-impl:ide-impl_test_lib",
         "//platform/ide-core-impl:ide-core-impl_test_lib",
         "//platform/ide-core:ide-core_test_lib",
         "//platform/platform-util-io:ide-util-io_test_lib",
+        "//xml/plugin:plugin_test_lib",
     ],
     deps = [
         # do not sort,
@@ -324,14 +318,12 @@ jvm_library(
         "//jps/model-api:model_test_lib",
         "//platform/statistics",
         "//platform/statistics:statistics_test_lib",
-        "//libraries/junit5",
-        "//libraries/junit5:junit5_test_lib",
+        "//libraries/junit6",
+        "//libraries/junit6:junit6_test_lib",
         "//java/plugin",
         "//java/plugin:plugin_test_lib",
         "//aether-dependency-resolver/plugin",
         "//aether-dependency-resolver/plugin:plugin_test_lib",
-        "//libraries/misc/plugin",
-        "//libraries/misc/plugin:plugin_test_lib",
         "//libraries/lucene.common",
         "//libraries/lucene.common:lucene.common_test_lib",
         "//platform/structure-view-impl/plugin",

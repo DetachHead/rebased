@@ -4,7 +4,7 @@ package com.intellij.vcs.commit
 import com.intellij.icons.AllIcons
 import com.intellij.openapi.application.UI
 import com.intellij.openapi.diagnostic.logger
-import com.intellij.openapi.diagnostic.rethrowControlFlowException
+import com.intellij.diagnostic.rethrowControlFlowException
 import com.intellij.openapi.ui.popup.JBPopup
 import com.intellij.openapi.ui.popup.JBPopupFactory
 import com.intellij.openapi.util.NlsSafe

@@ -8,14 +8,20 @@ import org.junit.rules.ExternalResource
 
 class FixtureRule(descriptor: LightProjectDescriptor, path: String) : ExternalResource() {
 
-  private val testCase = object : LightGroovyTestCase() {
-    override fun getProjectDescriptor() = descriptor
-    override fun getBasePath(): String = TestUtils.getTestDataPath() + path
-  }
+  private val testCase = FixtureTestCase(descriptor, path)
 
   val fixture: JavaCodeInsightTestFixture get() = testCase.fixture
 
   override fun before(): Unit = testCase.setUp()
 
   override fun after(): Unit = testCase.tearDown()
+
+  @Suppress("JUnitMalformedDeclaration")
+  private class FixtureTestCase(
+    private val descriptor: LightProjectDescriptor,
+    private val path: String,
+  ) : LightGroovyTestCase() {
+    override fun getProjectDescriptor() = descriptor
+    override fun getTestDataPath(): String = TestUtils.getAbsoluteTestDataPath() + path
+  }
 }

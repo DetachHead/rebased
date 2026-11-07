@@ -82,8 +82,8 @@
     <orderEntry type="module" module-name="intellij.platform.tasks" scope="TEST" />
     <orderEntry type="module" module-name="intellij.libraries.assertj.core" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.diff.impl" />
-    <orderEntry type="module" module-name="intellij.libraries.jackson" />
-    <orderEntry type="module" module-name="intellij.libraries.jackson.databind" />
+    <orderEntry type="module" module-name="intellij.libraries.jackson3" />
+    <orderEntry type="module" module-name="intellij.libraries.jackson3.databind" />
     <orderEntry type="module" module-name="intellij.libraries.gson" />
     <orderEntry type="module" module-name="intellij.libraries.xz" />
     <orderEntry type="module" module-name="intellij.libraries.stream" />
@@ -127,6 +127,7 @@
     <orderEntry type="module" module-name="intellij.platform.ide.impl.wsl" />
     <orderEntry type="module" module-name="intellij.platform.ide.progress" />
     <orderEntry type="module" module-name="intellij.platform.execution" />
+    <orderEntry type="module" module-name="intellij.platform.consoleView" />
     <orderEntry type="module" module-name="intellij.java.guiForms.rt" />
     <orderEntry type="module" module-name="intellij.tools.ide.metrics.benchmark" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.testFramework.junit5" scope="TEST" />
@@ -134,5 +135,7 @@
     <orderEntry type="module" module-name="intellij.platform.vcs.impl.tests" scope="TEST" />
     <orderEntry type="module" module-name="fleet.rhizomedb" />
     <orderEntry type="module" module-name="intellij.platform.eel.nioFs" />
+    <orderEntry type="module" module-name="intellij.platform.searchEverywhere" />
+    <orderEntry type="module" module-name="intellij.platform.scopes" />
   </component>
 </module>

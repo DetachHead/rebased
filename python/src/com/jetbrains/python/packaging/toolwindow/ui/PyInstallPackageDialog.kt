@@ -7,7 +7,6 @@ import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.EDT
 import com.intellij.openapi.application.ModalityState
-import com.intellij.openapi.application.readAction
 import com.intellij.openapi.components.service
 import com.intellij.openapi.fileChooser.FileChooser
 import com.intellij.openapi.fileChooser.FileChooserDescriptor
@@ -20,8 +19,12 @@ import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.util.WindowStateService
 import com.intellij.openapi.util.registry.Registry
 import com.intellij.openapi.wm.WindowManager
-import com.intellij.python.processOutput.common.sendOpenToolWindowByTraceUuidEvent
-import com.intellij.python.pytools.PyTool
+import com.intellij.platform.eel.EelApi
+import com.intellij.platform.eel.provider.getEelDescriptor
+import com.intellij.platform.eel.provider.toEelApi
+import com.intellij.platform.ide.progress.runWithModalProgressBlocking
+import com.intellij.python.processOutput.common.ProcessOutputTopic
+import com.intellij.python.pytools.backend.PyTool
 import com.intellij.python.requirements.PyPackageVersionNormalizer
 import com.intellij.ui.ExperimentalUI
 import com.intellij.ui.OnePixelSplitter
@@ -32,17 +35,16 @@ import com.intellij.ui.components.SearchFieldWithExtension
 import com.intellij.ui.components.fields.ExtendableTextComponent
 import com.intellij.ui.components.panels.Wrapper
 import com.intellij.ui.scale.JBUIScale
+import com.intellij.util.concurrency.annotations.RequiresEdt
 import com.intellij.util.ui.JBInsets
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
 import com.jetbrains.python.PyBundle.message
 import com.jetbrains.python.packaging.PyPackageName
-import com.jetbrains.python.packaging.management.PythonPackageManager
 import com.jetbrains.python.packaging.statistics.PythonPackagesToolwindowStatisticsCollector
 import com.jetbrains.python.packaging.toolwindow.PyPackagingToolWindowService
 import com.jetbrains.python.sdk.ModuleOrProject
-import com.jetbrains.python.sdk.findFirstPythonSdk
-import com.jetbrains.python.sdk.findModuleForSdk
+import com.intellij.python.pyproject.model.evolution.evoPyProjects
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -65,6 +67,21 @@ import javax.swing.ListCellRenderer
 import javax.swing.SwingUtilities
 
 internal class PyInstallPackageDialog(private val project: Project) : BigPopupUI(project) {
+  @Volatile
+  private var eel: EelApi? = null
+
+  @RequiresEdt
+  private fun getEelApi(): EelApi {
+    val currentEel = eel
+    if (currentEel != null) {
+      return currentEel
+    }
+    return runWithModalProgressBlocking(project, "...") {
+      project.getEelDescriptor().toEelApi()
+    }.also {
+      this.eel = it
+    }
+  }
 
   companion object {
     private const val LOCATION_SETTINGS_KEY: String = "py.install.package.dialog.popup"
@@ -82,7 +99,7 @@ internal class PyInstallPackageDialog(private val project: Project) : BigPopupUI
     },
   )
   private val resultsList = PyInstallDialogResultsList(
-    project, packagingService,
+    packagingService,
     onPackageSelected = { name, repo -> versionPanel.selectPackage(name, repo); refreshInstallControl() },
     onCommandSelected = { cmd -> mySearchField.text = "$cmd "; mySearchField.requestFocusInWindow() },
     onSelectionCleared = { versionPanel.clearSelection() },
@@ -132,6 +149,7 @@ internal class PyInstallPackageDialog(private val project: Project) : BigPopupUI
   private lateinit var bottomContainer: JPanel
   private lateinit var listScrollPane: JScrollPane
   private lateinit var listOrDescContainer: JPanel
+
   // Assigned by the popup-creation method that always runs before any code path that reads
   // `popup` (the field is only read from user-driven actions — key handlers, resize callbacks,
   // install-completion callbacks — all of which the popup itself installs after this assignment).
@@ -440,11 +458,11 @@ internal class PyInstallPackageDialog(private val project: Project) : BigPopupUI
   }
 
   private fun ensureSdkInitialized() {
-    if (packagingService.currentSdk != null) return
+    if (packagingService.currentInterpreter != null) return
     packagingService.serviceScope.launch(Dispatchers.IO) {
-      val sdk = readAction { project.findFirstPythonSdk() }
-                ?: return@launch
-      packagingService.initForSdk(sdk)
+      val interpreter = project.evoPyProjects().firstNotNullOfOrNull { it.interpreter }
+                        ?: return@launch
+      packagingService.initForInterpreter(interpreter)
       refreshInstalledState()
       withContext(Dispatchers.EDT) {
         updatePlaceholder()
@@ -512,6 +530,7 @@ internal class PyInstallPackageDialog(private val project: Project) : BigPopupUI
     })
   }
 
+  @RequiresEdt
   private fun handleTextChange() {
     val rawText = mySearchField.text
     val query = rawText.trim()
@@ -540,10 +559,12 @@ internal class PyInstallPackageDialog(private val project: Project) : BigPopupUI
    * no `cliSpecs` to match against, so the dialog falls back to search mode — the user can still
    * type the same string and see ordinary package matches.
    */
+  @RequiresEdt
   private fun isCommand(query: String): Boolean {
     if (!Registry.`is`("python.packaging.install.dialog.command.mode", false)) return false
-    val sdk = packagingService.currentSdk ?: return false
-    return PythonPackageManager.forSdk(project, sdk).cliSpecs.any { query.startsWith("${it.executableName} ") }
+    val packageManager = packagingService.currentPackageManager ?: return false
+    val eel = getEelApi()
+    return packageManager.getCliSpecs(eel).any { query.startsWith("${it.executableName} ") }
   }
 
   /**
@@ -620,8 +641,8 @@ internal class PyInstallPackageDialog(private val project: Project) : BigPopupUI
    */
   private fun installedVersionOfSelected(): String? {
     val name = versionPanel.selectedPackageName?.let { PyPackageName.from(it).name } ?: return null
-    val sdk = packagingService.currentSdk ?: return null
-    return PythonPackageManager.forSdk(project, sdk).listInstalledPackagesSnapshot()
+    val packageManager = packagingService.currentPackageManager ?: return null
+    return packageManager.listInstalledPackagesSnapshot()
       .firstOrNull { it.name == name }?.version?.takeIf { it.isNotEmpty() }
   }
 
@@ -632,8 +653,8 @@ internal class PyInstallPackageDialog(private val project: Project) : BigPopupUI
       versionPanel.hideInstallStatus()
       return
     }
-    val sdk = packagingService.currentSdk
-    if (sdk != null && packagingService.isInstalling(sdk, installKeyOf(target))) {
+    val interpreter = packagingService.currentInterpreter
+    if (interpreter != null && packagingService.isInstalling(interpreter, installKeyOf(target))) {
       versionPanel.applyInstallControlState(InstallControlState.INSTALLING, null)
       return
     }
@@ -648,8 +669,8 @@ internal class PyInstallPackageDialog(private val project: Project) : BigPopupUI
   /** Warms up the manager's installed-packages snapshot, then re-renders (state/version are read live). */
   private fun refreshInstalledState() {
     packagingService.serviceScope.launch {
-      val sdk = packagingService.currentSdk ?: return@launch
-      PythonPackageManager.forSdk(project, sdk).listInstalledPackages() // waits for init so the snapshot is populated
+      val packageManager = packagingService.currentPackageManager ?: return@launch
+      packageManager.listInstalledPackages() // waits for init so the snapshot is populated
       withContext(Dispatchers.EDT) {
         if (::popup.isInitialized && !popup.isDisposed) refreshInstallControl()
       }
@@ -669,12 +690,12 @@ internal class PyInstallPackageDialog(private val project: Project) : BigPopupUI
     // Captured now (press time) from the current mode/selection, since the selection may change
     // before the async install finishes.
     val target = currentTarget() ?: return
-    val sdk = packagingService.currentSdk ?: return
+    val interpreter = packagingService.currentInterpreter ?: return
     val trace = com.jetbrains.python.TraceContext(title, null)
     val installKey = installKeyOf(target)
     // [trace] is the one the spawned process reports (this path calls the manager UI directly), so the
     // spinner the packages tree shows for this install can open its output on click (PY-91529).
-    packagingService.markInstalling(sdk, installKey, trace.uuid.toString())
+    packagingService.markInstalling(interpreter, installKey, trace.uuid.toString())
     refreshInstallControl()
 
     packagingService.serviceScope.launch {
@@ -689,12 +710,12 @@ internal class PyInstallPackageDialog(private val project: Project) : BigPopupUI
       else {
         // Failure keeps today's behavior: close the dialog and surface the logs.
         withContext(Dispatchers.EDT) { popup.cancel() }
-        sendOpenToolWindowByTraceUuidEvent(trace.uuid)
+        ProcessOutputTopic.sendOpenToolWindowByTraceUuidEvent(trace.uuid)
       }
     }.invokeOnCompletion {
       ApplicationManager.getApplication().invokeLater(
         {
-          packagingService.unmarkInstalling(sdk, installKey)
+          packagingService.unmarkInstalling(interpreter, installKey)
           if (::popup.isInitialized && !popup.isDisposed) refreshInstallControl()
         },
         ModalityState.any(),
@@ -706,17 +727,17 @@ internal class PyInstallPackageDialog(private val project: Project) : BigPopupUI
     val rawPackageName = versionPanel.selectedPackageName ?: return
     val packageName = PyPackageName.from(rawPackageName)
     val repository = versionPanel.selectedRepository ?: return
-    val sdk = packagingService.currentSdk ?: return
+    val interpreter = packagingService.currentInterpreter ?: return
     val versionToInstall = versionPanel.selectedVersion
       .takeUnless { it == message("python.packaging.install.dialog.version.latest") }
       ?.let { PyPackageVersionNormalizer.normalize(it) }
-    val moduleOrProject = resolveModuleOrProject()
-
+    val selectedModule = workspaceSelector.selectedIJModule
     runWithTrace(message("python.packaging.installing.package", rawPackageName)) {
+      val moduleOrProject = resolveModuleOrProject(selectedModule)
       runInstall {
         installPackageFromRepository(
           service = packagingService,
-          sdk = sdk,
+          interpreter = interpreter,
           repository = repository,
           packageName = packageName,
           version = versionToInstall,
@@ -729,15 +750,16 @@ internal class PyInstallPackageDialog(private val project: Project) : BigPopupUI
   }
 
   private fun performDirectInstall() {
-    val sdk = packagingService.currentSdk ?: return
-    val moduleOrProject = resolveModuleOrProject()
+    val interpreter = packagingService.currentInterpreter ?: return
 
+    val selectedModule = workspaceSelector.selectedIJModule
     runWithTrace(message("python.packaging.installing.package", directInstallText)) {
+      val moduleOrProject = resolveModuleOrProject(selectedModule)
       runInstall {
         val uri = if (isPackageUrl(directInstallText)) URI(directInstallText) else Path.of(directInstallText).toUri()
         installPackageFromLocation(
           service = packagingService,
-          sdk = sdk,
+          interpreter = interpreter,
           location = uri,
           editable = versionPanel.editableCheckbox.isSelected,
           dependencyGroup = workspaceSelector.selectedDependencyGroup,
@@ -758,14 +780,15 @@ internal class PyInstallPackageDialog(private val project: Project) : BigPopupUI
 
   private fun performCommandExecution(command: String) {
     if (command.isBlank()) return
-    packagingService.currentSdk ?: return
+    packagingService.currentInterpreter ?: return
     val parsed = parseCliCommand(command) ?: return
+    val selectedModule = workspaceSelector.selectedIJModule
     runWithTrace(command) {
       // Only registered PyTools are runnable from the command mode — [PyTool.executeOn] handles
       // Windows `.exe`, remote / target-based SDKs consistently with the rest of the tools UI.
       // Non-PyTool tool names (e.g. raw `pip`, `uv`) fall through to ExecutableNotFound; register
       // a matching [PyTool] extension to make them invokable here.
-      val moduleOrProject = resolveModuleOrProject()
+      val moduleOrProject = resolveModuleOrProject(selectedModule)
       val pyTool = PyTool.findByPackageName(parsed.toolName)
       val result = if (pyTool != null) {
         runCliCommand(
@@ -794,14 +817,12 @@ internal class PyInstallPackageDialog(private val project: Project) : BigPopupUI
     }
   }
 
-  private fun resolveModule(): Module? {
-    workspaceSelector.selectedIJModule?.let { return it }
-    val sdk = packagingService.currentSdk ?: return null
-    return project.findModuleForSdk(sdk)
-  }
+  /** [selectedModule] is the module the user picked, read on the EDT when the install was pressed. */
+  private suspend fun resolveModule(selectedModule: Module?): Module? =
+    selectedModule ?: packagingService.findCurrentInterpreterModule()
 
-  private fun resolveModuleOrProject(): ModuleOrProject =
-    resolveModule()?.let { ModuleOrProject.ModuleAndProject(it) } ?: ModuleOrProject.ProjectOnly(project)
+  private suspend fun resolveModuleOrProject(selectedModule: Module?): ModuleOrProject =
+    resolveModule(selectedModule)?.let { ModuleOrProject.ModuleAndProject(it) } ?: ModuleOrProject.ProjectOnly(project)
 
 }
 

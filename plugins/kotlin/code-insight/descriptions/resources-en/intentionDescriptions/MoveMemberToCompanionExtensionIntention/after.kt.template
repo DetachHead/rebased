@@ -1,0 +1,5 @@
+class A
+
+<spot>companion fun A.foo() = 1</spot>
+
+fun bar() = A.foo()

@@ -3,6 +3,7 @@
 
 package org.jetbrains.kotlin.idea.fir.extensions
 
+import com.intellij.ide.plugins.PluginManagerCore
 import com.intellij.openapi.components.PathMacroManager
 import com.intellij.openapi.diagnostic.getOrLogException
 import com.intellij.openapi.diagnostic.logger
@@ -13,6 +14,8 @@ import com.intellij.openapi.progress.ProcessCanceledException
 import com.intellij.openapi.progress.ProgressManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.roots.CompilerModuleExtension
+import com.intellij.openapi.util.BuildNumber
+import com.intellij.openapi.util.io.getJarAttribute
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.platform.eel.path.EelPath
 import com.intellij.platform.eel.provider.LocalEelDescriptor
@@ -57,6 +60,7 @@ import java.io.File
 import java.nio.file.Path
 import java.util.Optional
 import java.util.concurrent.ConcurrentMap
+import kotlin.io.path.nameWithoutExtension
 import kotlin.script.experimental.api.ScriptCompilationConfiguration
 import kotlin.script.experimental.api.compilerOptions
 
@@ -222,7 +226,10 @@ class KtCompilerPluginsCache private constructor(
 
         fun new(project: Project, onlyBundledPluginsEnabled: Boolean): KtCompilerPluginsCache {
             val pluginsClassLoader: UrlClassLoader = UrlClassLoader.build().apply {
-                parent(KaModule::class.java.classLoader)
+                // current classloader includes all attached AA libraries, so should work as parent classloader
+                // more clean would be to take classloader of analysis-api-k2 library, but it's an implementation detail
+                // only api library itself is not enough because compiler plugins might depend on implementations
+                parent(KtCompilerPluginsCache::class.java.classLoader)
                 val compilerArguments = ModuleManager.getInstance(project).modules.map { it.getCompilerArguments() }
                 val pluginClasspaths = collectSubstitutedPluginClasspaths(project, onlyBundledPluginsEnabled, compilerArguments)
                 files(pluginClasspaths)
@@ -280,6 +287,7 @@ class KtCompilerPluginsCache private constructor(
         /**
          * We have the following logic for plugins' substitution:
          * 1. Always replace our own plugins (like "allopen", "noarg", etc.) with bundled ones to avoid binary incompatibility.
+         * 2. Allow using compiler plugins that have [CompilerPluginManifestAttributes.SINCE_BUILD_ATTR] manifest attribute if the build range matches.
          * 2. Allow using other compiler plugins only if [onlyBundledPluginsEnabled] is set to false; otherwise, filter them.
          */
         private fun substitutePluginJar(project: Project, onlyBundledPluginsEnabled: Boolean, userSuppliedPluginJar: Path): Path? {
@@ -288,7 +296,49 @@ class KtCompilerPluginsCache private constructor(
             val bundledPlugin = KotlinBundledFirCompilerPluginProvider.provideBundledPluginJar(project, userSuppliedPluginJar)
             if (bundledPlugin != null) return bundledPlugin
 
-            return userSuppliedPluginJar.takeUnless { onlyBundledPluginsEnabled }
+            val sinceBuild = getJarAttribute(userSuppliedPluginJar, CompilerPluginManifestAttributes.SINCE_BUILD_ATTR)
+            val untilBuild = getJarAttribute(userSuppliedPluginJar, CompilerPluginManifestAttributes.UNTIL_BUILD_ATTR)
+            return when {
+                sinceBuild != null && isCompilerPluginCompatible(
+                    sinceBuild,
+                    untilBuild,
+                    userSuppliedPluginJar.nameWithoutExtension,
+                    PluginManagerCore.buildNumber
+                ) -> userSuppliedPluginJar
+
+                onlyBundledPluginsEnabled -> null
+                else -> userSuppliedPluginJar
+            }
+        }
+
+        // Modified from com.intellij.ide.plugins.PluginCompatibilityUtils
+        private fun isCompilerPluginCompatible(
+            sinceBuild: String,
+            untilBuild: String?,
+            pluginName: String,
+            ideBuildNumber: BuildNumber
+        ): Boolean {
+            val logPrefix = "$pluginName is incompatible with the product:"
+            val sinceBuildNumber = runCatching {
+                BuildNumber.fromString(sinceBuild, pluginName, null)
+            }.getOrLogException(LOG) ?: return false
+
+            if (sinceBuildNumber > ideBuildNumber) {
+                LOG.warn("$logPrefix requires build >= ${sinceBuildNumber}, actual ${ideBuildNumber.withoutProductCode()}")
+                return false
+            }
+
+            if (untilBuild != null) {
+                val untilBuildNumber = runCatching {
+                    BuildNumber.fromString(untilBuild, pluginName, null)
+                }.getOrLogException(LOG) ?: return false
+
+                if (untilBuildNumber < ideBuildNumber) {
+                    LOG.warn("$logPrefix requires build <= ${untilBuildNumber}, actual ${ideBuildNumber.withoutProductCode()}")
+                    return false
+                }
+            }
+            return true
         }
 
         /**

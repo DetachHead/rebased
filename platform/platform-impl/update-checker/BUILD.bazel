@@ -2,6 +2,10 @@ load("@rules_jvm//:jvm.bzl", "jvm_library")
 load("//build:compiler-options.bzl", "create_kotlinc_options")
 load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
+### auto-generated section `dev intellij.platform.ide.updateChecker` start
+content_module_jar(module = ":update-checker")
+### auto-generated section `dev intellij.platform.ide.updateChecker` end
+
 ### auto-generated section `build intellij.platform.ide.updateChecker` start
 create_kotlinc_options(
     name = "custom_update-checker",
@@ -50,10 +54,10 @@ jvm_library(
         "//platform/util/concurrency",
         "//platform/util:util-ui",
         "//platform/editor-ui-api:editor-ui",
+        "//platform/platform-api:ide",
+        "//platform/productMode",
     ],
 )
-
-content_module_jar(module = ":update-checker")
 
 jvm_library(
     name = "update-checker_test_lib",
@@ -91,6 +95,8 @@ jvm_library(
         "//platform/util/concurrency:concurrency_test_lib",
         "//platform/util:util-ui_test_lib",
         "//platform/editor-ui-api:editor-ui_test_lib",
+        "//platform/platform-api:ide_test_lib",
+        "//platform/productMode:productMode_test_lib",
     ],
 )
 ### auto-generated section `build intellij.platform.ide.updateChecker` end
@@ -100,7 +106,6 @@ exports_files(
     [
         "intellij.platform.ide.updateChecker.iml",
         "resources/intellij.platform.ide.updateChecker.xml",
-        "module-content.yaml",
     ],
     visibility = ["//visibility:public"],
 )

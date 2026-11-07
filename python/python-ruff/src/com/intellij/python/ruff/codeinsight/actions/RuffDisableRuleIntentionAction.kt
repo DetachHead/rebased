@@ -9,7 +9,7 @@ import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Iconable
-import com.intellij.openapi.vfs.LocalFileSystem
+import com.intellij.openapi.vfs.StandardFileSystems
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.psi.PsiDocumentManager
 import com.intellij.psi.PsiElement
@@ -19,7 +19,7 @@ import com.intellij.psi.PsiManager
 import com.intellij.psi.PsiWhiteSpace
 import com.intellij.psi.util.PsiTreeUtil
 import com.intellij.python.pyproject.PY_PROJECT_TOML
-import com.intellij.python.pytools.statistics.PyToolUsagesCollector
+import com.intellij.python.pytools.backend.statistics.PyToolUsagesCollector
 import com.intellij.python.ruff.RuffBundle
 import com.intellij.util.IncorrectOperationException
 import org.toml.lang.psi.TomlArray
@@ -75,7 +75,12 @@ class RuffDisableRuleIntentionAction(private val ruleCode: String) : BaseIntenti
         val newPsiFile = PsiFileFactory.getInstance(project).createFileFromText("ruff.toml", TomlFileType, "") as TomlFile
         addRuleToIgnoreInSection(newPsiFile, ruleCode, "lint")
         val added = psiDir.add(newPsiFile)
-        val addedPsiFile = (added as? PsiFile) ?: PsiManager.getInstance(project).findFile((added.containingFile?.virtualFile) ?: return@runWriteCommandAction)
+        val addedPsiFile = if (added is PsiFile) {
+          added
+        } else {
+          val addedVirtualFile = added.containingFile?.virtualFile ?: return@runWriteCommandAction
+          PsiManager.getInstance(project).findFile(addedVirtualFile)
+        }
         if (addedPsiFile != null) {
           commitAndSave(project, addedPsiFile)
         }
@@ -103,7 +108,7 @@ class RuffDisableRuleIntentionAction(private val ruleCode: String) : BaseIntenti
     val candidateDirs = mutableListOf<VirtualFile>()
     contextFile?.virtualFile?.parent?.let { candidateDirs.add(it) }
     project.basePath?.let { base ->
-      LocalFileSystem.getInstance().findFileByPath(base)?.let { baseDir ->
+      StandardFileSystems.local().findFileByPath(base)?.let { baseDir ->
         if (candidateDirs.none { it.path == baseDir.path }) candidateDirs.add(baseDir)
       }
     }

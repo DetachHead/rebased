@@ -7,6 +7,7 @@ import com.intellij.tools.ide.metrics.benchmark.Benchmark;
 import com.intellij.util.containers.ContainerUtil;
 import org.junit.Test;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
@@ -411,6 +412,7 @@ public class ThreadDumpParserTest {
     assertEquals(3, threads.stream().filter(s -> s.isVirtual()).count());
 
     assertEquals("main", threads.get(0).getName());
+    assertEquals(Long.valueOf(1L), threads.get(0).getUniqueId());
     assertTrue(threads.get(0).getStackTrace().contains("Unsafe.park"));
     assertTrue(threads.get(0).getStackTrace().contains("VTHardWork.main"));
     assertFalse(threads.get(0).isEmptyStackTrace());
@@ -707,7 +709,7 @@ public class ThreadDumpParserTest {
   }
 
   @Test
-	public void testCarryingVirtualThread() {
+  public void testCarryingVirtualThread() {
     String text = """
       "ForkJoinPool-1-worker-1" #24 [25347] daemon prio=5 os_prio=31 cpu=41.39ms elapsed=6.75s tid=0x000000011f00da00  [0x000000017003d000]
          Carrying virtual thread #21
@@ -734,10 +736,95 @@ public class ThreadDumpParserTest {
     assertEquals(2, threads.size());
 
     assertEquals("ForkJoinPool-1-worker-1", threads.get(0).getName());
+    assertEquals(Long.valueOf(24L), threads.get(0).getUniqueId());
     assertEquals(ThreadOperation.CARRYING_VTHREAD, threads.get(0).getOperation());
 
     assertEquals("ForkJoinPool-1-worker-2", threads.get(1).getName());
+    assertEquals(Long.valueOf(22L), threads.get(1).getUniqueId());
     assertEquals("WAITING", threads.get(1).getJavaThreadState());
+  }
+
+  @Test
+  public void testJcmdJsonThreadStateIsPreserved() {
+    String text = """
+      {
+        "threadDump": {
+          "threadContainers": [
+            {
+              "threads": [
+                {
+                  "tid": "1",
+                  "name": "waiting-thread",
+                  "state": "WAITING",
+                  "stack": [
+                    "java.base/jdk.internal.misc.Unsafe.park(Native Method)"
+                  ]
+                },
+                {
+                  "tid": "2",
+                  "name": "running-thread",
+                  "state": "RUNNABLE",
+                  "stack": [
+                    "example.Main.run(Main.java:1)"
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      }
+      """;
+
+    List<ThreadState> threads = ThreadDumpParser.parse(text);
+    assertEquals(2, threads.size());
+
+    ThreadState waitingThread = ContainerUtil.find(threads, thread -> "waiting-thread".equals(thread.getName()));
+    assertNotNull(waitingThread);
+    assertEquals("WAITING", waitingThread.getState());
+    assertEquals("WAITING", waitingThread.getJavaThreadState());
+    assertTrue(waitingThread.isWaiting());
+
+    ThreadState runningThread = ContainerUtil.find(threads, thread -> "running-thread".equals(thread.getName()));
+    assertNotNull(runningThread);
+    assertEquals("RUNNABLE", runningThread.getState());
+    assertEquals("RUNNABLE", runningThread.getJavaThreadState());
+    assertFalse(runningThread.isWaiting());
+  }
+
+  @Test
+  public void testJcmdJsonNumericIdentifiers() {
+    String text = """
+      {
+        "threadDump": {
+          "formatVersion": 2,
+          "processId": 79302,
+          "threadContainers": [
+            {
+              "threads": [
+                {
+                  "tid": 157,
+                  "name": "waiting-thread",
+                  "state": "WAITING",
+                  "stack": [
+                    "java.base/jdk.internal.misc.Unsafe.park(Native Method)"
+                  ]
+                }
+              ],
+              "threadCount": 1
+            }
+          ]
+        }
+      }
+      """;
+
+    List<ThreadState> threads = ThreadDumpParser.parse(text);
+    assertEquals(1, threads.size());
+
+    ThreadState waitingThread = ContainerUtil.find(threads, thread -> "waiting-thread".equals(thread.getName()));
+    assertNotNull(waitingThread);
+    assertEquals("waiting-thread", waitingThread.getName());
+    assertEquals("WAITING", waitingThread.getJavaThreadState());
+    assertTrue(waitingThread.getStackTrace().startsWith("#157 \"waiting-thread\"\n"));
   }
 
   @Test
@@ -943,6 +1030,36 @@ public class ThreadDumpParserTest {
     assertNull(thread.getUniqueId());
     assertEquals("runnable", thread.getState());
     assertTrue(thread.isVirtual());
+  }
+
+  @Test
+  public void testDeadlockDetectionUsesOwnableSynchronizerOwner() {
+    ThreadState lockOwner = new ThreadState("lock-owner", "waiting");
+    lockOwner.setOwnableSynchronizers("0x1");
+    lockOwner.setStackTrace("\"lock-owner\" waiting\n\tat java.lang.Thread.run(Thread.java:1)", false);
+
+    ThreadState waiter = new ThreadState("waiter", "waiting");
+    waiter.setContendedMonitor("0x1");
+    waiter.setStackTrace("\"waiter\" waiting\n\tat java.lang.Thread.run(Thread.java:1)", false);
+
+    ThreadDumpParser.detectWaitingAndDeadlockedThreads(List.of(lockOwner, waiter));
+
+    assertTrue(lockOwner.isAwaitedBy(waiter));
+  }
+
+  @Test(timeout = 10_000)
+  public void testDeadlockDetectionWithManyUnownedContendedMonitors() {
+    List<ThreadState> threads = new ArrayList<>();
+    for (int i = 0; i < 50_000; i++) {
+      ThreadState thread = new ThreadState("virtual-" + i, "waiting");
+      thread.setVirtual(true);
+      thread.setContendedMonitor("missing-monitor-" + i);
+      threads.add(thread);
+    }
+
+    ThreadDumpParser.detectWaitingAndDeadlockedThreads(threads);
+
+    assertTrue(threads.getLast().getAwaitingThreads().isEmpty());
   }
 
   @PerformanceUnitTest

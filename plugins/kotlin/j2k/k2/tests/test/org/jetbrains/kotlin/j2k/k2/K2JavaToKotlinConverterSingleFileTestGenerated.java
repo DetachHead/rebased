@@ -4278,6 +4278,64 @@ public abstract class K2JavaToKotlinConverterSingleFileTestGenerated extends Abs
     }
 
     @RunWith(JUnit3RunnerWithInners.class)
+    @TestMetadata("../../shared/tests/testData/newJ2k/lombok")
+    public static class Lombok extends AbstractK2JavaToKotlinConverterSingleFileTest {
+        private void runTest(String testDataFilePath) throws Exception {
+            KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
+        }
+
+        @TestMetadata("allArgsConstructor.java")
+        public void testAllArgsConstructor() throws Exception {
+            runTest("../../shared/tests/testData/newJ2k/lombok/allArgsConstructor.java");
+        }
+
+        @TestMetadata("dataAccessLevel.java")
+        public void testDataAccessLevel() throws Exception {
+            runTest("../../shared/tests/testData/newJ2k/lombok/dataAccessLevel.java");
+        }
+
+        @TestMetadata("dataClass.java")
+        public void testDataClass() throws Exception {
+            runTest("../../shared/tests/testData/newJ2k/lombok/dataClass.java");
+        }
+
+        @TestMetadata("dataClassNotApplicable.java")
+        public void testDataClassNotApplicable() throws Exception {
+            runTest("../../shared/tests/testData/newJ2k/lombok/dataClassNotApplicable.java");
+        }
+
+        @TestMetadata("logAnnotations.java")
+        public void testLogAnnotations() throws Exception {
+            runTest("../../shared/tests/testData/newJ2k/lombok/logAnnotations.java");
+        }
+
+        @TestMetadata("noArgsConstructor.java")
+        public void testNoArgsConstructor() throws Exception {
+            runTest("../../shared/tests/testData/newJ2k/lombok/noArgsConstructor.java");
+        }
+
+        @TestMetadata("passThroughAnnotations.java")
+        public void testPassThroughAnnotations() throws Exception {
+            runTest("../../shared/tests/testData/newJ2k/lombok/passThroughAnnotations.java");
+        }
+
+        @TestMetadata("requiredArgsConstructor.java")
+        public void testRequiredArgsConstructor() throws Exception {
+            runTest("../../shared/tests/testData/newJ2k/lombok/requiredArgsConstructor.java");
+        }
+
+        @TestMetadata("requiredArgsConstructorNotApplicable.java")
+        public void testRequiredArgsConstructorNotApplicable() throws Exception {
+            runTest("../../shared/tests/testData/newJ2k/lombok/requiredArgsConstructorNotApplicable.java");
+        }
+
+        @TestMetadata("valueClass.java")
+        public void testValueClass() throws Exception {
+            runTest("../../shared/tests/testData/newJ2k/lombok/valueClass.java");
+        }
+    }
+
+    @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("../../shared/tests/testData/newJ2k/methodCallExpression")
     public static class MethodCallExpression extends AbstractK2JavaToKotlinConverterSingleFileTest {
         private void runTest(String testDataFilePath) throws Exception {
@@ -5063,6 +5121,11 @@ public abstract class K2JavaToKotlinConverterSingleFileTestGenerated extends Abs
             runTest("../../shared/tests/testData/newJ2k/nullability/notNullCast.java");
         }
 
+        @TestMetadata("notNullField.java")
+        public void testNotNullField() throws Exception {
+            runTest("../../shared/tests/testData/newJ2k/nullability/notNullField.java");
+        }
+
         @TestMetadata("NullabilityByDfa.java")
         public void testNullabilityByDfa() throws Exception {
             runTest("../../shared/tests/testData/newJ2k/nullability/NullabilityByDfa.java");
@@ -5116,6 +5179,11 @@ public abstract class K2JavaToKotlinConverterSingleFileTestGenerated extends Abs
         @TestMetadata("NullableVariableDotAccess.java")
         public void testNullableVariableDotAccess() throws Exception {
             runTest("../../shared/tests/testData/newJ2k/nullability/NullableVariableDotAccess.java");
+        }
+
+        @TestMetadata("optionalIsNotNull.java")
+        public void testOptionalIsNotNull() throws Exception {
+            runTest("../../shared/tests/testData/newJ2k/nullability/optionalIsNotNull.java");
         }
 
         @TestMetadata("OverrideWithInheritanceLoop.java")
@@ -5226,6 +5294,21 @@ public abstract class K2JavaToKotlinConverterSingleFileTestGenerated extends Abs
             runTest("../../shared/tests/testData/newJ2k/nullabilityGenerics/javaInteropTodo.java");
         }
 
+        @TestMetadata("jpaToManyCollection.java")
+        public void testJpaToManyCollection() throws Exception {
+            runTest("../../shared/tests/testData/newJ2k/nullabilityGenerics/jpaToManyCollection.java");
+        }
+
+        @TestMetadata("jpaToManyNullEvidence.java")
+        public void testJpaToManyNullEvidence() throws Exception {
+            runTest("../../shared/tests/testData/newJ2k/nullabilityGenerics/jpaToManyNullEvidence.java");
+        }
+
+        @TestMetadata("jpaToManyTypeArguments.java")
+        public void testJpaToManyTypeArguments() throws Exception {
+            runTest("../../shared/tests/testData/newJ2k/nullabilityGenerics/jpaToManyTypeArguments.java");
+        }
+
         @TestMetadata("kotlinInteropTodo.java")
         public void testKotlinInteropTodo() throws Exception {
             runTest("../../shared/tests/testData/newJ2k/nullabilityGenerics/kotlinInteropTodo.java");
@@ -5254,6 +5337,11 @@ public abstract class K2JavaToKotlinConverterSingleFileTestGenerated extends Abs
         @TestMetadata("notNullIterationParameterCollections.java")
         public void testNotNullIterationParameterCollections() throws Exception {
             runTest("../../shared/tests/testData/newJ2k/nullabilityGenerics/notNullIterationParameterCollections.java");
+        }
+
+        @TestMetadata("notNullIterationParameterMapViews.java")
+        public void testNotNullIterationParameterMapViews() throws Exception {
+            runTest("../../shared/tests/testData/newJ2k/nullabilityGenerics/notNullIterationParameterMapViews.java");
         }
 
         @TestMetadata("notNullIterationParameterMethodCall.java")
@@ -5639,9 +5727,19 @@ public abstract class K2JavaToKotlinConverterSingleFileTestGenerated extends Abs
             runTest("../../shared/tests/testData/newJ2k/postProcessing/MapGetOrDefault.java");
         }
 
+        @TestMetadata("mutableFieldInJpaEntity.java")
+        public void testMutableFieldInJpaEntity() throws Exception {
+            runTest("../../shared/tests/testData/newJ2k/postProcessing/mutableFieldInJpaEntity.java");
+        }
+
         @TestMetadata("mutablePropertyAnnotatedWithJpaColumn.java")
         public void testMutablePropertyAnnotatedWithJpaColumn() throws Exception {
             runTest("../../shared/tests/testData/newJ2k/postProcessing/mutablePropertyAnnotatedWithJpaColumn.java");
+        }
+
+        @TestMetadata("mutablePropertyAnnotatedWithJpaMapping.java")
+        public void testMutablePropertyAnnotatedWithJpaMapping() throws Exception {
+            runTest("../../shared/tests/testData/newJ2k/postProcessing/mutablePropertyAnnotatedWithJpaMapping.java");
         }
 
         @TestMetadata("noDestructuringForPlainVariables.java")

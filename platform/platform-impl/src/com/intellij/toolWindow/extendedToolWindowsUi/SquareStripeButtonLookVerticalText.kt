@@ -10,6 +10,7 @@ import com.intellij.openapi.wm.impl.isHorizontal
 import com.intellij.openapi.wm.impl.toEnum
 import com.intellij.toolWindow.StripeButtonUi
 import com.intellij.ui.icons.toStrokeIcon
+import com.intellij.ui.paint.useCopy
 import com.intellij.ui.scale.JBUIScale
 import com.intellij.util.ui.EmptyIcon
 import com.intellij.util.ui.JBFont
@@ -19,7 +20,6 @@ import com.intellij.util.ui.UIUtil
 import java.awt.Color
 import java.awt.Dimension
 import java.awt.Graphics
-import java.awt.Graphics2D
 import java.awt.Point
 import java.awt.Rectangle
 import javax.swing.Icon
@@ -82,7 +82,7 @@ internal class SquareStripeButtonLookVerticalText(button: SquareStripeButton) : 
     val verticalOffset = JBUIScale.scale(if (UISettings.getInstance().compactMode) 1 else 2)
     val leftStripeVerticalOffset = JBUIScale.scale(1)
 
-    UIUtil.useSafely(g!!) { g2 ->
+    g!!.useCopy { g2 ->
       g2.color = getForegroundColor()
       g2.font = f
       UISettings.setupAntialiasing(g2)
@@ -124,13 +124,9 @@ internal class SquareStripeButtonLookVerticalText(button: SquareStripeButton) : 
     val rect = Rectangle(areaSize)
     paintLookBackground(g, rect, color)
 
-    val g2 = g.create() as Graphics2D
-    try {
+    g.useCopy { g2 ->
       g2.translate(-(button.insets.left + iconPadding.left), -(button.insets.top + iconPadding.top))
       paintIcon(g2, button, button.icon)
-    }
-    finally {
-      g2.dispose()
     }
 
     paintLookBorder(g, rect, color)

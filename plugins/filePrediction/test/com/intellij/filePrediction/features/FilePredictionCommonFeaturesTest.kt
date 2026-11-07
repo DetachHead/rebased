@@ -4,6 +4,7 @@ package com.intellij.filePrediction.features
 import com.intellij.filePrediction.features.history.FilePredictionNGramFeatures
 import com.intellij.filePrediction.references.ExternalReferencesResult.Companion.FAILED_COMPUTATION
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.application.EDT
 import com.intellij.openapi.module.Module
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.guessProjectDir
@@ -11,16 +12,27 @@ import com.intellij.openapi.roots.ModuleRootManager
 import com.intellij.openapi.roots.OrderRootType
 import com.intellij.openapi.util.io.FileUtil
 import com.intellij.openapi.vfs.VirtualFileManager
-import com.intellij.testFramework.builders.ModuleFixtureBuilder
-import com.intellij.testFramework.fixtures.CodeInsightFixtureTestCase
-import com.intellij.testFramework.fixtures.ModuleFixture
+import com.intellij.platform.testFramework.junit5.codeInsight.fixture.codeInsightFixture
+import com.intellij.platform.testFramework.junit5.codeInsight.fixture.codeInsightProjectFixture
+import com.intellij.testFramework.common.timeoutRunBlocking
+import com.intellij.testFramework.junit5.TestApplication
 import com.intellij.util.io.URLUtil
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import org.jetbrains.jps.model.java.JavaSourceRootType
 import org.jetbrains.jps.model.java.JpsJavaExtensionService
+import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertNotNull
+import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.Test
 import java.io.File
 import kotlin.math.abs
 
-class FilePredictionCommonFeaturesTest : CodeInsightFixtureTestCase<ModuleFixtureBuilder<ModuleFixture>>() {
+@TestApplication
+class FilePredictionCommonFeaturesTest {
+  private val projectFixture = codeInsightProjectFixture()
+  private val myFixture by codeInsightFixture(projectFixture)
+
   private fun doTestSimilarityFeatures(prevPath: String,
                                        newPath: String,
                                        expected: FileFeaturesProducer) {
@@ -33,33 +45,35 @@ class FilePredictionCommonFeaturesTest : CodeInsightFixtureTestCase<ModuleFixtur
 
   private fun doTestFeatures(prevPath: String, newPath: String,
                              providers: List<FilePredictionFeatureProvider>,
-                             expectedFeaturesProvider: FileFeaturesProducer) {
-    val prevFile = myFixture.addFileToProject(prevPath, "PREVIOUS FILE")
-    val nextFile = myFixture.addFileToProject(newPath, "NEXT FILE")
+                             expectedFeaturesProvider: FileFeaturesProducer): Unit = timeoutRunBlocking {
+    withContext(Dispatchers.EDT) {
+      val prevFile = myFixture.addFileToProject(prevPath, "PREVIOUS FILE")
+      val nextFile = myFixture.addFileToProject(newPath, "NEXT FILE")
 
-    val emptyCache = FilePredictionFeaturesCache(FAILED_COMPUTATION, FilePredictionNGramFeatures(emptyMap()))
-    val actual: MutableMap<String, FilePredictionFeature> = hashMapOf()
-    for (provider in providers) {
-      val features = provider.calculateFileFeatures(
-        myFixture.project, nextFile.virtualFile, prevFile.virtualFile, emptyCache
-      )
-      actual.putAll(features)
-    }
-
-    val expected = expectedFeaturesProvider.produce(myFixture.project)
-    for (feature in expected.entries) {
-      assertTrue("Cannot find feature '${feature.key}' in $actual", actual.containsKey(feature.key))
-
-      if (feature.value.value is Double) {
-        val expectedValue = feature.value.value as Double
-        val actualValue = actual[feature.key]!!.value as Double
-        assertTrue(
-          "The value of feature '${feature.key}' is different from expected. Expected: $expectedValue, Actual: $actualValue",
-          abs(expectedValue - actualValue) < 0.0001
+      val emptyCache = FilePredictionFeaturesCache(FAILED_COMPUTATION, FilePredictionNGramFeatures(emptyMap()))
+      val actual: MutableMap<String, FilePredictionFeature> = hashMapOf()
+      for (provider in providers) {
+        val features = provider.calculateFileFeatures(
+          myFixture.project, nextFile.virtualFile, prevFile.virtualFile, emptyCache
         )
+        actual.putAll(features)
       }
-      else {
-        assertEquals("The value of feature '${feature.key}' is different from expected", feature.value, actual[feature.key])
+
+      val expected = expectedFeaturesProvider.produce(myFixture.project)
+      for (feature in expected.entries) {
+        assertTrue(actual.containsKey(feature.key), "Cannot find feature '${feature.key}' in $actual")
+
+        if (feature.value.value is Double) {
+          val expectedValue = feature.value.value as Double
+          val actualValue = actual[feature.key]!!.value as Double
+          assertTrue(
+            abs(expectedValue - actualValue) < 0.0001,
+            "The value of feature '${feature.key}' is different from expected. Expected: $expectedValue, Actual: $actualValue"
+          )
+        }
+        else {
+          assertEquals(feature.value, actual[feature.key], "The value of feature '${feature.key}' is different from expected")
+        }
       }
     }
   }
@@ -70,21 +84,24 @@ class FilePredictionCommonFeaturesTest : CodeInsightFixtureTestCase<ModuleFixtur
 
   private fun doTestFeatures(provider: FilePredictionFeatureProvider,
                              newPath: String, configurator: ProjectConfigurator,
-                             expectedFeaturesProvider: FileFeaturesProducer) {
-    val nextFile = myFixture.addFileToProject(newPath, "NEXT FILE")
-    configurator.configure(myFixture.project, myModule)
+                             expectedFeaturesProvider: FileFeaturesProducer): Unit = timeoutRunBlocking {
+    withContext(Dispatchers.EDT) {
+      val nextFile = myFixture.addFileToProject(newPath, "NEXT FILE")
+      configurator.configure(myFixture.project, myFixture.module)
 
-    val emptyCache = FilePredictionFeaturesCache(FAILED_COMPUTATION, FilePredictionNGramFeatures(emptyMap()))
-    val actual = provider.calculateFileFeatures(
-      myFixture.project, nextFile.virtualFile, null, emptyCache
-    )
-    val expected = expectedFeaturesProvider.produce(myFixture.project)
-    for (feature in expected.entries) {
-      assertTrue("Cannot find feature '${feature.key}' in $actual", actual.containsKey(feature.key))
-      assertEquals("The value of feature '${feature.key}' is different from expected", feature.value, actual[feature.key])
+      val emptyCache = FilePredictionFeaturesCache(FAILED_COMPUTATION, FilePredictionNGramFeatures(emptyMap()))
+      val actual = provider.calculateFileFeatures(
+        myFixture.project, nextFile.virtualFile, null, emptyCache
+      )
+      val expected = expectedFeaturesProvider.produce(myFixture.project)
+      for (feature in expected.entries) {
+        assertTrue(actual.containsKey(feature.key), "Cannot find feature '${feature.key}' in $actual")
+        assertEquals(feature.value, actual[feature.key], "The value of feature '${feature.key}' is different from expected")
+      }
     }
   }
 
+  @Test
   fun `test file name with no common word`() {
     doTestSimilarityFeatures(
       "prevSome.txt", "nextFile.txt",
@@ -95,6 +112,7 @@ class FilePredictionCommonFeaturesTest : CodeInsightFixtureTestCase<ModuleFixtur
     )
   }
 
+  @Test
   fun `test file name with common word`() {
     doTestSimilarityFeatures(
       "prevFile.txt", "nextFile.txt",
@@ -105,6 +123,7 @@ class FilePredictionCommonFeaturesTest : CodeInsightFixtureTestCase<ModuleFixtur
     )
   }
 
+  @Test
   fun `test file name with multiple common words`() {
     doTestSimilarityFeatures(
       "prevFileFoo.txt", "fooNextFileSome.txt",
@@ -115,6 +134,7 @@ class FilePredictionCommonFeaturesTest : CodeInsightFixtureTestCase<ModuleFixtur
     )
   }
 
+  @Test
   fun `test file name with common words and different length`() {
     doTestSimilarityFeatures(
       "foo.txt", "nextFileSomeFoo.txt",
@@ -125,6 +145,7 @@ class FilePredictionCommonFeaturesTest : CodeInsightFixtureTestCase<ModuleFixtur
     )
   }
 
+  @Test
   fun `test file name prefix for completely different files`() {
     doTestSimilarityFeatures(
       "prevFile.txt", "nextFile.txt",
@@ -135,6 +156,7 @@ class FilePredictionCommonFeaturesTest : CodeInsightFixtureTestCase<ModuleFixtur
     )
   }
 
+  @Test
   fun `test file name prefix for files with common prefix`() {
     doTestSimilarityFeatures(
       "myPrevFile.txt", "myNextFile.txt",
@@ -145,6 +167,7 @@ class FilePredictionCommonFeaturesTest : CodeInsightFixtureTestCase<ModuleFixtur
     )
   }
 
+  @Test
   fun `test file name prefix for equal files`() {
     doTestSimilarityFeatures(
       "file.txt", "src/file.txt",
@@ -155,6 +178,7 @@ class FilePredictionCommonFeaturesTest : CodeInsightFixtureTestCase<ModuleFixtur
     )
   }
 
+  @Test
   fun `test file name of different length`() {
     doTestSimilarityFeatures(
       "someFile.txt", "src/file.txt",
@@ -165,6 +189,7 @@ class FilePredictionCommonFeaturesTest : CodeInsightFixtureTestCase<ModuleFixtur
     )
   }
 
+  @Test
   fun `test file name with common prefix but different length`() {
     doTestSimilarityFeatures(
       "filePrevious.txt", "src/file.txt",
@@ -175,6 +200,7 @@ class FilePredictionCommonFeaturesTest : CodeInsightFixtureTestCase<ModuleFixtur
     )
   }
 
+  @Test
   fun `test file name in child directory`() {
     doTestSimilarityFeatures(
       "src/someFile.txt", "src/file.txt",
@@ -185,6 +211,7 @@ class FilePredictionCommonFeaturesTest : CodeInsightFixtureTestCase<ModuleFixtur
     )
   }
 
+  @Test
   fun `test file name in neighbour directories`() {
     doTestSimilarityFeatures(
       "src/com/site/ui/someFile.txt", "src/com/site/component/file.txt",
@@ -195,6 +222,7 @@ class FilePredictionCommonFeaturesTest : CodeInsightFixtureTestCase<ModuleFixtur
     )
   }
 
+  @Test
   fun `test files path in project root`() {
     doTestSimilarityFeatures(
       "prevFile.txt", "nextFile.txt",
@@ -206,6 +234,7 @@ class FilePredictionCommonFeaturesTest : CodeInsightFixtureTestCase<ModuleFixtur
     )
   }
 
+  @Test
   fun `test files path in the same directory`() {
     doTestSimilarityFeatures(
       "src/prevFile.txt", "src/nextFile.txt",
@@ -217,6 +246,7 @@ class FilePredictionCommonFeaturesTest : CodeInsightFixtureTestCase<ModuleFixtur
     )
   }
 
+  @Test
   fun `test files path in the neighbour directories`() {
     doTestSimilarityFeatures(
       "src/ui/prevFile.txt", "src/components/nextFile.txt",
@@ -228,6 +258,7 @@ class FilePredictionCommonFeaturesTest : CodeInsightFixtureTestCase<ModuleFixtur
     )
   }
 
+  @Test
   fun `test files path of different length`() {
     doTestSimilarityFeatures(
       "firstFile.txt", "another/nextFile.txt",
@@ -239,6 +270,7 @@ class FilePredictionCommonFeaturesTest : CodeInsightFixtureTestCase<ModuleFixtur
     )
   }
 
+  @Test
   fun `test common ancestor for files in the same directory`() {
     doTestSimilarityFeatures(
       "src/firstFile.txt", "src/nextFile.txt",
@@ -251,6 +283,7 @@ class FilePredictionCommonFeaturesTest : CodeInsightFixtureTestCase<ModuleFixtur
     )
   }
 
+  @Test
   fun `test common ancestor for files with the same name in the same directory`() {
     doTestSimilarityFeatures(
       "src/file.txt", "src/file.java",
@@ -263,6 +296,7 @@ class FilePredictionCommonFeaturesTest : CodeInsightFixtureTestCase<ModuleFixtur
     )
   }
 
+  @Test
   fun `test common ancestor for files in root directory`() {
     doTestSimilarityFeatures(
       "firstFile.txt", "nextFile.txt",
@@ -275,6 +309,7 @@ class FilePredictionCommonFeaturesTest : CodeInsightFixtureTestCase<ModuleFixtur
     )
   }
 
+  @Test
   fun `test common ancestor for files in neighbor directory`() {
     doTestSimilarityFeatures(
       "src/ui/firstFile.txt", "src/components/nextFile.txt",
@@ -287,6 +322,7 @@ class FilePredictionCommonFeaturesTest : CodeInsightFixtureTestCase<ModuleFixtur
     )
   }
 
+  @Test
   fun `test common ancestor for path with different length`() {
     doTestSimilarityFeatures(
       "src/ui/foo/bar/firstFile.txt", "src/components/nextFile.txt",
@@ -299,6 +335,7 @@ class FilePredictionCommonFeaturesTest : CodeInsightFixtureTestCase<ModuleFixtur
     )
   }
 
+  @Test
   fun `test long common ancestor`() {
     doTestSimilarityFeatures(
       "src/ui/foo/firstFile.txt", "src/ui/foo/components/nextFile.txt",
@@ -311,6 +348,7 @@ class FilePredictionCommonFeaturesTest : CodeInsightFixtureTestCase<ModuleFixtur
     )
   }
 
+  @Test
   fun `test files in the root directory`() {
     doTestSimilarityFeatures(
       "prevFile.txt", "nextFile.txt",
@@ -322,6 +360,7 @@ class FilePredictionCommonFeaturesTest : CodeInsightFixtureTestCase<ModuleFixtur
     )
   }
 
+  @Test
   fun `test files in same child directory`() {
     doTestSimilarityFeatures(
       "src/prevFile.txt", "src/nextFile.txt",
@@ -333,6 +372,7 @@ class FilePredictionCommonFeaturesTest : CodeInsightFixtureTestCase<ModuleFixtur
     )
   }
 
+  @Test
   fun `test files in different directories`() {
     doTestSimilarityFeatures(
       "src/prevFile.txt", "test/nextFile.txt",
@@ -344,6 +384,7 @@ class FilePredictionCommonFeaturesTest : CodeInsightFixtureTestCase<ModuleFixtur
     )
   }
 
+  @Test
   fun `test previous files in child directory`() {
     doTestSimilarityFeatures(
       "src/sub/prevFile.txt", "src/nextFile.txt",
@@ -355,6 +396,7 @@ class FilePredictionCommonFeaturesTest : CodeInsightFixtureTestCase<ModuleFixtur
     )
   }
 
+  @Test
   fun `test new files in child directory`() {
     doTestSimilarityFeatures(
       "src/prevFile.txt", "src/sub/nextFile.txt",
@@ -366,6 +408,7 @@ class FilePredictionCommonFeaturesTest : CodeInsightFixtureTestCase<ModuleFixtur
     )
   }
 
+  @Test
   fun `test files in neighbor directories`() {
     doTestSimilarityFeatures(
       "src/ui/prevFile.txt", "src/component/nextFile.txt",
@@ -377,6 +420,7 @@ class FilePredictionCommonFeaturesTest : CodeInsightFixtureTestCase<ModuleFixtur
     )
   }
 
+  @Test
   fun `test file not in a source root`() {
     doTestSimilarityFeatures(
       "file.txt",
@@ -394,6 +438,7 @@ class FilePredictionCommonFeaturesTest : CodeInsightFixtureTestCase<ModuleFixtur
     )
   }
 
+  @Test
   fun `test file in source root`() {
     doTestSimilarityFeatures(
       "nextFile.txt",
@@ -407,6 +452,7 @@ class FilePredictionCommonFeaturesTest : CodeInsightFixtureTestCase<ModuleFixtur
     )
   }
 
+  @Test
   fun `test file not in a custom source root`() {
     doTestSimilarityFeatures(
       "nextFile.txt",
@@ -425,6 +471,7 @@ class FilePredictionCommonFeaturesTest : CodeInsightFixtureTestCase<ModuleFixtur
     )
   }
 
+  @Test
   fun `test file in a custom source root`() {
     doTestSimilarityFeatures(
       "src/nextFile.txt",
@@ -443,6 +490,7 @@ class FilePredictionCommonFeaturesTest : CodeInsightFixtureTestCase<ModuleFixtur
     )
   }
 
+  @Test
   fun `test file in a library source root`() {
     doTestSimilarityFeatures(
       "lib/nextFile.txt",
@@ -461,6 +509,7 @@ class FilePredictionCommonFeaturesTest : CodeInsightFixtureTestCase<ModuleFixtur
     )
   }
 
+  @Test
   fun `test file in library classes`() {
     doTestSimilarityFeatures(
       "lib/nextFile.txt",
@@ -492,7 +541,7 @@ private object TestProjectStructureConfigurator {
   fun addSourceRoot(module: Module, path: String, isTest: Boolean) {
     val project = module.project
     val dir = project.guessProjectDir()?.path
-    CodeInsightFixtureTestCase.assertNotNull(dir)
+    assertNotNull(dir)
 
     val fullPath = "${dir}${File.separator}$path"
 
@@ -514,7 +563,7 @@ private object TestProjectStructureConfigurator {
   fun addLibrary(module: Module, path: String, type: OrderRootType) {
     val project = module.project
     val dir = project.guessProjectDir()?.path
-    CodeInsightFixtureTestCase.assertNotNull(dir)
+    assertNotNull(dir)
     val fullPath = "${dir}${File.separator}$path"
 
     ApplicationManager.getApplication().runWriteAction {

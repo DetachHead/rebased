@@ -1,7 +1,7 @@
 // Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.plugins.groovy.refactoring.move;
 
-import com.intellij.openapi.vfs.LocalFileSystem;
+import com.intellij.openapi.vfs.StandardFileSystems;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiMember;
@@ -89,7 +89,7 @@ public class GroovyMoveMembersTest extends LightJavaCodeInsightFixtureTestCase {
 
   private void doTest(final String sourceClassName, final String targetClassName, final Integer... memberIndices) {
     final VirtualFile actualDir = myFixture.copyDirectoryToProject(getTestName(true) + "/before", "");
-    final VirtualFile expectedDir = LocalFileSystem.getInstance().findFileByPath(getTestDataPath() + getTestName(true) + "/after");
+    final VirtualFile expectedDir = StandardFileSystems.local().findFileByPath(getTestDataPath() + getTestName(true) + "/after");
     //final File expectedDir = new File(getTestDataPath() + getTestName(true) + "/after");
     performAction(sourceClassName, targetClassName, memberIndices);
     try {
@@ -138,11 +138,11 @@ public class GroovyMoveMembersTest extends LightJavaCodeInsightFixtureTestCase {
   }
 
   @Override
-  public final String getBasePath() {
+  public final String getTestDataPath() {
     return basePath;
   }
 
-  private final String basePath = TestUtils.getTestDataPath() + "refactoring/move/moveMembers/";
+  private final String basePath = TestUtils.getAbsoluteTestDataPath() + "refactoring/move/moveMembers/";
 
   private static class MockMoveMembersOptions implements MoveMembersOptions {
     private final PsiMember[] selectedMembers;

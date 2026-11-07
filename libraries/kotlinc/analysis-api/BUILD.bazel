@@ -1,6 +1,13 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
 load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
+### auto-generated section `dev intellij.libraries.kotlinc.analysis.api` start
+content_module_jar(
+    libraries = ["@lib//:libraries-kotlinc-analysis-api-kotlinc-analysis-api"],
+    module = ":libraries-kotlinc-analysis-api",
+)
+### auto-generated section `dev intellij.libraries.kotlinc.analysis.api` end
+
 ### auto-generated section `build intellij.libraries.kotlinc.analysis.api` start
 jvm_library(
     name = "libraries-kotlinc-analysis-api",
@@ -21,11 +28,6 @@ jvm_library(
         "//platform/backend",
         "//libraries/kotlinc/kotlin-compiler-common:libraries-kotlinc-kotlin-compiler-common",
     ],
-)
-
-content_module_jar(
-    libraries = ["@lib//:libraries-kotlinc-analysis-api-kotlinc-analysis-api"],
-    module = ":libraries-kotlinc-analysis-api",
 )
 
 jvm_library(
@@ -53,7 +55,6 @@ exports_files(
     [
         "intellij.libraries.kotlinc.analysis.api.iml",
         "resources/intellij.libraries.kotlinc.analysis.api.xml",
-        "module-content.yaml",
     ],
     visibility = ["//visibility:public"],
 )

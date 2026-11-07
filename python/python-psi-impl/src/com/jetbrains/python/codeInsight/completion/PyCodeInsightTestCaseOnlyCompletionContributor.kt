@@ -11,6 +11,7 @@ import com.intellij.patterns.PlatformPatterns
 import com.intellij.psi.PsiComment
 import com.intellij.psi.PsiElement
 import com.intellij.psi.util.PsiTreeUtil
+import com.intellij.psi.util.PsiUtilCore
 import com.intellij.util.ProcessingContext
 import com.jetbrains.python.PythonFileType
 import com.jetbrains.python.codeInsight.completion.PyTestAssertionParserSymbols.FIXME_KEYWORD
@@ -33,6 +34,9 @@ enum class PyTestAssertionType {
   EXPECTED_VARIANCE,
   INFERRED_VARIANCE,
   ISSUES,
+
+  /** Puts the caret at the marked position, see `PyCodeInsightTestCase.configureWithCaret`. It asserts nothing. */
+  CARET,
   ;
 
   companion object {
@@ -290,7 +294,7 @@ class PyCodeInsightTestCaseOnlyCompletionContributor : CompletionContributor() {
         return false
       }
 
-      return PsiTreeUtil.getParentOfType(file.findElementAt(offsetBeforeCaret), PsiComment::class.java, false) != null
+      return PsiTreeUtil.getParentOfType(PsiUtilCore.getElementAtOffset(file, offsetBeforeCaret), PsiComment::class.java, false) != null
     }
 
     private fun addAssertionTypeElements(result: CompletionResultSet) {

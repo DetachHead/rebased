@@ -68,6 +68,10 @@ common --@rules_jvm//:default-kotlinc-opts=@community//:k25
 common:jps --repo_env=IJ_JVM_USE_RULES_KOTLIN_BACKEND=0
 common:bta --repo_env=IJ_JVM_USE_RULES_KOTLIN_BACKEND=1 --extra_toolchains=@rules_jvm//:kotlin_toolchain
 
+# kup — Kotlin User Project (KQA-3473): render the internal diagnostic names and report all warnings even when errors are found.
+common:kup --@community//build/kotlinc-opts-override:x_render_internal_diagnostic_names=true
+common:kup --@community//build/kotlinc-opts-override:x_report_all_warnings=true
+
 # configure resources
 common --local_resources=memory=HOST_RAM*.77 --local_resources=cpu=HOST_CPUS*2
 common --jobs=HOST_CPUS*2 --worker_max_multiplex_instances=JvmCompile=HOST_CPUS*2
@@ -247,45 +251,29 @@ common --repo_env=COURSIER_OPTS=-Dcoursier.exception-retry-backoff-initial-delay
 # Scale HTTP timeouts by 2x
 common --http_timeout_scaling=2.0
 
+# bt — the quiet `bazel run --script_path` of the wrappers: `community/tools/bt.cmd`, and the Air UI-lane wrappers
+# `plugins/air/scripts/vm.cmd` and `trace.cmd` of the ultimate root. A wrapper's contract is a one-line digest on
+# stdout, so Bazel's own progress and result lines would be noise; they are suppressed rather than parsed around.
+run:bt --ui_event_filters=-info --noshow_progress --show_result=0
+
 common --repo_env=BAZEL_MSVC_RUNTIME_VISUAL_STUDIO_EULA=1
 
-# `--worker_max_multiplex_instances` is how many WorkRequests a multiplex worker may be given *in parallel*, and its
-# fallback is far below `--jobs=HOST_CPUS*2`. Left unset, the packer would be a worker pool of a handful while 2 524
-# actions queue behind it - which is what the JVM worker this replaced was doing.
-common --worker_max_multiplex_instances=PackContentModuleJar=HOST_CPUS*2
+# Keep a packed content-module jar in the local disk cache and out of the remote cache. A CI build starts with an empty
+# output base, so without a cache it packs every jar again. See ADR 0019 for the measurements.
+common --modify_execution_info=PackContentModuleJar=+no-remote-cache
 
-# The same for the plugin jars, which `dev_dist_plugin_jar` packs under a mnemonic of its own. The figure is the
-# sibling's, and it is inherited rather than re-measured: nothing has measured a pool size over the plugin jars, whose
-# median is larger. `no-cache` is deliberately **not** inherited, because only a measurement over this population can
-# settle it, and `build/dev-dist-measurements-history.md` holds the one that says the cache stays.
-common --worker_max_multiplex_instances=PackPluginJar=HOST_CPUS*2
+# The host platform of rules_rs proc-macros and Rust tools. Each root resolves the label in its own main repository:
+# community defines the platforms in `build/native/platforms`, and the ultimate root aliases them at the same path.
+common:linux --host_platform=//build/native/platforms:local_linux
+common:windows --host_platform=//build/native/platforms:local_windows
 
+# Rust warnings are errors. The flag applies to the target configuration only, and rules_rust caps the lints of
+# third-party crates.
+build --@rules_rust//rust/settings:extra_rustc_flags=-Dwarnings
 
-# Do not cache a packing action. Measured over all 2 524 jars on one laptop, warm tree, one genuine packer change per
-# row so that every row is a real cold pack and no row pays for an analysis-cache discard:
-#
-#   | what the action is allowed to do        | wall clock |
-#   | nothing cached, packs every jar         |     6.7 s  |
-#   | disk cache only                         |     9.3 s  |
-#   | disk cache and the remote cache         |    26.0 s  |
-#   | served from the disk cache, packs none  |     5.3 s  |
-#
-# The remote leg is 16.7 s of that, for an action that does about a millisecond of work: `--remote_cache_async=false`
-# (above) makes the lookup block a jobs slot, and the cache is a WAN host. This is why the scrubbing
-# route was not taken - making the key platform-independent would have turned those misses into *hits*, and the hit path
-# is a round trip plus the download of a 0.25-1 MB jar, which cannot beat merging one locally.
-#
-# The disk leg is the closer call, and it is a loss too: populating it costs 2.6 s and writes 3.3 GB into a 32 GB shared
-# cache on every cold pack, to save the 1.4 s that a hit is worth. It only ever wins on a fresh output base holding this
-# exact packer and these exact module jars, because every other case is already answered - for free - by Bazel's own
-# action cache, which `no-cache` does not touch: verified, the second identical build packs nothing. And 3.3 GB of jars
-# per cold pack evicts entries for actions that do pay a cache back, such as compilation.
-#
-# It also stops CI uploading those 3.3 GB per build for results nobody should take.
-#
-# Revisit if `--remote_download_outputs=minimal` is ever adopted (see the note above): with outputs
-# left remote, a hit costs no download and the arithmetic changes.
-common --modify_execution_info=PackContentModuleJar=+no-cache
+# Rust links through `cc_common.link`, so the cc toolchain drives every link. `rustc` cannot drive the MSVC link:
+# it passes link.exe flags that the `clang-cl` link tool of `@llvm` rejects.
+build --@rules_rust//rust/settings:experimental_use_cc_common_link=True
 
 # C/C++ warnings are errors. Each external dependency disables exactly the diagnostics it emits.
 build --copt=-Werror
@@ -295,6 +283,7 @@ build --per_file_copt=external/jemalloc[+]/@-Wno-non-literal-null-conversion,-Wn
 build --per_file_copt=external/libwebp[+]/@-Wno-bad-function-cast,-Wno-cast-align,-Wno-cast-qual,-Wno-conditional-uninitialized,-Wno-covered-switch-default,-Wno-disabled-macro-expansion,-Wno-double-promotion,-Wno-float-equal,-Wno-implicit-fallthrough,-Wno-implicit-int-conversion,-Wno-implicit-int-conversion-on-negation,-Wno-implicit-int-enum-cast,-Wno-implicit-int-float-conversion,-Wno-padded,-Wno-reserved-identifier,-Wno-sign-compare,-Wno-sign-conversion,-Wno-switch-default,-Wno-switch-enum,-Wno-undef,-Wno-unsafe-buffer-usage,-Wno-unused-macros
 build --per_file_copt=external/libx11[+]/@-Wno-constant-conversion,-Wno-logical-not-parentheses,-Wno-macro-redefined,-Wno-parentheses-equality,-Wno-unused-but-set-variable
 build --per_file_copt=external/libxcb[+]/@-Wno-alloc-size,-Wno-unused-but-set-variable
-build --per_file_copt=external/xz[+]/@-Wno-c++-keyword,-Wno-cast-function-type-strict,-Wno-cast-qual,-Wno-covered-switch-default,-Wno-declaration-after-statement,-Wno-disabled-macro-expansion,-Wno-extra-semi-stmt,-Wno-implicit-fallthrough,-Wno-implicit-int-conversion,-Wno-implicit-int-enum-cast,-Wno-implicit-void-ptr-cast,-Wno-microsoft-include,-Wno-missing-noreturn,-Wno-nonportable-system-include-path,-Wno-padded,-Wno-reserved-macro-identifier,-Wno-shadow-header,-Wno-shorten-64-to-32,-Wno-sign-conversion,-Wno-switch-default,-Wno-switch-enum,-Wno-unsafe-buffer-usage,-Wno-unused-function,-Wno-unused-parameter
+build --per_file_copt=external/openssl[+]/@-Wno-unused-but-set-global
+build --per_file_copt=external/xz[+]/@-Wno-c++-keyword,-Wno-cast-function-type-strict,-Wno-cast-qual,-Wno-covered-switch-default,-Wno-declaration-after-statement,-Wno-deprecated-declarations,-Wno-disabled-macro-expansion,-Wno-extra-semi-stmt,-Wno-implicit-fallthrough,-Wno-implicit-int-conversion,-Wno-implicit-int-enum-cast,-Wno-implicit-void-ptr-cast,-Wno-microsoft-include,-Wno-missing-noreturn,-Wno-nonportable-system-include-path,-Wno-padded,-Wno-reserved-macro-identifier,-Wno-shadow-header,-Wno-shorten-64-to-32,-Wno-sign-conversion,-Wno-switch-default,-Wno-switch-enum,-Wno-unsafe-buffer-usage,-Wno-unused-function,-Wno-unused-parameter
 build --per_file_copt=external/zlib[+]/@-Wno-c++-keyword,-Wno-c++98-compat-pedantic,-Wno-cast-align,-Wno-cast-qual,-Wno-comma,-Wno-covered-switch-default,-Wno-extra-semi-stmt,-Wno-format-nonliteral,-Wno-implicit-fallthrough,-Wno-implicit-void-ptr-cast,-Wno-missing-format-attribute,-Wno-padded,-Wno-reserved-identifier,-Wno-reserved-macro-identifier,-Wno-shadow-header,-Wno-shorten-64-to-32,-Wno-sign-conversion,-Wno-switch-default,-Wno-switch-enum,-Wno-undef,-Wno-unsafe-buffer-usage
 build --per_file_copt=external/zstd[+]/@-Wno-bad-function-cast,-Wno-comma,-Wno-covered-switch-default,-Wno-disabled-macro-expansion,-Wno-documentation-unknown-command,-Wno-extra-semi-stmt,-Wno-format-signedness,-Wno-missing-variable-declarations,-Wno-nonportable-system-include-path,-Wno-nrvo,-Wno-padded,-Wno-pre-c11-compat,-Wno-reserved-identifier,-Wno-reserved-macro-identifier,-Wno-sign-conversion,-Wno-switch-default,-Wno-unreachable-code,-Wno-unreachable-code-return,-Wno-unsafe-buffer-usage,-Wno-unused-function,-Wno-unused-macros,-Wno-used-but-marked-unused

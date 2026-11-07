@@ -98,16 +98,10 @@ public class PythonSdkAdditionalData implements SdkAdditionalData {
   public PythonSdkAdditionalData(@Nullable PyFlavorAndData<?, ?> flavorAndData, @NotNull Path workingDirectory) {
     this(flavorAndData);
     setWorkingDirectory(workingDirectory);
-    // A freshly created SDK belongs to the project it was created for, so it is associated with it by default: the
-    // creation routes pass the module base dir (or the project base path when there is no module) as the working
-    // directory, which is exactly the path the association stores. Deserialization goes through the
-    // no-working-directory constructor and `load`, so a stored SDK keeps whatever association it was saved with,
-    // including none.
-    // Whoever builds an SDK that belongs to no project -- a mock, or a bare environment whose working directory is the
-    // interpreter's own directory rather than a project dir -- must clear this, otherwise the SDK's own subdirectories
-    // are classified as project-local (see findSdkOwnerModuleAndRoots). Use `setAssociationToPath(null)` after
-    // creation, or `setAssociatedModulePath(null)` before the data is committed.
-    if (hasValidWorkingDirectory()) {
+    // A remote SDK is associated with its working directory, which is the module it was created for. A local SDK gets
+    // its association when it is created, from its environment: see `createSdkImpl`. Deserialization goes through the
+    // no-working-directory constructor and `load`, so a stored SDK keeps whatever association it was saved with.
+    if (this instanceof PyRemoteSdkAdditionalDataMarker && hasValidWorkingDirectory()) {
       setAssociatedModulePath(workingDirectory.toString());
     }
   }
@@ -351,9 +345,16 @@ public class PythonSdkAdditionalData implements SdkAdditionalData {
       String legacyRequiredTxtPath = element.getAttributeValue(ASSOCIATED_REQUIRED_TXT_PATH);
       myLegacyRequiredTxtPath = legacyRequiredTxtPath == null ? null : Path.of(legacyRequiredTxtPath);
 
+      // `save` always writes SDK_UUID, FLAVOR_ID and FLAVOR_DATA, so an entity that lacks them predates them and needs
+      // migrating. Without that, the fields would come from defaults on every load -- a fresh random UUID each launch --
+      // and the bridge would never match the stored entity, which the workspace model reports as an additional data
+      // mismatch on every save (PY-82614).
       var uuidStr = element.getAttributeValue(SDK_UUID_FIELD_NAME);
       if (uuidStr != null) {
         myUUID = UUID.fromString(uuidStr);
+      }
+      else {
+        markMigrationRequired();
       }
       var flavorId = JDOMExternalizer.readString(element, FLAVOR_ID);
       if (flavorId != null) {
@@ -364,6 +365,9 @@ public class PythonSdkAdditionalData implements SdkAdditionalData {
         else {
           myFlavorAndData = new PyFlavorAndData<>(PyFlavorData.Empty.INSTANCE, PythonSdkFlavor.UnknownFlavor.INSTANCE);
         }
+      }
+      else {
+        markMigrationRequired();
       }
     }
   }

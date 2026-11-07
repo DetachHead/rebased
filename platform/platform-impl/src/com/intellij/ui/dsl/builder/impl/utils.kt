@@ -128,28 +128,37 @@ internal fun labelCell(label: JLabel, cell: CellBaseImpl<*>?) {
     return
   }
 
-  val mnemonic = TextWithMnemonic.fromMnemonicText(label.text, true)
-  val mnemonicExists = label.displayedMnemonic != 0 || label.displayedMnemonicIndex >= 0 || mnemonic?.hasMnemonic() == true
   if (cell !is CellImpl<*>) {
-    if (mnemonicExists) {
+    if (label.hasMnemonic()) {
       errorInInternalOrLogWarn("Cannot assign mnemonic to Panel and other non-component cells, label '${label.text}'")
     }
     return
   }
 
-  if (cell.component.getClientProperty(DslComponentProperty.SKIP_LABEL_FOR_ASSIGNMENT) as Boolean? == true) {
+  labelComponent(label, cell.component)
+}
+
+/** Gives [label] to [cellComponent], as a row label is given to the component of its first cell. */
+@ApiStatus.Internal
+fun labelComponent(label: JLabel, cellComponent: JComponent) {
+  if (cellComponent.getClientProperty(DslComponentProperty.SKIP_LABEL_FOR_ASSIGNMENT) as Boolean? == true) {
     return
   }
 
-  val component = getLabelComponentFor(cell.component.interactiveComponent)
+  val component = getLabelComponentFor(cellComponent.interactiveComponent)
   if (component == null) {
-    if (mnemonicExists) {
-      errorInInternalOrLogWarn("Unsupported labeled component ${cell.component.javaClass.name}, label '${label.text}'")
+    if (label.hasMnemonic()) {
+      errorInInternalOrLogWarn("Unsupported labeled component ${cellComponent.javaClass.name}, label '${label.text}'")
     }
     return
   }
 
   label.labelFor = component
+}
+
+private fun JLabel.hasMnemonic(): Boolean {
+  val mnemonic = TextWithMnemonic.fromMnemonicText(text, true)
+  return displayedMnemonic != 0 || displayedMnemonicIndex >= 0 || mnemonic?.hasMnemonic() == true
 }
 
 internal fun createLabel(@NlsContexts.Label text: String): JLabel {

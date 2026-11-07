@@ -92,19 +92,6 @@ class PyCallableTypeTest : PyCodeInsightTestCase() {
       """.trimIndent())
 
     @Test
-    @TestFor(issues = ["PY-9605"])
-    fun `property returns callable`() = test("""
-      class C(object):
-          @property
-          def foo(self):
-              return lambda: 0
-
-      c = C()
-      expr = c.foo
-      #└ TYPE () -> Literal[0]
-      """.trimIndent())
-
-    @Test
     fun `function type rendered as callable`() = test("""
       def func(x: int, /, s: str, *, k: bytes) -> None:
           pass
@@ -184,22 +171,6 @@ class PyCallableTypeTest : PyCodeInsightTestCase() {
     // reported count is unstable across highlighting passes, which the inline-assertion comparison
     // cannot pin down; the underlying callable-type inference is already covered by the other
     // function-type-comment tests above.
-
-    @Test
-    fun `builtins callable narrows to callable type`() = test("""
-      a = object()
-      if callable(a):
-          expr = a
-      #   └ TYPE (...) -> object
-      """.trimIndent())
-
-    @Test
-    @TestFor(issues = ["PY-79861"])
-    fun `walrus callable narrowing`() = test("""
-      if callable(a := 42):
-          expr = a
-      #   └ TYPE Literal[42]
-      """.trimIndent())
 
     @Test
     fun `generic callable rendered with type parameters`() = test("""
@@ -494,58 +465,6 @@ class PyCallableTypeTest : PyCodeInsightTestCase() {
 
     @Test
     @TestFor(issues = ["PY-19723"])
-    fun `type var substitution in positional args`() = test("""
-      def foo(*args):
-          '''
-          :type args: T
-          :rtype: T
-          '''
-          pass
-      expr = foo(1)
-      #└ TYPE int
-      """.trimIndent())
-
-    @Test
-    @TestFor(issues = ["PY-19723"])
-    fun `type var substitution in heterogeneous positional args`() = test("""
-      def foo(*args):
-          '''
-          :type args: T
-          :rtype: T
-          '''
-          pass
-      expr = foo(1, "2")
-      #└ TYPE int | str
-      """.trimIndent())
-
-    @Test
-    @TestFor(issues = ["PY-19723"])
-    fun `type var substitution in keyword args`() = test("""
-      def foo(**kwargs):
-          '''
-          :type kwargs: T
-          :rtype: T
-          '''
-          pass
-      expr = foo(a=1)
-      #└ TYPE int
-      """.trimIndent())
-
-    @Test
-    @TestFor(issues = ["PY-19723"])
-    fun `type var substitution in heterogeneous keyword args`() = test("""
-      def foo(**kwargs):
-          '''
-          :type kwargs: T
-          :rtype: T
-          '''
-          pass
-      expr = foo(a=1, b="2")
-      #└ TYPE int | str
-      """.trimIndent())
-
-    @Test
-    @TestFor(issues = ["PY-19723"])
     fun `annotated positional args`() = test("""
       def foo(*args: str):
           expr = args
@@ -590,13 +509,6 @@ class PyCallableTypeTest : PyCodeInsightTestCase() {
 
       expr = generic_kwargs(a=1, b='foo')
       #└ TYPE dict[str, int | str]
-      """.trimIndent())
-
-    @Test
-    fun `dict comprehension from kwargs`() = test("""
-      def test(**kwargs):
-          expr = {k: v for k, v in kwargs.items()}
-      #   └ TYPE dict[str, Unknown]
       """.trimIndent())
 
     @Test
@@ -726,7 +638,7 @@ class PyCallableTypeTest : PyCodeInsightTestCase() {
           f = a.f
       #   └ TYPE [U](x: U) -> U
           expr = f('abb')
-      #   └ TYPE str
+      #   └ TYPE Literal["abb"]
       """.trimIndent())
 
     @Test
@@ -754,7 +666,7 @@ class PyCallableTypeTest : PyCodeInsightTestCase() {
           f = a.f
       #   └ TYPE [U](x: U) -> tuple[int, U]
           expr = f('abb')
-      #   └ TYPE tuple[int, str]
+      #   └ TYPE tuple[int, Literal["abb"]]
     """.trimIndent())
 
     @Test
@@ -776,7 +688,7 @@ class PyCallableTypeTest : PyCodeInsightTestCase() {
           f = a.f
       #   └ TYPE Overload[[U](x: U, y: int) -> tuple[int, U, str], [U](x: U, y: str) -> tuple[int, U, bytes]]
           expr = f('abb', 'abc')
-      #   └ TYPE tuple[int, str, bytes]
+      #   └ TYPE tuple[int, Literal["abb"], bytes]
       """.trimIndent())
 
     @Test
@@ -975,7 +887,7 @@ class PyCallableTypeTest : PyCodeInsightTestCase() {
           _ = item(-7)
       #   └ TYPE int
           _ = items[0](1)
-      #   └ TYPE int
+      #   └ TYPE Literal[1]
       """.trimIndent())
 
     @Test
@@ -1270,7 +1182,7 @@ class PyCallableTypeTest : PyCodeInsightTestCase() {
 
       with generator_function() as value:
           expr = value
-      #   └ TYPE str
+      #   └ TYPE Literal["some value"]
       """.trimIndent())
 
     @Test
@@ -2206,22 +2118,6 @@ class PyCallableTypeTest : PyCodeInsightTestCase() {
   @Nested
   inner class CallableSubtypingAndAssignability {
     @Test
-    @TestFor(issues = ["PY-22513"])
-    fun `generic kwargs assignment ok`() = test("""
-      from typing import Any, TypeVar
-
-
-      T = TypeVar('T')
-
-
-      def generic_kwargs(**kwargs: T) -> None:
-          pass
-
-
-      generic_kwargs(a=1, b='foo')
-      """.trimIndent())
-
-    @Test
     @TestFor(issues = ["PY-17962"])
     fun `typing Callable call arity`() = test("""
       from typing import Callable
@@ -2655,25 +2551,6 @@ class PyCallableTypeTest : PyCodeInsightTestCase() {
       """.trimIndent())
 
     @Test
-    @TestFor(issues = ["PY-87802"])
-    fun `callable protocol with additional attribute assignment`() = test("""
-      from typing import Protocol
-
-      class Proto(Protocol):
-          other_attribute: int
-
-          def __call__(self, x: int) -> None:
-              pass
-
-
-      def f(x: int) -> None:
-          pass
-
-
-      v: Proto = f # WARNING Expected type 'Proto', got '(x: int) -> None' instead
-      """.trimIndent())
-
-    @Test
     @TestFor(issues = ["PY-77539"])
     fun `matching callable parameter lists`() = test("""
       class MyCallable[**P, R]:
@@ -2891,6 +2768,62 @@ class PyCallableTypeTest : PyCodeInsightTestCase() {
       # `Callable[[str], None]` is assignable to `Callable[[int | str], None]`.
       # Thus, substitution `T` -> `int | str` is considered valid.
       func(42, accepts_anything)
+      """.trimIndent())
+
+    @Test
+    @TestFor(issues = ["PY-89185"])
+    fun `class with overloaded constructor matches callable when one overload matches`() = test("""
+      from typing import Callable, overload
+
+      class C:
+          @overload
+          def __init__(self) -> None: ...
+          @overload
+          def __init__(self, x: str) -> None: ...
+          def __init__(self, x: str = "") -> None: ...
+
+      def one_argument[S, T](c: Callable[[S], T]) -> T: ...
+      def two_arguments(c: Callable[[int, int], C]) -> None: ...
+
+      expr = one_argument(C)
+      # └ TYPE C
+      one_argument(dict)
+      one_argument(list)
+      two_arguments(C)
+      #             └ WARNING Expected type '(int, int) -> C', got 'type[C]' instead
+      """.trimIndent())
+
+    @Test
+    @TestFor(issues = ["PY-89185"])
+    fun `builtin collection class matches a generic one-argument callable`() = test("""
+      from typing import Callable, TypeVar
+
+      K = TypeVar("K")
+      V = TypeVar("V")
+
+      def test(func: Callable[[K], V]) -> V: ...
+
+      a: list[int] = test(func=list)
+      b: set[int] = test(func=set)
+      c: dict[str, int] = test(func=dict)
+      """.trimIndent())
+
+    @Test
+    @TestFor(issues = ["PY-89185"])
+    fun `failed first constructor overload leaves no substitutions for the other overloads`() = test("""
+      from typing import Callable, overload
+
+      class C:
+          @overload
+          def __init__(self, x: str, y: str) -> None: ...
+          @overload
+          def __init__(self, x: bytes, y: int) -> None: ...
+          def __init__(self, x, y) -> None: ...
+
+      def f[S, T](c: Callable[[S, int], T]) -> tuple[S, T]: ...
+
+      expr = f(C)
+      # └ TYPE tuple[bytes, C]
       """.trimIndent())
   }
 

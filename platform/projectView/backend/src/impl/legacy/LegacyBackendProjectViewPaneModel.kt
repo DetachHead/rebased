@@ -38,10 +38,9 @@ import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.diagnostic.trace
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Disposer
-import com.intellij.platform.ide.navigation.NavigationOptions
-import com.intellij.platform.ide.navigation.NavigationService
 import com.intellij.platform.projectView.actions.legacyProjectViewOption
 import com.intellij.platform.projectView.impl.DataContextCutCopyPasteDeleteHandler
+import com.intellij.platform.projectView.impl.navigateSafely
 import com.intellij.platform.projectView.pane.PROJECT_VIEW_SELECTED_NODE_IDS_KEY
 import com.intellij.platform.projectView.pane.ProjectViewDnDOptions
 import com.intellij.platform.projectView.pane.ProjectViewNodeModel
@@ -226,10 +225,10 @@ private class LegacyBackendProjectViewPaneModel(
   }
 
   override suspend fun navigate(
-    nodeId: Long,
-    options: ProjectViewPaneNavigateOptions,
-  ) {
-    withContext(Dispatchers.UI) {
+      nodeId: Long,
+      options: ProjectViewPaneNavigateOptions,
+  ): Boolean {
+    return withContext(Dispatchers.UI) {
       legacyPaneManager.navigate(nodeId, options.requestFocus)
     }
   }
@@ -261,6 +260,12 @@ private class LegacyBackendProjectViewPaneModel(
     return selectionDataContext(nodeIds)
   }
 
+  override suspend fun refreshSettings() {
+    withContext(Dispatchers.UI) {
+      legacyPaneManager.updateActionStates()
+    }
+  }
+
   /**
    * The data context the legacy pane itself would have for this selection.
    *
@@ -269,7 +274,7 @@ private class LegacyBackendProjectViewPaneModel(
    * gives all the keys the copy/paste/delete handlers need, including the pane's own
    * [com.intellij.openapi.actionSystem.PlatformDataKeys.DELETE_ELEMENT_PROVIDER] choice.
    */
-  @RequiresEdt
+  @RequiresEdt(generateAssertion = false /* IJPL-115548 */)
   private fun selectionDataContext(nodeIds: List<Long>): DataContext {
     return CustomizedDataContext.withSnapshot(DataContext.EMPTY_CONTEXT) { sink ->
       sink[CommonDataKeys.PROJECT] = project
@@ -619,10 +624,10 @@ private class AbstractProjectViewPaneStateManager(
     updateActionStates()
   }
 
-  @RequiresReadLock
+  @RequiresReadLock(generateAssertion = false /* IJPL-115548 */)
   private fun canNavigate(node: Any): Boolean = (TreeUtil.getUserObject(node) as? Navigatable?)?.canNavigate() == true
 
-  @RequiresReadLock
+  @RequiresReadLock(generateAssertion = false /* IJPL-115548 */)
   private fun canNavigateToSource(node: Any): Boolean = (TreeUtil.getUserObject(node) as? Navigatable?)?.canNavigateToSource() == true
   
   private fun isIncludedInExpandAll(node: Any): Boolean = (TreeUtil.getUserObject(node) as? AbstractTreeNode<*>)?.isIncludedInExpandAll != false
@@ -631,15 +636,11 @@ private class AbstractProjectViewPaneStateManager(
 
   private fun isExpandOnDoubleClick(node: Any): Boolean = (TreeUtil.getUserObject(node) as? NodeDescriptor<*>)?.expandOnDoubleClick() != false
 
-  suspend fun navigate(id: Long, requestFocus: Boolean) {
-    val node = nodeById[id] ?: return
-    val navigatable = TreeUtil.getUserObject(node.modelNode) as? Navigatable? ?: return
-    val navigationRequest = readAction { navigatable.navigationRequest() } ?: return
-    NavigationService.getInstance(project).navigate(
-      request = navigationRequest,
-      options = NavigationOptions.defaultOptions()
-        .requestFocus(requestFocus),
-    )
+  suspend fun navigate(id: Long, requestFocus: Boolean): Boolean {
+    val node = nodeById[id] ?: return false
+    val navigatable = TreeUtil.getUserObject(node.modelNode) as? Navigatable? ?: return false
+    val navigationRequest = readAction { navigatable.navigationRequest() } ?: return false
+    return navigateSafely(project, navigationRequest, requestFocus)
   }
 
   private fun loadInitialState() {
@@ -824,7 +825,7 @@ private class AbstractProjectViewPaneStateManager(
     updateActionStates()
   }
 
-  private fun updateActionStates() {
+  fun updateActionStates() {
     val impl = ProjectViewImpl.getInstance(project) as ProjectViewImpl
     val updatedOptionStates = allProjectViewPaneOptions().associateWith { option ->
       val legacyOption = legacyProjectViewOption(project, option)

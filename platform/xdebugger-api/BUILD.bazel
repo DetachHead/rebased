@@ -1,6 +1,10 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
 load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
+### auto-generated section `dev intellij.platform.debugger` start
+content_module_jar(module = ":debugger")
+### auto-generated section `dev intellij.platform.debugger` end
+
 ### auto-generated section `build intellij.platform.debugger` start
 jvm_library(
     name = "debugger",
@@ -34,11 +38,10 @@ jvm_library(
         "@lib//:kotlin-stdlib",
         "//platform/core-api:core",
         "//platform/execution",
+        "//platform/consoleView",
         "//libraries/kotlinx/collections-immutable:libraries-kotlinx-collections-immutable",
     ],
 )
-
-content_module_jar(module = ":debugger")
 
 jvm_library(
     name = "debugger_test_lib",
@@ -65,6 +68,7 @@ jvm_library(
         "//libraries/kotlinx/serialization/json:json_test_lib",
         "//platform/core-api:core_test_lib",
         "//platform/execution:execution_test_lib",
+        "//platform/consoleView:consoleView_test_lib",
         "//libraries/kotlinx/collections-immutable:libraries-kotlinx-collections-immutable_test_lib",
     ],
 )
@@ -76,7 +80,6 @@ exports_files(
         "intellij.platform.debugger.iml",
         "resources/intellij.platform.debugger.content.xml",
         "resources/intellij.platform.debugger.xml",
-        "module-content.yaml",
     ],
     visibility = ["//visibility:public"],
 )

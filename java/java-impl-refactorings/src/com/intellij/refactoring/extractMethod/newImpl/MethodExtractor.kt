@@ -191,7 +191,7 @@ class MethodExtractor {
       try {
         readAction { findAllOptionsToExtract(elements) }
       } catch (exception: ExtractException) {
-        InplaceExtractUtils.showExtractErrorHint(editor, exception.message.orEmpty(), exception.problems)
+        InplaceExtractUtils.showExtractErrorHint(editor, exception.message, exception.problems)
         emptyList()
       }
     }
@@ -229,6 +229,7 @@ class MethodExtractor {
     }
   }
 
+  @Suppress("HardCodedStringLiteral")
   fun doTestExtract(
     doRefactor: Boolean,
     editor: Editor,
@@ -380,7 +381,7 @@ class MethodExtractor {
     data class Context(val elements: List<PsiElement>, val analyzer: CodeFragmentAnalyzer) : ContextOrError
 
     companion object {
-      @RequiresReadLock
+      @RequiresReadLock(generateAssertion = false /* IJPL-115548 */)
       fun create(file: PsiFile, range: TextRange): ContextOrError {
         val elements = ExtractSelector().suggestElementsToExtract(file, range)
         if (elements.isEmpty()) {

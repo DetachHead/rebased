@@ -2,70 +2,35 @@
 @file:Suppress("ReplaceJavaStaticMethodWithKotlinAnalog", "RedundantSuppression", "ReplaceGetOrSet", "ReplacePutWithAssignment")
 package org.jetbrains.intellij.build.impl
 
-import com.intellij.util.graph.DFSTBuilder
-import com.intellij.util.graph.OutboundSemiGraph
 import io.opentelemetry.api.trace.Span
 import kotlinx.collections.immutable.PersistentList
 import kotlinx.collections.immutable.persistentListOf
+import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.intellij.build.BuildContext
+import org.jetbrains.intellij.build.DescriptorSearchPass
+import org.jetbrains.intellij.build.JarPackagerDependencyHelper
 import org.jetbrains.intellij.build.ModuleOutputProvider
 import org.jetbrains.intellij.build.PLATFORM_LOADER_JAR
+import org.jetbrains.intellij.build.ProductProperties
 import org.jetbrains.intellij.build.UTIL_8_JAR
 import org.jetbrains.intellij.build.UTIL_JAR
 import org.jetbrains.intellij.build.UTIL_RT_JAR
+import org.jetbrains.intellij.build.classPath.descriptorResolveContext
 import org.jetbrains.intellij.build.classPath.getEmbeddedContentModulesOfPluginsWithUseIdeaClassloader
 import org.jetbrains.intellij.build.forEachConcurrent
+import org.jetbrains.intellij.build.withRestarter
 import org.jetbrains.intellij.build.impl.PlatformJarNames.TEST_FRAMEWORK_JAR
-import org.jetbrains.intellij.build.productLayout.LIB_MODULE_PREFIX
 import org.jetbrains.intellij.build.productLayout.ProductModulesLayout
-import org.jetbrains.jps.model.java.JpsJavaExtensionService
-import org.jetbrains.jps.model.module.JpsLibraryDependency
-import org.jetbrains.jps.model.module.JpsModuleDependency
-import org.jetbrains.jps.model.module.JpsModuleReference
-import java.util.TreeMap
-import java.util.TreeSet
+import org.jetbrains.intellij.build.readDescriptor
 
-private fun addModule(relativeJarPath: String, moduleNames: Sequence<String>, productLayout: ProductModulesLayout, layout: PlatformLayout) {
-  layout.withModules(
-    moduleNames
-      .filter { !productLayout.excludedModuleNames.contains(it) }
-      .map { ModuleItem(moduleName = it, relativeOutputFile = relativeJarPath, reason = "addModule") }
-  )
-}
-
-suspend fun createPlatformLayout(context: BuildContext): PlatformLayout {
-  val enabledPluginModules = context.getBundledPluginModules().toHashSet()
-  return createPlatformLayout(
-    projectLibrariesUsedByPlugins = computeProjectLibsUsedByPlugins(enabledPluginModules = enabledPluginModules, context = context),
-    context = context,
-  )
-}
-
-internal suspend fun createPlatformLayout(projectLibrariesUsedByPlugins: Map<String, Set<String>>, context: BuildContext): PlatformLayout {
-  val productLayout = context.productProperties.productLayout
-  val descriptorCacheContainer = DescriptorCacheContainer()
-  val layout = PlatformLayout(descriptorCacheContainer)
-  // used only in modules that packed into Java
-  layout.withoutProjectLibrary("Eclipse")
-
-  for (customizer in productLayout.platformLayoutSpec) {
-    customizer(layout, context)
-  }
-  for ((module, patterns) in productLayout.moduleExcludes) {
-    layout.excludeFromModule(module, patterns)
-  }
-
-  addModule(UTIL_RT_JAR, sequenceOf(
-    "intellij.platform.util.rt",
-  ), productLayout = productLayout, layout = layout)
+/** Ordered module members of the fixed bootstrap and external-process jars. */
+@ApiStatus.Internal
+val PLATFORM_FIXED_JAR_MODULES: Map<String, List<String>> = mapOf(
+  UTIL_RT_JAR to listOf("intellij.platform.util.rt"),
   // trove is not used by JB Client - fix RuntimeModuleRepositoryChecker assert
-  addModule("trove.jar", sequenceOf(
-    "intellij.platform.util.trove",
-    "intellij.platform.util.troveCompileOnly",
-  ), productLayout = productLayout, layout = layout)
-
+  "trove.jar" to listOf("intellij.platform.util.trove"),
   // maven uses JDOM in an external process
-  addModule(UTIL_8_JAR, sequenceOf(
+  UTIL_8_JAR to listOf(
     "intellij.platform.util.jdom",
     "intellij.platform.util.xmlDom",
     "intellij.platform.tracing.rt",
@@ -81,7 +46,114 @@ internal suspend fun createPlatformLayout(projectLibrariesUsedByPlugins: Map<Str
     "intellij.platform.bootstrap.coroutine",
     "intellij.platform.eel",  // EelFiles, which is a replacement for java.nio.file.Files, may be used everywhere
     "intellij.platform.eel.nioFs",  // NIO bridge for EEL (EelPath <-> Path conversions, EelPathBoundDescriptor)
-  ), productLayout = productLayout, layout = layout)
+  ),
+  // platform-loader.jar is loaded by JVM classloader as part of loading our custom PathClassLoader class - reduce file size
+  PLATFORM_LOADER_JAR to listOf(
+    "intellij.platform.util.rt.java8",
+    "intellij.platform.util.classLoader",
+    "intellij.platform.util.zip",
+    "intellij.platform.boot",
+    "intellij.platform.runtime.repository",
+    "intellij.platform.runtime.loader",
+  ),
+  UTIL_JAR to listOf(
+    // Scala uses GeneralCommandLine in JPS plugin
+    "intellij.platform.ide.util.io",
+    "intellij.platform.extensions",
+    "intellij.platform.util.nanoxml",
+  ),
+  "externalProcess-rt.jar" to listOf("intellij.platform.externalProcessAuthHelper.rt"),
+  "forms_rt.jar" to listOf("intellij.java.guiForms.rt"),
+  "jps-model.jar" to listOf(
+    "intellij.platform.jps.model",
+    "intellij.platform.jps.model.serialization",
+    "intellij.platform.jps.model.impl",
+  ),
+  "external-system-rt.jar" to listOf("intellij.platform.externalSystem.rt", "intellij.platform.objectSerializer.annotations"),
+)
+
+/** The jar that carries the platform starter when the embedded frontend is enabled and no other jar owns it. */
+@ApiStatus.Internal
+val PLATFORM_MAIN_JAR_MODULES: Map<String, List<String>> = mapOf("ext/platform-main.jar" to listOf("intellij.platform.starter"))
+
+private fun addModule(relativeJarPath: String, productLayout: ProductModulesLayout, layout: PlatformLayout) {
+  layout.withModules(
+    PLATFORM_FIXED_JAR_MODULES.getValue(relativeJarPath).asSequence()
+      .filter { !productLayout.excludedModuleNames.contains(it) }
+      .map { ModuleItem(moduleName = it, relativeOutputFile = relativeJarPath, reason = "addModule") }
+  )
+}
+
+fun createPlatformLayout(context: BuildContext): PlatformLayout {
+  return createPlatformLayout(
+    productProperties = context.productProperties,
+    outputProvider = context.outputProvider,
+    validateImplicitPlatformModule = context.options.validateImplicitPlatformModule,
+    useModularLoader = context.useModularLoader,
+    isEmbeddedFrontendEnabled = context.isEmbeddedFrontendEnabled,
+    runtimeDependencyResolver = RuntimeDependencyIndex((context as BuildContextImpl).jarPackagerDependencyHelper),
+    bundledPluginModules = context.getBundledPluginModules(),
+    sourceOnly = false,
+    embedContentModuleDescriptors = context.options.embedProductContentModuleDescriptors,
+    markModuleForScrambling = { moduleName, isEmbedded ->
+      markContentModuleToScrambleIfNeeded(moduleName, context, isEmbedded)
+    },
+  )
+}
+
+/**
+ * Derives the platform layout from product declarations and source descriptors. This does not execute patches or read compiled output.
+ */
+fun createPlatformLayout(
+  productProperties: ProductProperties,
+  outputProvider: ModuleOutputProvider,
+  validateImplicitPlatformModule: Boolean = false,
+  useModularLoader: Boolean = false,
+  isEmbeddedFrontendEnabled: Boolean = productProperties.embeddedFrontendRootModule != null,
+  bundledPluginModules: List<String> = getBundledPluginModules(productProperties, outputProvider),
+): PlatformLayout {
+  return createPlatformLayout(
+    productProperties = productProperties,
+    outputProvider = outputProvider,
+    validateImplicitPlatformModule = validateImplicitPlatformModule,
+    useModularLoader = useModularLoader,
+    isEmbeddedFrontendEnabled = isEmbeddedFrontendEnabled,
+    runtimeDependencyResolver = RuntimeDependencyIndex(JarPackagerDependencyHelper(outputProvider)),
+    bundledPluginModules = bundledPluginModules,
+    sourceOnly = true,
+    embedContentModuleDescriptors = false,
+    markModuleForScrambling = { _, _ -> false },
+  )
+}
+
+private fun createPlatformLayout(
+  productProperties: ProductProperties,
+  outputProvider: ModuleOutputProvider,
+  validateImplicitPlatformModule: Boolean,
+  useModularLoader: Boolean,
+  isEmbeddedFrontendEnabled: Boolean,
+  runtimeDependencyResolver: RuntimeDependencyResolver,
+  bundledPluginModules: List<String>,
+  sourceOnly: Boolean,
+  embedContentModuleDescriptors: Boolean,
+  markModuleForScrambling: (String, Boolean) -> Boolean,
+): PlatformLayout {
+  val productLayout = productProperties.productLayout
+  val layout = PlatformLayout()
+  layout.withRestarter()
+  for (customizer in productLayout.platformLayoutSpec) {
+    customizer(layout)
+  }
+  val contentModuleFilter = createContentModuleFilter(
+    project = outputProvider.findRequiredModule(productProperties.applicationInfoModule).project,
+    productProperties = productProperties,
+    outputProvider = outputProvider,
+    bundledPluginModules = { bundledPluginModules },
+  )
+
+  addModule(UTIL_RT_JAR, productLayout = productLayout, layout = layout)
+  addModule("trove.jar", productLayout = productLayout, layout = layout)
+  addModule(UTIL_8_JAR, productLayout = productLayout, layout = layout)
 
   // todo as content module (IJPL-252372)
   // see ClassPathUtil.getUtilClassPath and ArtifactRepositoryManager.getClassesFromDependencies -
@@ -96,49 +168,16 @@ internal suspend fun createPlatformLayout(projectLibrariesUsedByPlugins: Map<Str
   // the library is put to a separate JAR due to IJPL-248572; todo: include it only for Linux: IJPL-249098
   layout.withProjectLibraries(sequenceOf("jetbrains.intellij.deps.java.atk.wrapper.linux"))
 
-  // https://jetbrains.team/p/ij/reviews/67104/timeline
-  // https://youtrack.jetbrains.com/issue/IDEA-179784
-  // https://youtrack.jetbrains.com/issue/IDEA-205600
-  layout.withProjectLibraries(sequenceOf(
-    "javax.annotation-api",
-    "javax.activation",
-    "jaxb-runtime",
-    "jaxb-api",
-  ))
-
-  // the library is put to a separate JAR due to IJPL-248591; it would be better to get rid of it completely, see IJPL-749
-  layout.withModuleLibrary(libraryName = "swingx", moduleName = "intellij.libraries.swingx")
-
-  // platform-loader.jar is loaded by JVM classloader as part of loading our custom PathClassLoader class - reduce file size
-  addModule(PLATFORM_LOADER_JAR, sequenceOf(
-    "intellij.platform.util.rt.java8",
-    "intellij.platform.util.classLoader",
-    "intellij.platform.util.zip",
-    "intellij.platform.boot",
-    "intellij.platform.runtime.repository",
-    "intellij.platform.runtime.loader",
-  ), productLayout = productLayout, layout = layout)
-  addModule(UTIL_JAR, sequenceOf(
-    // Scala uses GeneralCommandLine in JPS plugin
-    "intellij.platform.ide.util.io",
-    "intellij.platform.extensions",
-    "intellij.platform.util.nanoxml",
-  ), productLayout = productLayout, layout = layout)
-  addModule("externalProcess-rt.jar", sequenceOf(
-    "intellij.platform.externalProcessAuthHelper.rt"
-  ), productLayout = productLayout, layout = layout)
-  if (!productLayout.excludedModuleNames.contains("intellij.java.guiForms.rt")) {
-    layout.withModule("intellij.java.guiForms.rt", "forms_rt.jar")
+  addModule(PLATFORM_LOADER_JAR, productLayout = productLayout, layout = layout)
+  addModule(UTIL_JAR, productLayout = productLayout, layout = layout)
+  addModule("externalProcess-rt.jar", productLayout = productLayout, layout = layout)
+  for (moduleName in PLATFORM_FIXED_JAR_MODULES.getValue("forms_rt.jar")) {
+    if (!productLayout.excludedModuleNames.contains(moduleName)) {
+      layout.withModule(moduleName, "forms_rt.jar")
+    }
   }
-  addModule("jps-model.jar", sequenceOf(
-    "intellij.platform.jps.model",
-    "intellij.platform.jps.model.serialization",
-    "intellij.platform.jps.model.impl"
-  ), productLayout = productLayout, layout = layout)
-  addModule("external-system-rt.jar", sequenceOf(
-    "intellij.platform.externalSystem.rt",
-    "intellij.platform.objectSerializer.annotations"
-  ), productLayout = productLayout, layout = layout)
+  addModule("jps-model.jar", productLayout = productLayout, layout = layout)
+  addModule("external-system-rt.jar", productLayout = productLayout, layout = layout)
 
   val explicit = ArrayList<ModuleItem>()
   for (moduleName in productLayout.productImplementationModules) {
@@ -147,47 +186,38 @@ internal suspend fun createPlatformLayout(projectLibrariesUsedByPlugins: Map<Str
     }
 
     explicit.add(ModuleItem(moduleName = moduleName, relativeOutputFile = "$moduleName.jar", reason = "productImplementationModules"))
-    markContentModuleToScrambleIfNeeded(moduleName = moduleName, context = context, isEmbedded = true)
+    markModuleForScrambling(moduleName, true)
   }
   val explicitModuleNames = explicit.map { it.moduleName }
-  val outputProvider = context.outputProvider
-  val runtimeDependencyIndex = RuntimeDependencyIndex((context as BuildContextImpl).jarPackagerDependencyHelper)
 
   // we should filter out modules which are included in plugins with `use-idea-classloader`
-  val pluginsContents = computeContentModulesPluginsWhichUseIdeaClassloader(context)
+  val pluginsContents = getPluginLayoutsByJpsModuleNames(bundledPluginModules, productLayout).flatMapTo(LinkedHashSet()) {
+    getEmbeddedContentModulesOfPluginsWithUseIdeaClassloader(
+      pluginMainModule = it.mainModule,
+      cacheContainer = null,
+      outputProvider = outputProvider,
+      contentModuleFilter = contentModuleFilter,
+      sourceOnly = sourceOnly,
+    )
+  }
 
   val productPluginContentModules = processAndGetProductPluginContentModules(
     layout = layout,
-    descriptorCache = descriptorCacheContainer.forPlatform(layout),
+    descriptorCache = layout.descriptorCacheContainer.forPlatform(layout),
     includedPlatformModulesPartialList = computePartialListToResolveIncludesAndCollectProductModules(
       layout = layout,
       explicitModuleNames = explicitModuleNames,
       productLayout = productLayout,
       pluginsContents = pluginsContents,
-      runtimeDependencyResolver = runtimeDependencyIndex,
+      runtimeDependencyResolver = runtimeDependencyResolver,
     ),
-    context = context,
+    productProperties = productProperties,
+    outputProvider = outputProvider,
+    contentModuleFilter = contentModuleFilter,
+    descriptorContext = descriptorResolveContext(outputProvider, productProperties.javaClass.simpleName, sourceOnly),
+    embedContentModuleDescriptors = embedContentModuleDescriptors,
+    markModuleForScrambling = markModuleForScrambling,
   ).toCollection(LinkedHashSet())
-
-  // compute and add dependencies for embedded modules with includeDependencies=true
-  val embeddedModulesWithDeps = productPluginContentModules.filter {
-    it.reason == ModuleIncludeReasons.PRODUCT_EMBEDDED_MODULES && it.includeDependencies
-  }
-  if (embeddedModulesWithDeps.isNotEmpty()) {
-    // Collect modules already in layout
-    val alreadyIncluded = layout.includedModules.mapTo(HashSet()) { it.moduleName }
-    productPluginContentModules.mapTo(alreadyIncluded) { it.moduleName }
-    alreadyIncluded.addAll(explicitModuleNames)
-
-    val embeddedDependencies = computeEmbeddedModuleDependencies(
-      alreadyIncluded = alreadyIncluded,
-      embeddedModules = embeddedModulesWithDeps,
-      productLayout = productLayout,
-      outputProvider = outputProvider,
-      runtimeDependencyResolver = runtimeDependencyIndex,
-    )
-    productPluginContentModules.addAll(embeddedDependencies)
-  }
 
   val implicit = computeImplicitRequiredModules(
     explicit = explicitModuleNames,
@@ -195,18 +225,19 @@ internal suspend fun createPlatformLayout(projectLibrariesUsedByPlugins: Map<Str
     productPluginContentModules = productPluginContentModules.mapTo(HashSet()) { it.moduleName },
     productLayout = productLayout,
     pluginsContents = pluginsContents,
-    runtimeDependencyResolver = runtimeDependencyIndex,
+    runtimeDependencyResolver = runtimeDependencyResolver,
   )
 
-  if (context.options.validateImplicitPlatformModule) {
-    val implicitContentModuleAllowlist = context.productProperties.getProductContentDescriptor()?.allowedMissingDependencies?.mapTo(HashSet()) { it.value } ?: emptySet()
+  if (validateImplicitPlatformModule) {
+    val implicitContentModuleAllowlist = productProperties.getProductContentDescriptor()?.allowedMissingDependencies?.mapTo(HashSet()) { it.value } ?: emptySet()
     implicit.forEachConcurrent { (name, chain) ->
       validateImplicitPlatformModule(
         name = name,
         chain = chain,
         outputProvider = outputProvider,
         allowedMissingDependencies = implicitContentModuleAllowlist,
-        isClientBuild = context.useModularLoader,
+        isClientBuild = useModularLoader,
+        sourceOnly = sourceOnly,
       )
     }
   }
@@ -236,33 +267,15 @@ internal suspend fun createPlatformLayout(projectLibrariesUsedByPlugins: Map<Str
       .sortedBy { it.moduleName },
   )
 
-  val libAsProductModule = collectExportedLibrariesFromLibraryModules(layout, context).keys
-  layout.libAsProductModule = libAsProductModule
-
-  val violations = TreeMap<String, Set<String>>()
-  for ((libName, dependentModules) in projectLibrariesUsedByPlugins) {
-    if (layout.hasLibrary(libName) ||
-        libAsProductModule.contains(libName) ||
-        layout.isProjectLibraryExcluded(libName)) {
-      continue
-    }
-
-    violations.put(libName, dependentModules)
-  }
-  check(violations.isEmpty()) {
-    "Project libraries used by plugins must be converted to content modules:\n" +
-    violations.entries.joinToString(separator = "\n") { (libraryName, moduleNames) ->
-      "  '$libraryName' used by " + moduleNames.joinToString { "'$it'" }
-    }
-  }
-
-  val platformMainModule = "intellij.platform.starter"
-  if (context.isEmbeddedFrontendEnabled && layout.includedModules.none { it.moduleName == platformMainModule }) {
+  val (platformMainJar, platformMainModules) = PLATFORM_MAIN_JAR_MODULES.entries.single()
+  val platformMainModule = platformMainModules.single()
+  if (isEmbeddedFrontendEnabled && layout.includedModules.none { it.moduleName == platformMainModule }) {
     /* this module is used by JetBrains Client, but it isn't packed in commercial IDEs, so let's put it in a separate JAR which won't be
        loaded when the IDE is started in the regular mode */
-    layout.withModule(platformMainModule, "ext/platform-main.jar")
+    layout.withModule(platformMainModule, platformMainJar)
   }
 
+  productProperties.validateLayout(layout)
   return layout
 }
 
@@ -287,148 +300,11 @@ private fun computePartialListToResolveIncludesAndCollectProductModules(
   return result
 }
 
-/**
- * Collects names of libraries that are exported by library modules (modules with prefix [LIB_MODULE_PREFIX]).
- * 
- * Library modules like `intellij.libraries.grpc` export one or more project libraries 
- * (e.g., `grpc-core`, `grpc-stub`, `grpc-kotlin-stub`, `grpc-protobuf`).
- * These exported libraries should be treated as product modules and not included separately.
- * 
- * Note: We cannot replace all direct library references with library modules due to:
- * - Dual project structures (Fleet, Toolbox) that require direct library references
- * - Modules used in both production and build scripts (e.g., `intellij.platform.buildScripts.downloader`)
- * 
- * @param layout the platform layout containing included modules
- * @param context the build context
- * @return map from library name to the library module that exports it
- */
-suspend fun collectExportedLibrariesFromLibraryModules(
-  layout: PlatformLayout,
-  context: BuildContext,
-): Map<String, String> {
-  val javaExtensionService = JpsJavaExtensionService.getInstance()
-  val result = LinkedHashMap<String, String>()
-  val includedModuleNames = layout.includedModules.map { it.moduleName }
-  val corePluginsContentModuleNames = computeContentModulesPluginsWhichUseIdeaClassloader(context)
-
-  (includedModuleNames + corePluginsContentModuleNames)
-    .asSequence()
-    .filter { it.startsWith(LIB_MODULE_PREFIX) }
-    .forEach { moduleName ->
-      // get all library dependencies from the module
-      context.outputProvider.findRequiredModule(moduleName).dependenciesList.dependencies
-        .asSequence()
-        .filterIsInstance<JpsLibraryDependency>()
-        .filter { libDep ->
-          // Check if this library is exported
-          javaExtensionService.getDependencyExtension(libDep)?.isExported == true
-        }
-        .mapNotNull { it.library?.name }
-        .forEach { libName ->
-          result.put(libName, moduleName)
-        }
-    }
-
-  return result
-}
-
-/**
- * Project library name to the names of the modules of non-`auto` plugins which depend on it.
- * Such a library must be provided by the platform - see the check in [createPlatformLayout].
- *
- * `auto` plugins are skipped here, as their content modules are known only during packaging (read from `plugin.xml`);
- * such a library is checked by `JarPackager.checkImplicitProjectLibraries` instead.
- */
-internal fun computeProjectLibsUsedByPlugins(enabledPluginModules: Set<String>, context: BuildContext): Map<String, Set<String>> {
-  val result = TreeMap<String, MutableSet<String>>()
-  val pluginLayoutsByJpsModuleNames = getPluginLayoutsByJpsModuleNames(modules = enabledPluginModules, productLayout = context.productProperties.productLayout)
-
-  val helper = (context as BuildContextImpl).jarPackagerDependencyHelper
-  for (plugin in pluginLayoutsByJpsModuleNames) {
-    if (plugin.auto) {
-      continue
-    }
-
-    for (moduleName in plugin.includedModules.asSequence().map { it.moduleName }.distinct()) {
-      val module = context.outputProvider.findRequiredModule(moduleName)
-      for (element in helper.getLibraryDependencies(module, withTests = false)) {
-        val libRef = element.libraryReference
-        if (libRef.parentReference is JpsModuleReference) {
-          continue
-        }
-
-        val libName = libRef.libraryName
-        if (plugin.hasLibrary(libName)) {
-          continue
-        }
-
-        result.computeIfAbsent(libName) { TreeSet() }.add(moduleName)
-      }
-    }
-  }
-  return result
-}
-
 fun getEnabledPluginModules(pluginsToPublish: Set<PluginLayout>, context: BuildContext): Set<String> {
   val result = LinkedHashSet<String>()
   result.addAll(context.getBundledPluginModules())
   pluginsToPublish.mapTo(result) { it.mainModule }
   return result
-}
-
-/**
- * Sorts embedded modules topologically so dependencies are processed before dependents.
- * This ensures that when computing transitive dependencies, modules don't incorrectly
- * include dependencies that should belong to their own dependencies.
- */
-private fun sortEmbeddedModulesTopologically(embeddedModules: Collection<ModuleItem>, outputProvider: ModuleOutputProvider): List<ModuleItem> {
-  val graph = EmbeddedModuleGraph(embeddedModules, outputProvider)
-  val builder = DFSTBuilder(graph)
-  builder.circularDependency?.let { (from, to) ->
-    throw IllegalStateException("Circular dependency detected: ${from.moduleName} -> ${to.moduleName}")
-  }
-  return builder.sortedNodes
-}
-
-private class EmbeddedModuleGraph(
-  private val modules: Collection<ModuleItem>,
-  private val outputProvider: ModuleOutputProvider,
-) : OutboundSemiGraph<ModuleItem> {
-  private val moduleByName = modules.associateBy { it.moduleName }
-
-  override fun getNodes(): Collection<ModuleItem> = modules
-
-  override fun getOut(node: ModuleItem): Iterator<ModuleItem> {
-    val jpsModule = outputProvider.findRequiredModule(node.moduleName)
-    return jpsModule.dependenciesList.dependencies
-      .asSequence()
-      .filterIsInstance<JpsModuleDependency>()
-      .mapNotNull { moduleByName.get(it.moduleReference.moduleName) }
-      .iterator()
-  }
-}
-
-/**
- * Computes transitive dependencies for embedded modules that have `includeDependencies=true`.
- * Dependencies are packaged into the same JAR as their parent embedded module.
- *
- * @param embeddedModules embedded modules with includeDependencies=true (already filtered)
- * @param productLayout product modules layout
- * @return set of module items representing dependencies to add
- */
-private fun computeEmbeddedModuleDependencies(
-  embeddedModules: Collection<ModuleItem>,
-  productLayout: ProductModulesLayout,
-  alreadyIncluded: HashSet<String>,
-  outputProvider: ModuleOutputProvider,
-  runtimeDependencyResolver: RuntimeDependencyResolver,
-): Set<ModuleItem> {
-  return computeEmbeddedModuleDependenciesInOrder(
-    embeddedModulesInProcessingOrder = sortEmbeddedModulesTopologically(embeddedModules, outputProvider).asReversed(),
-    excludedModuleNames = productLayout.excludedModuleNames,
-    alreadyIncluded = alreadyIncluded,
-    dependencyResolver = runtimeDependencyResolver,
-  )
 }
 
 private fun computeImplicitRequiredModules(
@@ -506,23 +382,33 @@ private fun buildImplicitTraversalBlockedSet(
   return blockedOrSeen
 }
 
-private suspend fun validateImplicitPlatformModule(
+private fun validateImplicitPlatformModule(
   name: String,
   chain: PersistentList<String>,
   outputProvider: ModuleOutputProvider,
   allowedMissingDependencies: Set<String>,
   isClientBuild: Boolean,
+  sourceOnly: Boolean,
 ) {
   val jpsModule = outputProvider.findRequiredModule(name)
-  val pluginXml = outputProvider.readFileContentFromModuleOutput(jpsModule, "META-INF/plugin.xml")
+  fun readModuleDescriptor(path: String): ByteArray? {
+    return if (sourceOnly) {
+      readDescriptor(module = jpsModule, path = path, outputProvider = outputProvider, pass = DescriptorSearchPass.PRODUCTION_SOURCES)
+    }
+    else {
+      outputProvider.readFileContentFromModuleOutput(jpsModule, path)
+    }
+  }
+
+  val pluginXml = readModuleDescriptor("META-INF/plugin.xml")
   check(pluginXml == null) {
     "Module $name contains ${pluginXml.contentToString()}, so it is a plugin, but plugin must be not included in a platform (chain: $chain)"
   }
 
-  if (outputProvider.readFileContentFromModuleOutput(jpsModule, contentModuleNameToDescriptorFileName(name)) == null) {
+  if (readModuleDescriptor(contentModuleNameToDescriptorFileName(name)) == null) {
     return
   }
-  else if (allowedMissingDependencies.contains(name) || chain.firstOrNull() == "intellij.tools.testsBootstrap") {
+  else if (allowedMissingDependencies.contains(name)) {
     Span.current().addEvent("Suppressing implicit content module validation for $name via allowMissingDependencies (chain: $chain)")
   }
   else if (isClientBuild) {
@@ -535,21 +421,10 @@ private suspend fun validateImplicitPlatformModule(
   }
 }
 
-private suspend fun computeContentModulesPluginsWhichUseIdeaClassloader(context: BuildContext): Set<String> {
-  val bundledPlugins = getPluginLayoutsByJpsModuleNames(modules = context.getBundledPluginModules(), productLayout = context.productProperties.productLayout)
-  return bundledPlugins.flatMapTo(LinkedHashSet()) {
-    getEmbeddedContentModulesOfPluginsWithUseIdeaClassloader(pluginMainModule = it.mainModule, cacheContainer = null, context = context)
-  }
-}
-
-
-internal object ModuleIncludeReasons {
+@ApiStatus.Internal
+object ModuleIncludeReasons {
   const val PRODUCT_MODULES: String = "productModule"
   const val PRODUCT_EMBEDDED_MODULES: String = "productEmbeddedModule"
 
-  fun isProductModule(reason: String?): Boolean {
-    return reason == PRODUCT_MODULES ||
-           reason == PRODUCT_EMBEDDED_MODULES ||
-           reason?.startsWith("$PRODUCT_EMBEDDED_MODULES <- ") == true
-  }
+  fun isProductModule(reason: String?): Boolean = reason == PRODUCT_MODULES || reason == PRODUCT_EMBEDDED_MODULES
 }

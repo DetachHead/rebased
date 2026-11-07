@@ -10,6 +10,8 @@ import com.intellij.ide.dnd.aware.DnDAwareTree
 import com.intellij.ide.util.treeView.TreeState
 import com.intellij.idea.AppMode
 import com.intellij.openapi.Disposable
+import com.intellij.openapi.actionSystem.DataSink
+import com.intellij.openapi.actionSystem.UiDataProvider
 import com.intellij.openapi.application.EDT
 import com.intellij.openapi.application.runInEdt
 import com.intellij.openapi.components.PersistentStateComponent
@@ -24,6 +26,7 @@ import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.util.TextRange
 import com.intellij.openapi.util.registry.Registry
 import com.intellij.openapi.util.text.StringUtil
+import com.intellij.openapi.wm.IdeFocusManager
 import com.intellij.psi.codeStyle.FixingLayoutMatcher
 import com.intellij.psi.codeStyle.MinusculeMatcher
 import com.intellij.psi.codeStyle.PlatformKeyboardLayoutConverter
@@ -70,6 +73,7 @@ import java.awt.Dimension
 import java.awt.Graphics
 import java.awt.GraphicsEnvironment
 import java.awt.datatransfer.Transferable
+import java.awt.event.KeyEvent
 import java.util.function.Supplier
 import javax.swing.JComponent
 import javax.swing.JTree
@@ -202,6 +206,29 @@ internal class BranchesTreeComponent(project: Project) : DnDAwareTree() {
   }
 }
 
+/**
+ * The search field of the branches tree.
+ * It hides the tree selection from the actions, and it gives the focus to the [tree] on Up, Down and Escape.
+ */
+internal class BranchesTreeSearchField(private val project: Project, private val tree: JComponent) : SearchTextField(false), UiDataProvider {
+  override fun uiDataSnapshot(sink: DataSink) {
+    BranchesDashboardTreeController.hideSelectionActionsKeys(sink)
+  }
+
+  override fun preprocessEventForTextField(e: KeyEvent): Boolean {
+    if (e.keyCode == KeyEvent.VK_DOWN || e.keyCode == KeyEvent.VK_UP) {
+      IdeFocusManager.getInstance(project).requestFocus(tree, true)
+      tree.dispatchEvent(e)
+      return true
+    }
+    if (e.keyCode == KeyEvent.VK_ESCAPE && text.isEmpty()) {
+      IdeFocusManager.getInstance(project).requestFocus(tree, true)
+      return true
+    }
+    return false
+  }
+}
+
 internal abstract class FilteringBranchesTreeBase(val model: BranchesTreeModel, tree: Tree)
   : FilteringTree<BranchTreeNode, BranchNodeDescriptor>(tree, BranchTreeNode(model.root)) {
 
@@ -275,7 +302,8 @@ internal class FilteringBranchesTree(
   }
 
   override fun installSearchField(): SearchTextField {
-    val searchField = super.installSearchField()
+    val searchField = BranchesTreeSearchField(project, component)
+    searchModel.speedSearch = createSpeedSearch(searchField)
     component.searchField = searchField
     return searchField
   }

@@ -2,7 +2,7 @@
 package com.intellij.diagnostic
 
 import com.intellij.openapi.diagnostic.logger
-import com.intellij.openapi.diagnostic.rethrowControlFlowException
+import com.intellij.diagnostic.rethrowControlFlowException
 import com.intellij.openapi.project.IndexNotReadyException
 import org.jetbrains.annotations.ApiStatus
 import java.util.function.Supplier

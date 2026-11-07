@@ -8,14 +8,16 @@ import com.intellij.openapi.ui.TextFieldWithBrowseButton;
 import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.text.StringUtil;
-import com.intellij.openapi.vfs.LocalFileSystem;
+import com.intellij.openapi.vfs.StandardFileSystems;
 import com.intellij.psi.PsiDirectory;
+import com.intellij.ui.ContextHelpLabel;
 import com.intellij.ui.IdeBorderFactory;
 import com.intellij.ui.TextAccessor;
 import com.intellij.ui.components.JBCheckBox;
 import com.intellij.ui.components.JBLabel;
 import com.intellij.ui.components.JBRadioButton;
 import com.intellij.ui.components.JBTextField;
+import com.intellij.ui.components.panels.HorizontalLayout;
 import com.intellij.uiDesigner.core.GridConstraints;
 import com.intellij.uiDesigner.core.GridLayoutManager;
 import com.intellij.uiDesigner.core.Spacer;
@@ -185,7 +187,7 @@ public final class PyTestSharedForm implements SimplePropertiesProvider {
       if (StringUtil.isEmpty(workingDirectory)) {
         return null;
       }
-      return LocalFileSystem.getInstance().findFileByPath(getExpandedWorkingDir(configuration));
+      return StandardFileSystems.local().findFileByPath(getExpandedWorkingDir(configuration));
     });
   }
 
@@ -297,10 +299,21 @@ public final class PyTestSharedForm implements SimplePropertiesProvider {
       final JLabel label = new JLabel(option.getLocalizedName()); // NON-NLS
       label.setHorizontalAlignment(SwingConstants.LEFT);
 
+      final String help = option.getLocalizedHelp();
+      final JComponent labelCell;
+      if (help != null) {
+        labelCell = new JPanel(new HorizontalLayout(4, SwingConstants.CENTER));
+        labelCell.add(label);
+        labelCell.add(ContextHelpLabel.create(help));
+      }
+      else {
+        labelCell = label;
+      }
+
       constraints.fill = GridBagConstraints.NONE;
       constraints.gridx = 0;
       constraints.weightx = 0;
-      myCustomOptionsPanel.add(label, constraints);
+      myCustomOptionsPanel.add(labelCell, constraints);
 
       constraints.gridx = 1;
       constraints.weightx = 1.0;
@@ -310,8 +323,8 @@ public final class PyTestSharedForm implements SimplePropertiesProvider {
       constraints.gridy++;
 
       OptionHolder value = option.isBooleanType()
-                           ? new OptionHolder(option, label, (JBCheckBox)field)
-                           : new OptionHolder(option, label, (JBTextField)field);
+                           ? new OptionHolder(option, labelCell, (JBCheckBox)field)
+                           : new OptionHolder(option, labelCell, (JBTextField)field);
 
       myCustomOptions.put(option.getName(), value);
     }

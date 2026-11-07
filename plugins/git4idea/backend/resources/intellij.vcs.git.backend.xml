@@ -11,8 +11,8 @@
     <module name="intellij.libraries.guava"/>
     <module name="intellij.libraries.http.client"/>
     <module name="intellij.libraries.ini4j"/>
-    <module name="intellij.libraries.jackson"/>
-    <module name="intellij.libraries.jackson.databind"/>
+    <module name="intellij.libraries.jackson3"/>
+    <module name="intellij.libraries.jackson3.databind"/>
     <module name="intellij.libraries.kotlinx.coroutines.core"/>
     <module name="intellij.libraries.kotlinx.serialization.core"/>
     <module name="intellij.libraries.kotlinx.serialization.json"/>
@@ -23,9 +23,12 @@
     <module name="intellij.libraries.xz"/>
     <module name="intellij.platform.analysis"/>
     <module name="intellij.platform.backend"/>
+    <module name="intellij.platform.backend.observation"/>
     <module name="intellij.platform.builtInServer"/>
     <module name="intellij.platform.codeStyle"/>
     <module name="intellij.platform.collaborationTools"/>
+    <module name="intellij.platform.concurrency"/>
+    <module name="intellij.platform.consoleView"/>
     <module name="intellij.platform.core"/>
     <module name="intellij.platform.core.impl"/>
     <module name="intellij.platform.core.ui"/>
@@ -35,6 +38,7 @@
     <module name="intellij.platform.diff.impl"/>
     <module name="intellij.platform.editor.ui"/>
     <module name="intellij.platform.eel.impl"/>
+    <module name="intellij.platform.eel.provider"/>
     <module name="intellij.platform.execution"/>
     <module name="intellij.platform.execution.impl"/>
     <module name="intellij.platform.externalProcessAuthHelper"/>
@@ -43,7 +47,12 @@
     <module name="intellij.platform.ide.core.impl"/>
     <module name="intellij.platform.ide.impl"/>
     <module name="intellij.platform.ide.impl.wsl"/>
+    <module name="intellij.platform.ide.observable"/>
     <module name="intellij.platform.ide.progress"/>
+    <module name="intellij.platform.ide.recentProjects"/>
+    <module name="intellij.platform.ide.rpc"/>
+    <module name="intellij.platform.ide.ui"/>
+    <module name="intellij.platform.ide.util.netty"/>
     <module name="intellij.platform.kernel.backend"/>
     <module name="intellij.platform.lang"/>
     <module name="intellij.platform.lang.impl"/>
@@ -53,10 +62,14 @@
     <module name="intellij.platform.projectModel"/>
     <module name="intellij.platform.projectModel.impl"/>
     <module name="intellij.platform.rpc.backend"/>
+    <module name="intellij.platform.scopes"/>
+    <module name="intellij.platform.searchEverywhere"/>
     <module name="intellij.platform.statistics"/>
     <module name="intellij.platform.util.coroutines"/>
     <module name="intellij.platform.util.diff"/>
     <module name="intellij.platform.util.ex"/>
+    <module name="intellij.platform.util.progress"/>
+    <module name="intellij.platform.util.text.matching"/>
     <module name="intellij.platform.util.ui"/>
     <module name="intellij.platform.vcs"/>
     <module name="intellij.platform.vcs.dvcs"/>
@@ -101,7 +114,8 @@
     <action id="Git.Reword.Commit" class="git4idea.rebase.GitRewordAction"/>
     <action id="Git.Squash.Commits" class="git4idea.rebase.log.squash.GitSquashLogAction"/>
     <action id="Git.Drop.Commits" class="git4idea.rebase.log.drop.GitDropLogAction"/>
-    <action id="Git.Show.WorkingTrees" class="git4idea.workingTrees.actions.ShowWorkingTreesAction">
+    <action id="Git.Show.WorkingTrees" class="git4idea.workingTrees.actions.ShowWorkingTreesAction"
+            icon="com.intellij.vcs.git.icons.GitIcons.Worktree">
       <add-to-group group-id="Vcs.Log.ToolWindow.TabActions.DropDown" relative-to-action="Vcs.ShowConsoleTab" anchor="after"/>
     </action>
     <action id="Git.CreateNewWorkingTree" class="git4idea.workingTrees.actions.GitCreateWorkingTreeAction"/>
@@ -269,6 +283,8 @@
 
     <action id="Git.FindMergedLocalBranches" class="git4idea.branch.FindMergedLocalBranchesAction" internal="true"/>
 
+    <action id="Git.PrefillRecentPushTargets" class="git4idea.push.GitPrefillRecentPushTargetsAction" internal="true"/>
+
     <group id="Git.Ongoing.Rebase.Actions" popup="false">
       <reference ref="Git.Rebase.Abort"/>
       <reference ref="Git.Merge.Abort"/>
@@ -289,6 +305,7 @@
     <group id="Git.Branches.List">
       <reference ref="Git.Ongoing.Rebase.Actions"/>
       <reference ref="Git.CreateNewBranch"/>
+      <reference ref="Git.CreateNewWorkingTree"/>
       <action class="git4idea.actions.branch.GitCheckoutFromInputAction"/>
     </group>
 
@@ -401,6 +418,9 @@
       <reference ref="Git.PushUpToCommit"/>
       <action id="Git.AddCommitToRemoteBranch"
               class="git4idea.actions.addCommit.GitAddCommitToRemoteBranchAction"
+              internal="true"/>
+      <action id="Git.PushSelectedCommits"
+              class="git4idea.actions.addCommit.GitPushSelectedCommitsAction"
               internal="true"/>
       <separator/>
       <reference ref="Git.BranchOperationGroup"/>
@@ -629,6 +649,8 @@
     <action id="Git.WorkingTrees.Prune" class="git4idea.workingTrees.ui.actions.PruneWorkingTreesAction"
             icon="AllIcons.Actions.ClearCash"/>
     <action id="Git.WorkingTrees.ToggleLock" class="git4idea.workingTrees.ui.actions.GitToggleLockWorkingTreeAction"/>
+    <action id="Git.WorkingTrees.OpenReview" class="git4idea.workingTrees.ui.actions.OpenReviewForWorkingTreeAction"
+            icon="icons.CollaborationToolsIcons.PullRequestOpen"/>
 
     <group id="Git.WorkingTrees.ToolwindowGroup.Toolbar">
       <reference ref="Git.CreateNewWorkingTree"/>
@@ -641,6 +663,7 @@
 
     <group id="Git.WorkingTrees.ToolwindowGroup.Popup" popup="true">
       <reference ref="Git.WorkingTrees.Open"/>
+      <reference ref="Git.WorkingTrees.OpenReview"/>
       <reference ref="Git.WorkingTrees.ToggleLock"/>
       <separator/>
       <reference ref="Git.WorkingTrees.Remove"/>
@@ -857,6 +880,7 @@
                         testServiceImplementation="git4idea.commit.signing.GpgAgentPathsLocatorTestFactory"/>
 
     <recentProjectsBranchesProvider implementation="git4idea.repo.GitRecentProjectsBranchesProvider"/>
+    <recentProjectBrancher implementation="git4idea.branch.GitRecentProjectBrancher"/>
 
     <vcs.taskHandler implementation="git4idea.GitTaskHandler"/>
 
@@ -866,6 +890,7 @@
     <openapi.vcs.changes.vcsPreservingExecutor implementation="git4idea.util.GitPreservingExecutor"/>
     <editorNotificationProvider implementation="git4idea.conflicts.MergeConflictResolveUtil$NotificationProvider"/>
     <codeInsight.linkHandler prefix="#git_commit/" handlerClass="git4idea.log.GitCommitTooltipLinkHandler"/>
+    <searchEverywhere.itemsProviderFactory implementation="git4idea.search.SeGitProviderFactory"/>
 
     <!-- Git ignore lang -->
     <fileType language="GitIgnore" extensions="gitignore" fieldName="INSTANCE" name="GitIgnore file"
@@ -1034,7 +1059,12 @@
 
     <troubleInfoCollector implementation="git4idea.troubleshooting.GitTroubleInfoCollector"/>
 
-    <platform.rpc.backend.remoteApiProvider implementation="git4idea.remoteApi.GitApiProvider"/>
+    <platform.rpc.backend.remoteApiProvider implementation="git4idea.remoteApi.GitApiProvider"
+                                            apiInterfaces="com.intellij.vcs.git.rpc.GitWidgetApi,
+                                                           com.intellij.vcs.git.rpc.GitRepositoryApi,
+                                                           com.intellij.vcs.git.rpc.GitIncomingOutgoingStateApi,
+                                                           com.intellij.vcs.git.rpc.GitUiSettingsApi,
+                                                           com.intellij.vcs.git.rpc.GitOperationsApi"/>
 
     <uiDataRule implementation="git4idea.actions.branch.GitBackendBranchesWidgetUiDataRule"/>
 
@@ -1073,6 +1103,7 @@
     <extensionPoint interface="git4idea.config.GitProtectedBranchProvider" qualifiedName="Git4Idea.gitProtectedBranchProvider" dynamic="true"/>
     <extensionPoint interface="git4idea.update.GitPostUpdateHandler" qualifiedName="Git4Idea.gitPostUpdateHandler" dynamic="true"/>
     <extensionPoint interface="git4idea.ui.branch.GitCurrentBranchPresenter" qualifiedName="Git4Idea.gitCurrentBranchPresenter" dynamic="true"/>
+    <extensionPoint interface="git4idea.ui.branch.GitBranchReviewPresenter" qualifiedName="Git4Idea.gitBranchReviewPresenter" dynamic="true"/>
     <extensionPoint interface="git4idea.instant.InstantGitTokenProvider" qualifiedName="Git4Idea.instantGitTokenProvider" dynamic="true"/>
     <extensionPoint interface="git4idea.annotate.GitAnnotationPerformanceListener" qualifiedName="Git4Idea.gitAnnotationPerformanceListener" dynamic="true"/>
     <extensionPoint interface="git4idea.annotate.GitAnnotationProvider$GitRawAnnotationProvider" qualifiedName="Git4Idea.gitRawAnnotationProvider"
@@ -1081,6 +1112,13 @@
                     qualifiedName="Git4Idea.gitPushNotificationCustomizer"
                     dynamic="true"
                     area="IDEA_PROJECT"/>
+    <extensionPoint interface="git4idea.workingTrees.GitWorktreeOpenPathProvider"
+                    qualifiedName="Git4Idea.gitWorktreeOpenPathProvider"
+                    dynamic="true"/>
+    <extensionPoint interface="git4idea.workingTrees.GitWorktreeAdditionalConfigCopier"
+                    qualifiedName="Git4Idea.worktreeAdditionalConfigCopier" dynamic="true"/>
+    <extensionPoint interface="git4idea.workingTrees.dialog.GitWorktreeSettingsPanelProvider"
+                    qualifiedName="Git4Idea.worktreeSettingsPanelProvider" dynamic="true"/>
   </extensionPoints>
 
   <projectListeners>

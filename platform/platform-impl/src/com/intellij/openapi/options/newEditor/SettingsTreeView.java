@@ -44,6 +44,7 @@ import com.intellij.ui.TreeUIHelper;
 import com.intellij.ui.UIBundle;
 import com.intellij.ui.components.Badge;
 import com.intellij.ui.components.GradientViewport;
+import com.intellij.ui.paint.PaintUtil;
 import com.intellij.ui.render.RenderingUtil;
 import com.intellij.ui.scale.JBUIScale;
 import com.intellij.ui.tree.AsyncTreeModel;
@@ -103,7 +104,6 @@ import java.awt.Color;
 import java.awt.Component;
 import java.awt.Dimension;
 import java.awt.Graphics;
-import java.awt.Graphics2D;
 import java.awt.Insets;
 import java.awt.Point;
 import java.awt.Rectangle;
@@ -673,7 +673,21 @@ public class SettingsTreeView extends JComponent implements Accessible, Disposab
 
     private boolean hasNewOptions() {
       if (myHasNewOptions == null) {
-        myHasNewOptions = myNewBadgeState.hasNewOptions(myConfigurable);
+        boolean result = myNewBadgeState.hasNewOptions(myConfigurable);
+        if (!result) {
+          // Roll the badge up over the tree nodes, which exist already, and never over the configurables,
+          // because that expands a dynamic composite and builds every child of it on the EDT.
+          SimpleNode[] children = getCached();
+          if (children != null) {
+            for (SimpleNode child : children) {
+              if (child instanceof MyNode node && node.hasNewOptions()) {
+                result = true;
+                break;
+              }
+            }
+          }
+        }
+        myHasNewOptions = result;
       }
       return myHasNewOptions;
     }
@@ -755,7 +769,7 @@ public class SettingsTreeView extends JComponent implements Accessible, Disposab
         if (myFilter.context.getErrors().containsKey(configurable)) {
           myTextLabel.setForeground(WRONG_CONTENT);
         }
-        else if (myFilter.context.getModified().contains(configurable) || hasCustomizedSettings(configurable)) {
+        else if (myFilter.context.getModified().contains(configurable)) {
           myTextLabel.setForeground(MODIFIED_CONTENT);
         }
       }
@@ -783,9 +797,9 @@ public class SettingsTreeView extends JComponent implements Accessible, Disposab
         myAccessibleBadgeText = IdeBundle.message("badge.text.beta");
       }
 
-      Configurable.Promo promo = asPromo(configurable);
-      if (promo != null) {
-        setRightIcon(promo.getPromoIcon());
+      Icon promoIcon = getPromoIcon(configurable);
+      if (promoIcon != null) {
+        setRightIcon(promoIcon);
       }
 
       if (node != null && node.hasNewOptions() && (leaf || !expanded)) {
@@ -874,9 +888,7 @@ public class SettingsTreeView extends JComponent implements Accessible, Disposab
         myRenderInfo.second.layoutBeforePaint(myRenderInfo.first, bounds, text, right, baseline);
 
         Rectangle paintBounds = myRenderInfo.first.getBounds();
-        Graphics2D g2 = (Graphics2D)g.create(paintBounds.x, paintBounds.y, paintBounds.width, paintBounds.height);
-        myRenderInfo.first.paint(g2);
-        g2.dispose();
+        PaintUtil.use(g.create(paintBounds.x, paintBounds.y, paintBounds.width, paintBounds.height), myRenderInfo.first::paint);
 
         myRenderInfo = null;
       }
@@ -916,22 +928,33 @@ public class SettingsTreeView extends JComponent implements Accessible, Disposab
     }
   }
 
-  private static boolean isBeta(Configurable c) {
-    return c instanceof Configurable.Beta ||
-           ConfigurableWrapper.cast(Configurable.Beta.class, c) != null;
+  /**
+   * The declaration is the only source of the badge, so the answer costs no class load and no construction.
+   * A configurable component that carries {@code Configurable.Beta} and declares no attribute shows no badge.
+   * A child that a parent page builds itself has no wrapper, so it answers through {@link BetaConfigurable}.
+   */
+  private static boolean isBeta(@Nullable Configurable c) {
+    if (c instanceof ConfigurableWrapper wrapper) {
+      return wrapper.getExtensionPoint().beta;
+    }
+    return c instanceof BetaConfigurable beta && beta.isBeta();
   }
 
-  private static boolean hasCustomizedSettings(@Nullable Configurable configurable) {
-    CustomizedSettingsProvider provider = configurable instanceof CustomizedSettingsProvider c
-                                          ? c
-                                          : ConfigurableWrapper.cast(CustomizedSettingsProvider.class, configurable);
-    return provider != null && provider.hasCustomizedSettings();
-  }
-
-  private static @Nullable Configurable.Promo asPromo(Configurable c) {
-    if (c instanceof Configurable.Promo) return (Configurable.Promo)c;
-
-    return ConfigurableWrapper.cast(Configurable.Promo.class, c);
+  /**
+   * Returns the promo badge of the configurable, or {@code null} when it advertises nothing.
+   * The declaration is the only source of the badge, so the icon cannot change when the page is built later.
+   * A configurable component that carries {@code Configurable.Promo} and declares no attribute shows no badge.
+   */
+  private static @Nullable Icon getPromoIcon(@Nullable Configurable c) {
+    if (!(c instanceof ConfigurableWrapper wrapper)) {
+      return null;
+    }
+    ConfigurableEP<?> ep = wrapper.getExtensionPoint();
+    Icon declared = ep.lazyPromoIcon.getValue();
+    if (declared != null) {
+      return declared;
+    }
+    return ep.promo ? AllIcons.Ultimate.Lock : null;
   }
 
   private static final class LargeBlueDotIcon implements Icon {
@@ -940,8 +963,7 @@ public class SettingsTreeView extends JComponent implements Accessible, Disposab
 
     @Override
     public void paintIcon(Component c, Graphics g, int x, int y) {
-      Graphics2D g2 = (Graphics2D)g.create();
-      try {
+      PaintUtil.useCopy(g, g2 -> {
         g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
 
         float diameter = JBUIScale.scale((float)DOT_DIAMETER);
@@ -950,10 +972,7 @@ public class SettingsTreeView extends JComponent implements Accessible, Disposab
 
         g2.setColor(JBUI.CurrentTheme.IconBadge.INFORMATION);
         g2.fill(new Ellipse2D.Float(dotX, dotY, diameter, diameter));
-      }
-      finally {
-        g2.dispose();
-      }
+      });
     }
 
     @Override
@@ -1142,25 +1161,11 @@ public class SettingsTreeView extends JComponent implements Accessible, Disposab
    * which atomically refilters the tree structure and adjusts the selection, avoiding race conditions
    * when the filter state has just been cleared synchronously.
    * <p>
-   * The configurable may come from an external {@link ConfigurableGroup} (e.g. when opening settings
-   * from an action like "Configure Gutter Icons"). In that case it is a different instance from the
-   * one stored in this tree's {@link IdentityHashMap}. We first try {@link #findNode(Configurable)};
-   * if that fails we fall back to matching by {@link ConfigurableVisitor#getId(Configurable)}.
+   * The configurable must belong to this tree, because the node is found by instance identity.
+   * A caller resolves its target in {@link SettingsNonModalDialog#getGroups()} of the open window.
    */
   void refilterAndSelect(@Nullable Configurable configurable) {
-    MyNode node = findNode(configurable);
-    if (node == null && configurable != null) {
-      // The configurable instance may differ from the one in our map (e.g. created from a new
-      // ConfigurableGroup). Fall back to matching by configurable ID.
-      String id = ConfigurableVisitor.getId(configurable);
-      for (Map.Entry<Configurable, MyNode> entry : myConfigurableToNodeMap.entrySet()) {
-        if (id.equals(ConfigurableVisitor.getId(entry.getKey()))) {
-          node = entry.getValue();
-          break;
-        }
-      }
-    }
-    myModel.updateTree(myTree, !myFilter.isEmptyFilter(), node);
+    myModel.updateTree(myTree, !myFilter.isEmptyFilter(), findNode(configurable));
   }
 
   void reloadWithSelection(@Nullable Configurable toSelect) {

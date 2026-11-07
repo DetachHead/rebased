@@ -1,6 +1,0 @@
-// WITH_STDLIB
-
-object A {
-}
-
-val foo: Int = 1

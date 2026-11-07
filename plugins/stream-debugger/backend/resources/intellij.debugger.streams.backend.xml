@@ -10,6 +10,7 @@
     <module name="intellij.platform.debugger.impl"/>
     <module name="intellij.platform.debugger.impl.rpc"/>
     <module name="intellij.platform.debugger.impl.shared"/>
+    <module name="intellij.platform.ide.rpc"/>
     <module name="intellij.platform.kernel"/>
     <module name="intellij.platform.kernel.backend"/>
     <module name="intellij.platform.rpc.backend"/>
@@ -18,6 +19,7 @@
 
   <extensions defaultExtensionNs="com.intellij">
     <platform.rpc.backend.remoteApiProvider
-      implementation="com.intellij.debugger.streams.backend.BackendStreamDebuggerRemoteApiProvider"/>
+      implementation="com.intellij.debugger.streams.backend.BackendStreamDebuggerRemoteApiProvider"
+      apiInterfaces="com.intellij.debugger.streams.shared.StreamDebuggerApi"/>
   </extensions>
 </idea-plugin>

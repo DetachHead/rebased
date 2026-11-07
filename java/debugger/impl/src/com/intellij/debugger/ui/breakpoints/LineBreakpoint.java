@@ -18,6 +18,7 @@ import com.intellij.debugger.engine.InstrumentationBreakpointState;
 import com.intellij.debugger.impl.DebuggerUtilsEx;
 import com.intellij.debugger.jdi.MethodBytecodeUtil;
 import com.intellij.icons.AllIcons;
+import com.intellij.debugger.source.DebuggerSourceFileResolver;
 import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Document;
@@ -40,7 +41,6 @@ import com.intellij.psi.PsiFile;
 import com.intellij.psi.PsiMethod;
 import com.intellij.psi.PsiStatement;
 import com.intellij.psi.PsiWhiteSpace;
-import com.intellij.psi.jsp.JspFile;
 import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.ui.LayeredIcon;
@@ -243,8 +243,8 @@ public class LineBreakpoint<P extends JavaBreakpointProperties> extends Breakpoi
   protected @Nullable JavaLineBreakpointType getXBreakpointType() {
     XBreakpointType<?, P> type = myXBreakpoint.getType();
     // Nashorn breakpoints do not contain JavaLineBreakpointType
-    if (type instanceof JavaLineBreakpointType) {
-      return (JavaLineBreakpointType)type;
+    if (type instanceof JavaLineBreakpointType breakpointType) {
+      return breakpointType;
     }
     return null;
   }
@@ -429,7 +429,7 @@ public class LineBreakpoint<P extends JavaBreakpointProperties> extends Breakpoi
   }
 
   private static @Nullable String findOwnerMethod(final PsiFile file, final int offset) {
-    if (offset < 0 || file instanceof JspFile) {
+    if (offset < 0 || DebuggerSourceFileResolver.isTemplateSourceFile(file)) {
       return null;
     }
     if (file instanceof PsiClassOwner) {
@@ -503,8 +503,8 @@ public class LineBreakpoint<P extends JavaBreakpointProperties> extends Breakpoi
         element = element.getParent();
       }
 
-      if (child instanceof PsiMethod && child.getTextRange().getEndOffset() >= document.getLineEndOffset(lineIndex)) {
-        PsiCodeBlock body = ((PsiMethod)child).getBody();
+      if (child instanceof PsiMethod method && child.getTextRange().getEndOffset() >= document.getLineEndOffset(lineIndex)) {
+        PsiCodeBlock body = method.getBody();
         if (body == null) {
           canAdd[0] = false;
         }

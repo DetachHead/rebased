@@ -1,4 +1,4 @@
-// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.plugins.gradle.importing
 
 import com.intellij.ide.util.treeView.AbstractTreeNode
@@ -62,6 +62,38 @@ class GradleModulesInProjectViewTest : GradleImportingTestCase() {
       """.trimMargin(), myStructure)
   }
 
+  @Test
+  fun `test gradle modules in sibling directories`() {
+    createProjectSubDir("../coreProject")
+    createProjectSubDir("../engineProject")
+    createSettingsFile("""
+      |include 'coreProject'
+      |include 'engineProject'
+      |project(':coreProject').projectDir = file('../coreProject')
+      |project(':engineProject').projectDir = file('../engineProject')
+      """.trimMargin())
+    importProject("")
+
+    assertModules("project", "project.coreProject", "project.engineProject")
+
+    assertProjectViewPresentation("""
+      |project
+      | *project*
+      |  build.gradle
+      |  gradle
+      |   wrapper
+      |    gradle-wrapper.jar
+      |    gradle-wrapper.properties
+      |  gradlew
+      |  gradlew.bat
+      |  settings.gradle
+      | project
+      |  coreProject *[project.coreProject]*
+      |  engineProject *[project.engineProject]*
+      |
+      """.trimMargin(), myStructure)
+  }
+
   private fun assertProjectViewPresentation(expected: String?, structure: AbstractTreeStructure) {
     ReadAction.run<Nothing> {
       val nodePresenter = java.util.function.Function { o: Any ->
@@ -83,6 +115,8 @@ class GradleModulesInProjectViewTest : GradleImportingTestCase() {
       assertEquals(expected, treeStructure)
     }
   }
+
+  override fun assumeGradleVersion() {}
 
   companion object {
     /**

@@ -17,7 +17,6 @@ create_kotlinc_options(
     opt_in = [
         "kotlin.RequiresOptIn",
         "kotlinx.serialization.ExperimentalSerializationApi",
-        "kotlinx.coroutines.ExperimentalCoroutinesApi",
     ],
 )
 
@@ -48,11 +47,11 @@ jvm_library(
         "//platform/util/jdom",
         "//platform/util/xmlDom",
         "//libraries/jackson3/jackson:libraries-jackson3",
-        "//libraries/kotlinx/coroutines/core",
         "//libraries/aalto-xml",
         "//libraries/androidx-collections",
         "//platform/build-scripts/product-dsl/plugin-graph",
         "//platform/build-scripts/licenses",
+        "//libraries/opentelemetry",
     ],
 )
 
@@ -79,18 +78,12 @@ jvm_library(
         "//platform/util:util_test_lib",
         "//platform/util/jdom:jdom_test_lib",
         "//platform/util/xmlDom:xmlDom_test_lib",
-        "//libraries/junit5",
-        "//libraries/junit5:junit5_test_lib",
-        "//libraries/assertj-core",
-        "//libraries/assertj-core:assertj-core_test_lib",
-        "//jps/model-impl",
-        "//jps/model-impl:model-impl_test_lib",
         "//libraries/jackson3/jackson:libraries-jackson3_test_lib",
-        "//libraries/kotlinx/coroutines/core:core_test_lib",
         "//libraries/aalto-xml:aalto-xml_test_lib",
         "//libraries/androidx-collections:androidx-collections_test_lib",
         "//platform/build-scripts/product-dsl/plugin-graph:plugin-graph_test_lib",
         "//platform/build-scripts/licenses:licenses_test_lib",
+        "//libraries/opentelemetry:opentelemetry_test_lib",
     ],
 )
 ### auto-generated section `build intellij.platform.buildScripts.productDsl` end
@@ -165,8 +158,8 @@ jvm_library(
         "//platform/util/jdom:jdom_test_lib",
         "//platform/util/xmlDom",
         "//platform/util/xmlDom:xmlDom_test_lib",
-        "//libraries/junit5",
-        "//libraries/junit5:junit5_test_lib",
+        "//libraries/junit6",
+        "//libraries/junit6:junit6_test_lib",
         "//libraries/assertj-core",
         "//libraries/assertj-core:assertj-core_test_lib",
         "//jps/model-impl",
@@ -183,6 +176,8 @@ jvm_library(
         "//platform/build-scripts/product-dsl/plugin-graph:plugin-graph_test_lib",
         "//platform/build-scripts/licenses",
         "//platform/build-scripts/licenses:licenses_test_lib",
+        "//libraries/opentelemetry",
+        "//libraries/opentelemetry:opentelemetry_test_lib",
     ],
 )
 ### auto-generated section `build intellij.platform.buildScripts.productDsl.tests` end

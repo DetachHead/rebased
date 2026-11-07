@@ -45,7 +45,7 @@ abstract class GradleCodeInsightBaseTestCase : GradleProjectTestCase() {
     override fun getData(dataId: String): Any? =
       when {
         CommonDataKeys.PROJECT.`is`(dataId) -> gradleFixture.project
-        CommonDataKeys.EDITOR.`is`(dataId) -> FileEditorManager.getInstance(gradleFixture.project).getSelectedTextEditor()
+        CommonDataKeys.EDITOR.`is`(dataId) -> FileEditorManager.getInstance(gradleFixture.project).selectedTextEditor
         else -> null
       }
   }

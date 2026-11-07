@@ -20,6 +20,7 @@ import com.intellij.execution.ProgramRunnerUtil
 import com.intellij.execution.RunManager
 import com.intellij.execution.RunProfileStarter
 import com.intellij.execution.RunnerAndConfigurationSettings
+import com.intellij.execution.actions.ExecutionSafeMode
 import com.intellij.execution.configuration.CompatibilityAwareRunProfile
 import com.intellij.execution.configurations.RunConfiguration
 import com.intellij.execution.configurations.RunConfiguration.RestartSingletonResult
@@ -37,6 +38,7 @@ import com.intellij.execution.process.ProcessEvent
 import com.intellij.execution.process.ProcessHandler
 import com.intellij.execution.process.ProcessOutputType
 import com.intellij.execution.process.ProcessTerminatedListener
+import com.intellij.execution.process.initiateProcessTermination
 import com.intellij.execution.runners.ExecutionEnvironment
 import com.intellij.execution.runners.ExecutionEnvironmentBuilder
 import com.intellij.execution.runners.ExecutionUtil
@@ -163,7 +165,10 @@ open class ExecutionManagerImpl(private val project: Project, private val corout
 
     internal val TERMINATING_FOR_RERUN = Key.create<Boolean>("TERMINATING_FOR_RERUN")
     internal val REPORT_NEXT_START_AS_RERUN = Key.create<Boolean>("REPORT_NEXT_START_AS_RERUN")
-    internal val PARENT_PROFILE_IDE_ACTIVITY = Key.create<StructuredIdeActivity>("PARENT_PROFILE_IDE_ACTIVITY")
+
+    @ApiStatus.Internal
+    @JvmField
+    val PARENT_PROFILE_IDE_ACTIVITY: Key<StructuredIdeActivity> = Key.create("PARENT_PROFILE_IDE_ACTIVITY")
 
     @JvmStatic
     fun getInstance(project: Project): ExecutionManagerImpl {
@@ -186,31 +191,13 @@ open class ExecutionManagerImpl(private val project: Project, private val corout
       stopProcess(descriptor?.processHandler)
     }
 
-    @OptIn(DelicateCoroutinesApi::class)
     @JvmStatic
     fun stopProcess(processHandler: ProcessHandler?) {
       if (processHandler == null) {
         return
       }
 
-      processHandler.putUserData(ProcessHandler.TERMINATION_REQUESTED, true)
-      GlobalScope.childScope("Destroy " + processHandler.javaClass.name, Dispatchers.Default, true).launch {
-        if (processHandler is KillableProcess && processHandler.isProcessTerminating) {
-          // process termination was requested, but it's still alive
-          // in this case 'force quit' will be performed
-          processHandler.killProcess()
-        }
-        else {
-          if (!processHandler.isProcessTerminated) {
-            if (processHandler.detachIsDefault()) {
-              processHandler.detachProcess()
-            }
-            else {
-              processHandler.destroyProcess()
-            }
-          }
-        }
-      }
+      initiateProcessTermination(processHandler)
     }
 
     @JvmStatic
@@ -797,6 +784,17 @@ open class ExecutionManagerImpl(private val project: Project, private val corout
       val runnerAndConfigurationSettings = environment.runnerAndConfigurationSettings
       val project = environment.project
       val runner = environment.runner
+
+      val untrustedFile = ExecutionSafeMode.findUntrustedTargetFile(project, environment.runProfile)
+      if (untrustedFile != null) {
+        handleProgramRunnerExecutionError(
+          project, environment,
+          ExecutionException(ExecutionBundle.message("run.configuration.untrusted.target.file", untrustedFile.name)),
+          runnerAndConfigurationSettings?.configuration)
+        processNotStarted(environment, null)
+        return@withEnvironmentDataContext
+      }
+
       if (runnerAndConfigurationSettings != null) {
         val targetManager = ExecutionTargetManager.getInstance(project)
         if (!targetManager.doCanRun(runnerAndConfigurationSettings.configuration, environment.executionTarget)) {

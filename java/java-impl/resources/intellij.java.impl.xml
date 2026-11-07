@@ -5,7 +5,6 @@
     <plugin id="com.intellij.modules.java-capable"/>
     <module name="intellij.platform.externalSystem"/>
     <module name="intellij.platform.externalSystem.impl"/>
-    <module name="intellij.platform.todo.backend"/>
     <module name="intellij.platform.backend"/>
     <module name="intellij.java.frontback.impl"/>
     <module name="intellij.java"/>
@@ -21,13 +20,12 @@
     <module name="intellij.java.psi.impl"/>
     <module name="intellij.java.structureView"/>
     <module name="intellij.java.syntax"/>
-    <module name="intellij.jsp"/>
-    <module name="intellij.jsp.spi"/>
     <module name="intellij.libraries.caffeine"/>
     <module name="intellij.libraries.completion.ranking.java"/>
     <module name="intellij.libraries.fastutil"/>
     <module name="intellij.libraries.gson"/>
     <module name="intellij.libraries.guava"/>
+    <module name="intellij.libraries.jaxb"/>
     <module name="intellij.libraries.kotlinx.collections.immutable"/>
     <module name="intellij.libraries.kotlinx.serialization.core"/>
     <module name="intellij.libraries.markdown"/>
@@ -35,17 +33,24 @@
     <module name="intellij.libraries.stream"/>
     <module name="intellij.libraries.velocity"/>
     <module name="intellij.platform.analysis"/>
+    <module name="intellij.platform.backend.workspace"/>
     <module name="intellij.platform.builtInServer.impl"/>
     <module name="intellij.platform.codeStyle"/>
     <module name="intellij.platform.codeStyle.impl"/>
+    <module name="intellij.platform.concurrency"/>
+    <module name="intellij.platform.consoleView"/>
     <module name="intellij.platform.core"/>
     <module name="intellij.platform.core.impl"/>
     <module name="intellij.platform.core.ui"/>
     <module name="intellij.platform.diff.impl"/>
     <module name="intellij.platform.editor.ex"/>
     <module name="intellij.platform.editor.ui"/>
+    <module name="intellij.platform.eel.provider"/>
     <module name="intellij.platform.execution"/>
     <module name="intellij.platform.execution.impl"/>
+    <module name="intellij.platform.foldings"/>
+    <module name="intellij.platform.icons"/>
+    <module name="intellij.platform.ide.codeinsight.inline"/>
     <module name="intellij.platform.ide.concurrency"/>
     <module name="intellij.platform.ide.core"/>
     <module name="intellij.platform.ide.core.impl"/>
@@ -53,6 +58,7 @@
     <module name="intellij.platform.ide.impl"/>
     <module name="intellij.platform.ide.internal"/>
     <module name="intellij.platform.ide.progress"/>
+    <module name="intellij.platform.ide.util.io.impl"/>
     <module name="intellij.platform.indexing"/>
     <module name="intellij.platform.lang"/>
     <module name="intellij.platform.lang.core"/>
@@ -69,12 +75,13 @@
     <module name="intellij.platform.structureView"/>
     <module name="intellij.platform.testIntegration.ui"/>
     <module name="intellij.platform.threadDumpParser"/>
-    <module name="intellij.platform.todo"/>
     <module name="intellij.platform.usageView"/>
     <module name="intellij.platform.usageView.impl"/>
     <module name="intellij.platform.util.ex"/>
+    <module name="intellij.platform.util.text.matching"/>
     <module name="intellij.platform.util.ui"/>
     <module name="intellij.platform.workspace.jps"/>
+    <module name="intellij.platform.workspace.storage"/>
     <module name="intellij.regexp"/>
     <module name="intellij.spellchecker"/>
     <module name="intellij.xml.parser"/>
@@ -90,6 +97,14 @@
   <xi:include href="/META-INF/IntentionPowerPack.xml"/>
 
   <extensionPoints>
+    <extensionPoint qualifiedName="com.intellij.java.templateImportSupport"
+                    interface="com.intellij.java.impl.template.JavaTemplateImportSupport" dynamic="true"/>
+    <extensionPoint qualifiedName="com.intellij.java.templateCodeInsightSupport"
+                    interface="com.intellij.java.impl.template.JavaTemplateCodeInsightSupport" dynamic="true"/>
+    <extensionPoint qualifiedName="com.intellij.java.templateFormattingSupport"
+                    interface="com.intellij.java.impl.template.JavaTemplateFormattingSupport" dynamic="true"/>
+    <extensionPoint qualifiedName="com.intellij.java.templatePresentationSupport"
+                    interface="com.intellij.java.impl.template.JavaTemplatePresentationSupport" dynamic="true"/>
     <extensionPoint qualifiedName="com.intellij.lang.jvm.annotationPackageSupport" interface="com.intellij.codeInsight.annoPackages.AnnotationPackageSupport" dynamic="true"/>
     <extensionPoint qualifiedName="com.intellij.lang.jvm.annotations.marker.suppressor"
                     interface="com.intellij.codeInsight.NonCodeAnnotationsMarkerSuppressor" dynamic="true"/>

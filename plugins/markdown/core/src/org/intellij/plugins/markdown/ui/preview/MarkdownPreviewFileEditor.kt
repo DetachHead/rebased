@@ -12,12 +12,12 @@ import com.intellij.openapi.application.writeIntentReadAction
 import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.editor.Document
 import com.intellij.openapi.editor.Editor
+import com.intellij.openapi.editor.VisualPosition
 import com.intellij.openapi.editor.event.DocumentEvent
 import com.intellij.openapi.editor.event.DocumentListener
 import com.intellij.openapi.editor.impl.EditorImpl
 import com.intellij.openapi.fileEditor.FileEditor
 import com.intellij.openapi.fileEditor.FileEditorState
-import com.intellij.openapi.fileEditor.TextEditorWithPreview
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.popup.JBPopupFactory
 import com.intellij.openapi.util.Disposer
@@ -27,6 +27,7 @@ import com.intellij.openapi.util.UserDataHolderBase
 import com.intellij.openapi.util.registry.Registry
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.ui.awt.RelativePoint
+import com.intellij.util.application
 import com.intellij.util.concurrency.ThreadingAssertions
 import com.intellij.util.concurrency.annotations.RequiresEdt
 import com.intellij.util.ui.StartupUiUtil
@@ -93,7 +94,7 @@ class MarkdownPreviewFileEditor(
       }
     }
 
-    val messageBusConnection = project.messageBus.connect(this)
+    val messageBusConnection = application.messageBus.connect(this)
     val settingsChangedListener = UpdatePanelOnSettingsChangedListener()
     messageBusConnection.subscribe(MarkdownSettings.ChangeListener.TOPIC, settingsChangedListener)
     messageBusConnection.subscribe(
@@ -162,6 +163,20 @@ class MarkdownPreviewFileEditor(
     }
   }
 
+  @RequiresEdt
+  fun followEditor(editor: Editor): Boolean {
+    val actualPanel = panel as? MarkdownHtmlPanelEx ?: return false
+    if (!actualPanel.canScrollToSourceOffset) return false
+    val y = editor.scrollingModel.verticalScrollOffset
+    val line = editor.yToVisualLine(y)
+    val lineTop = editor.visualLineToY(line)
+    val lineStart = editor.visualPositionToOffset(VisualPosition(line, 0))
+    val nextLineStart = editor.visualPositionToOffset(VisualPosition(line + 1, 0))
+    val fraction = ((y - lineTop).toDouble() / editor.lineHeight).coerceIn(0.0, 1.0)
+    actualPanel.scrollToSourceOffset(lineStart + fraction * (nextLineStart - lineStart).coerceAtLeast(0))
+    return true
+  }
+
   override fun getComponent(): JComponent {
     return htmlPanelWrapper
   }
@@ -220,7 +235,7 @@ class MarkdownPreviewFileEditor(
     return preferredProvider
   }
 
-  @RequiresEdt
+  @RequiresEdt(generateAssertion = false /* IJPL-115548 */)
   private fun updateHtml() {
     cancelHtmlUpdate()
     startHtmlUpdate()
@@ -274,7 +289,7 @@ class MarkdownPreviewFileEditor(
         document.text
       }
       else {
-        val textPreprocessor = retrievePanelProvider(MarkdownSettings.getInstance(project)).sourceTextPreprocessor
+        val textPreprocessor = retrievePanelProvider(MarkdownSettings.getInstance()).sourceTextPreprocessor
         textPreprocessor.preprocessText(project, document, file)
       }
       logger.debug("MarkdownPreviewFileEditor: readAction finished")
@@ -282,7 +297,7 @@ class MarkdownPreviewFileEditor(
     }
   }
 
-  @RequiresEdt
+  @RequiresEdt(generateAssertion = false /* IJPL-115548 */)
   private fun detachHtmlPanel() {
     val panel = this.panel
     if (panel != null) {
@@ -293,12 +308,16 @@ class MarkdownPreviewFileEditor(
     putUserData(PREVIEW_BROWSER, null)
   }
 
-  @RequiresEdt
+  @RequiresEdt(generateAssertion = false /* IJPL-115548 */)
   private fun attachHtmlPanel() {
     ThreadingAssertions.assertEventDispatchThread()
 
+    if (!MarkdownHtmlPanelProvider.hasAvailableProviders()) {
+      logger.debug("MarkdownPreviewFileEditor: no preview panel provider is available")
+      return
+    }
     logger.info("MarkdownPreviewFileEditor: attachHtmlPanel")
-    val settings = MarkdownSettings.getInstance(project)
+    val settings = MarkdownSettings.getInstance()
     val panelProvider = retrievePanelProvider(settings)
     val panel = panelProvider.createHtmlPanel(project, file)
     this.panel = panel
@@ -350,14 +369,18 @@ class MarkdownPreviewFileEditor(
 
     override fun settingsChanged(settings: MarkdownSettings) {
       coroutineScope.launch(Dispatchers.EDT) {
-        if (settings.splitLayout != TextEditorWithPreview.Layout.SHOW_EDITOR) {
+        if (htmlPanelWrapper.isShowing) {
           if (panel == null) {
             attachHtmlPanel()
           }
           else if (lastPanelProviderInfo == null ||
-                   MarkdownHtmlPanelProvider.createFromInfo(lastPanelProviderInfo!!) == retrievePanelProvider(settings)) {
+                   MarkdownHtmlPanelProvider.createFromInfo(lastPanelProviderInfo!!) != retrievePanelProvider(settings)) {
             detachHtmlPanel()
             attachHtmlPanel()
+          }
+          else {
+            panel?.reloadStyles()
+            updateHtml()
           }
         }
       }

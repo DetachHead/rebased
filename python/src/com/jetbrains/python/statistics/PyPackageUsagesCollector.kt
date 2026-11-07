@@ -1,6 +1,7 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.jetbrains.python.statistics
 
+import com.intellij.python.pyproject.model.evolution.pythonInterpreters
 import com.intellij.internal.statistic.beans.MetricEvent
 import com.intellij.internal.statistic.eventLog.EventLogGroup
 import com.intellij.internal.statistic.eventLog.events.EventFields
@@ -9,15 +10,17 @@ import com.intellij.internal.statistic.service.fus.collectors.ProjectUsagesColle
 import com.intellij.openapi.project.Project
 import com.jetbrains.python.getOrNull
 import com.jetbrains.python.packaging.management.PythonPackageManager
-import com.jetbrains.python.sdk.legacy.PythonSdkUtil
 
 /**
  * Reports usages of packages and versions
  */
 internal class PyPackageVersionUsagesCollector : ProjectUsagesCollector() {
   override suspend fun collect(project: Project): Set<MetricEvent> = buildSet {
-    for (sdk in project.sdks.filter(PythonSdkUtil::isPythonSdk)) {
-      val manager = PythonPackageManager.forSdk(project, sdk)
+    // The project model's own interpreters, rather than every module's raw SDK: an SDK built outside the blessed
+    // creation path carries no PythonSdkAdditionalData, which `forSdk` is keyed by, and reporting statistics must not
+    // fail over one (PY-90784).
+    for (interpreter in project.pythonInterpreters()) {
+      val manager = PythonPackageManager.forPythonInterpreter(project, interpreter)
       addAll(manager.getDeclaredPackages())
       addAll(manager.getInstalledPackages())
     }
@@ -42,7 +45,7 @@ internal class PyPackageVersionUsagesCollector : ProjectUsagesCollector() {
 
   private suspend fun PythonPackageManager.getDeclaredPackages(): Set<MetricEvent> {
     val dependencies = listDeclaredPackagesCached()?.getOrNull() ?: return emptySet()
-    val usageData = getPythonSpecificInfo(sdk)
+    val usageData = getPythonSpecificInfo(interpreter)
     return dependencies.mapTo(HashSet()) { dep ->
       PYTHON_PACKAGE_INSTALLED.metric(usageData + listOf(
         PACKAGE_FIELD.with(dep.name),
@@ -56,8 +59,8 @@ internal class PyPackageVersionUsagesCollector : ProjectUsagesCollector() {
       PYTHON_PACKAGE_INSTALLED_IN_SDK.metric(
         PACKAGE_FIELD.with(pkg.name),
         PACKAGE_VERSION_FIELD.with(pkg.version),
-        EXECUTION_TYPE.with(sdk.executionType.value),
-        INTERPRETER_TYPE.with(sdk.interpreterType.value),
+        EXECUTION_TYPE.with(interpreter.executionType.value),
+        INTERPRETER_TYPE.with(interpreter.interpreterType.value),
       )
     }
   }

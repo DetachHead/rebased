@@ -1,4 +1,4 @@
-// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.progress.impl
 
 import com.intellij.openapi.components.Service
@@ -11,6 +11,7 @@ import com.intellij.openapi.progress.ProgressModel
 import com.intellij.openapi.progress.util.ProgressIndicatorBase
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.ProjectManager
+import com.intellij.platform.ide.progress.BackgroundTaskOwnerKind
 import com.intellij.platform.ide.progress.TaskInfoEntity
 import com.intellij.platform.ide.progress.TaskManager
 import com.intellij.platform.ide.progress.TaskStatus
@@ -61,10 +62,33 @@ internal class PerProjectTaskInfoEntityCollector(private val project: Project, p
 private fun collectActiveTasks(cs: CoroutineScope, project: Project?) {
   cs.launch {
     activeTasks
-      .filter { it.projectId == project?.projectId() }
+      .filter { isTaskShownByCollector(it.ownerKind, it.projectId, project?.projectId()) }
       .collect { task ->
         showTaskIndicator(cs, project, task)
       }
+  }
+}
+
+/**
+ * Decides if a collector shows a task in its frame.
+ *
+ * The application collector shows the tasks of the default project and the tasks of the last focused frame.
+ * A per-project collector shows the tasks of its project and the tasks of all frames.
+ *
+ * @param collectorProjectId the project id of a per-project collector, or null for the application collector
+ */
+internal fun isTaskShownByCollector(
+  ownerKind: BackgroundTaskOwnerKind,
+  taskProjectId: ProjectId?,
+  collectorProjectId: ProjectId?,
+): Boolean {
+  return when (ownerKind) {
+    BackgroundTaskOwnerKind.PROJECT -> taskProjectId == collectorProjectId
+    // we make only the application collector to handle the UI of the last-focused-only progress
+    // otherwise we would have multiple projects attempting to draw UI for the same last-focused frame
+    BackgroundTaskOwnerKind.GUESS -> collectorProjectId == null
+    // we ignore the application collector by filtering for non-null project id
+    BackgroundTaskOwnerKind.ALL_FRAMES -> collectorProjectId != null
   }
 }
 
@@ -129,9 +153,14 @@ private fun showTaskIndicator(cs: CoroutineScope, project: Project?, task: TaskI
         }
       }
 
-      val projectOrDefault = project ?: serviceAsync<ProjectManager>().defaultProject
+      // a null project makes the indicator use the last focused frame
+      val indicatorProject = when {
+        project != null -> project
+        task.ownerKind == BackgroundTaskOwnerKind.GUESS -> null
+        else -> serviceAsync<ProjectManager>().defaultProject
+      }
       showIndicator(
-        projectOrDefault,
+        indicatorProject,
         progressModel,
         task.updates.asValuesFlow()
       )

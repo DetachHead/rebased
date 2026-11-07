@@ -40,7 +40,7 @@ import kotlin.time.Duration.Companion.seconds
  * Implementation of [TerminalTypingTracker]. Create instances via [installTypingTracker].
  *
  * Uses [TerminalTypeAheadSession] to confirm the order of input events.
- * Only reacts to key events and output updates while [TerminalShellIntegration.outputStatus] is
+ * Only reacts to key events of [model] and output updates while [TerminalShellIntegration.outputStatus] is
  * [TerminalOutputStatus.TypingCommand].
  */
 @ApiStatus.Internal
@@ -72,6 +72,7 @@ class TerminalTypingTrackerImpl(
   }
 
   fun handleKeyEvent(event: TerminalKeyEvent) {
+    if (event.outputModel !== model) return
     if (shellIntegration.outputStatus.value != TerminalOutputStatus.TypingCommand) return
 
     when (event.awtEvent.id) {
@@ -200,12 +201,16 @@ class TerminalTypingTrackerImpl(
     val line = model.getLineByOffset(cursorOffset)
     val lineStart = model.getStartOfLine(line)
     val lineEnd = model.getEndOfLine(line)
+    // The screen is carried over unchanged: this event describes the typed line, and typing never moves the screen.
+    val screenTopLine = model.getLineByOffset(model.screenTopOffset)
     return TerminalContentUpdatedEvent(
       text = model.getText(lineStart, lineEnd).toString(),
       styles = emptyList(),
       startLineLogicalIndex = line.toAbsolute(),
       cursorLogicalLineIndex = line.toAbsolute(),
       cursorColumnIndex = (cursorOffset - lineStart).toInt(),
+      screenTopLogicalLineIndex = screenTopLine.toAbsolute(),
+      screenTopColumnIndex = (model.screenTopOffset - model.getStartOfLine(screenTopLine)).toInt(),
     )
   }
 
@@ -231,11 +236,11 @@ class TerminalTypingTrackerImpl(
    * this one was typed.
    */
   private fun PendingInputEvent.resolvedKeyEvent(): TerminalKeyEvent {
-    return TerminalKeyEventImpl(keyEvent.awtEvent, model.logicalPositionToOffset(position))
+    return TerminalKeyEventImpl(keyEvent.awtEvent, model.logicalPositionToOffset(position), model)
   }
 
   private fun fireEvent(event: TerminalTypingEvent) {
-    fireListenersAndLogAllExceptions(listeners, LOG, "Exception during handling $event") {
+    fireListenersAndLogAllExceptions(listeners, LOG, { "Exception during handling $event" }) {
       it.onTypingEvent(event)
     }
   }
@@ -284,7 +289,7 @@ class TerminalTypingTrackerImpl(
      * Max time we wait for confirmation of typing by the output model change.
      * If it exceeds, we report a mismatch.
      */
-    private val CONFIRMATION_AWAITING_TIME = 1.seconds
+    private val CONFIRMATION_AWAITING_TIME = 5.seconds
   }
 }
 

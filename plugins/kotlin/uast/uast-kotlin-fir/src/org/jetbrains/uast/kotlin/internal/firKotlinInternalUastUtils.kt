@@ -12,14 +12,30 @@ import com.intellij.psi.PsiParameter
 import com.intellij.psi.PsiPrimitiveType
 import com.intellij.psi.PsiType
 import com.intellij.psi.PsiTypes
+import com.intellij.psi.impl.light.LightPsiClassBuilder
 import com.intellij.psi.search.GlobalSearchScope
 import com.intellij.psi.util.PsiTypesUtil
 import com.intellij.psi.util.parentOfType
+import com.intellij.util.runIf
 import org.jetbrains.kotlin.analysis.api.KaImplementationDetail
 import org.jetbrains.kotlin.analysis.api.KaSession
 import org.jetbrains.kotlin.analysis.api.annotations.KaAnnotationValue
 import org.jetbrains.kotlin.analysis.api.components.asPsiType
 import org.jetbrains.kotlin.analysis.api.javaInterop.containingJvmClassName
+import org.jetbrains.kotlin.analysis.api.types.expandedSymbol
+import org.jetbrains.kotlin.analysis.api.symbols.fakeOverrideOriginal
+import org.jetbrains.kotlin.analysis.api.types.fullyExpandedType
+import org.jetbrains.kotlin.analysis.api.types.hasFlexibleNullability
+import org.jetbrains.kotlin.analysis.api.types.isMarkedNullable
+import org.jetbrains.kotlin.analysis.api.types.isNullable
+import org.jetbrains.kotlin.analysis.api.types.isUnitType
+import org.jetbrains.kotlin.analysis.api.symbols.originalConstructorIfTypeAliased
+import org.jetbrains.kotlin.analysis.api.types.typeCreation.typeCreator
+import org.jetbrains.kotlin.analysis.api.projectStructure.kaModule
+import org.jetbrains.kotlin.analysis.api.javaInterop.asFacadePsiClass
+import org.jetbrains.kotlin.analysis.api.javaInterop.asPsiClass
+import org.jetbrains.kotlin.analysis.api.javaInterop.asPsiField
+import org.jetbrains.kotlin.analysis.api.javaInterop.asPsiMethods
 import org.jetbrains.kotlin.analysis.api.javaInterop.javaMethodName
 import org.jetbrains.kotlin.analysis.api.permissions.KaAllowAnalysisFromWriteAction
 import org.jetbrains.kotlin.analysis.api.permissions.KaAllowAnalysisOnEdt
@@ -44,6 +60,7 @@ import org.jetbrains.kotlin.analysis.api.symbols.KaSymbolOrigin
 import org.jetbrains.kotlin.analysis.api.symbols.KaTypeParameterSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.containingDeclaration
 import org.jetbrains.kotlin.analysis.api.symbols.fakeOverrideOriginal
+import org.jetbrains.kotlin.analysis.api.symbols.classSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.isLocal
 import org.jetbrains.kotlin.analysis.api.symbols.markers.KaAnnotatedSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.originalConstructorIfTypeAliased
@@ -66,11 +83,9 @@ import org.jetbrains.kotlin.analysis.api.types.isNullable
 import org.jetbrains.kotlin.analysis.api.types.typeCreation.typeCreator
 import org.jetbrains.kotlin.asJava.classes.lazyPub
 import org.jetbrains.kotlin.asJava.elements.KtLightElement
-import org.jetbrains.kotlin.asJava.findFacadeClass
-import org.jetbrains.kotlin.asJava.getAccessorLightMethods
 import org.jetbrains.kotlin.asJava.getRepresentativeLightMethod
-import org.jetbrains.kotlin.asJava.toLightClass
 import org.jetbrains.kotlin.asJava.toLightElements
+import org.jetbrains.kotlin.fileClasses.javaFileFacadeFqName
 import org.jetbrains.kotlin.idea.KotlinLanguage
 import org.jetbrains.kotlin.light.classes.symbol.annotations.annotateByKtType
 import org.jetbrains.kotlin.load.java.JvmAbi
@@ -98,6 +113,7 @@ import org.jetbrains.uast.kotlin.PsiTypeConversionConfiguration
 import org.jetbrains.uast.kotlin.TypeOwnerKind
 import org.jetbrains.uast.kotlin.convertUnitToVoidIfNeeded
 import org.jetbrains.uast.kotlin.getContainingLightClass
+import org.jetbrains.uast.kotlin.toAccessorLightElement
 import org.jetbrains.uast.kotlin.psi.UastFakeDeserializedSourceLightMethod
 import org.jetbrains.uast.kotlin.psi.UastFakeDeserializedSymbolLightMethod
 import org.jetbrains.uast.kotlin.psi.UastFakeSourceLightMethod
@@ -149,7 +165,7 @@ internal fun toPsiClass(
         psiForUast(classSymbol, context) as? PsiClass
     }?.let { return it }
     // Next, try SLC conversion if from Kotlin
-    (context as? KtClass)?.toLightClass()?.let { return it }
+    (context as? KtClass)?.classSymbol?.asPsiClass()?.let { return it }
     // Then, use JavaPsiFacade if from Java
     return PsiTypesUtil.getPsiClass(
         toPsiType(
@@ -252,13 +268,13 @@ internal fun toPsiMethod(
         is KtClassOrObject -> {
             // For synthetic members in enum classes, `psi` points to their containing enum class.
             if (psi is KtClass && psi.isEnum()) {
-                val lc = psi.toLightClass() ?: return null
+                val lc = psi.classSymbol?.asPsiClass() ?: return null
                 lc.methods.find { it.name == (functionSymbol as? KaNamedFunctionSymbol)?.name?.identifier }?.let { return it }
             }
 
             // Default primary constructor
-            psi.primaryConstructor?.getRepresentativeLightMethod()?.let { return it }
-            val lc = psi.toLightClass() ?: return null
+            psi.primaryConstructor?.symbol?.asPsiMethods()?.firstOrNull()?.let { return it }
+            val lc = psi.classSymbol?.asPsiClass() ?: return null
             lc.constructors.firstOrNull()?.let { return it }
             if (psi.isLocal) UastFakeSourceLightPrimaryConstructor(psi, lc) else null
         }
@@ -278,7 +294,14 @@ internal fun toPsiMethod(
                     // That is, this one is a deserialized declaration (in Lint/UAST IDE).
                     toPsiMethodForDeserialized(functionSymbol, context, psi, kaCallInfo)
                 else ->
-                    psi.getRepresentativeLightMethod()
+                    /**
+                     * [psi] is not the direct PSI element for [functionSymbol].
+                     * E.g., if [functionSymbol] is a typealiased constructor,
+                     * [psi] points to the original one.
+                     * As LCs are not constructed for typealiased elements,
+                     * the adjusted PSI needs to be used
+                     */
+                    (psi.symbol as? KaFunctionSymbol)?.asPsiMethods()?.firstOrNull()
                         ?: handleLocalOrSynthetic(psi)
             }
         }
@@ -395,27 +418,50 @@ private fun toPsiMethodForDeserialized(
     val classId = psi?.containingClass()?.getClassId()
         ?: functionSymbol.callableId?.classId
     if (classId != null) {
-        toPsiClass(
+        val containingClass = toPsiClass(
             typeCreator.classType(classId),
             source = null,
             context,
             TypeOwnerKind.DECLARATION,
             isBoxed = false,
-        )?.lookup()?.let { return it }
+        ) ?: runIf(functionSymbol is KaConstructorSymbol) {
+            LightPsiClassBuilder(context, classId.asFqNameString())
+        }
+        containingClass?.lookup()?.let { return it }
     }
     // Deserialized top-level function
-    return if (psi != null) {
-        // Lint/UAST IDE: with deserialized PSI
-        psi.containingKtFile.findFacadeClass()?.lookup()
-    } else if (functionSymbol is KaNamedFunctionSymbol) {
-        // Lint/UAST CLI: attempt to find the binary class
-        //   with the facade fq name from the resolved symbol
-        functionSymbol.containingJvmClassName?.let { fqName ->
-            JavaPsiFacade.getInstance(context.project)
-                .findClass(fqName, context.resolveScope)
-                ?.lookup()
-        }
-    } else null
+    psi?.containingKtFile?.symbol?.asFacadePsiClass()?.lookup()?.let { return it }
+
+    if (functionSymbol !is KaNamedFunctionSymbol) return null
+    // JVM binary lookup when facade PSI is unavailable
+    functionSymbol.containingJvmClassName?.let { fqName ->
+        JavaPsiFacade.getInstance(context.project)
+            .findClass(fqName, context.resolveScope)
+            ?.lookup()
+    }?.let { return it }
+
+    if (functionSymbol.callableId?.classId != null) return null
+    val packageName = functionSymbol.callableId?.packageName ?: return null
+    // Skip stdlib built-in types (kotlin.Any, kotlin.String, etc.) - they resolve through normal JVM mapping
+    if (packageName == StandardClassIds.BASE_KOTLIN_PACKAGE) return null
+
+    // Non-JVM fallback: no JVM facade class on classpath
+    val psiFile = psi?.containingKtFile ?: (functionSymbol.psi as? KtElement)?.containingKtFile
+    val facadeFqName = psiFile?.javaFileFacadeFqName?.asString() ?: return null
+
+    val jvmFacadeClass = JavaPsiFacade.getInstance(context.project)
+        .findClass(facadeFqName, context.resolveScope)
+    jvmFacadeClass?.lookup()?.let { return it }
+    // Return null when the JVM facade class exists, but no matching method is found
+    if (jvmFacadeClass != null) return null
+
+    return UastFakeDeserializedSymbolLightMethod(
+        functionSymbol.createPointer(),
+        functionSymbol.name.identifier,
+        LightPsiClassBuilder(context, facadeFqName),
+        context,
+        kaCallInfo.typeArgumentsMappingOrEmptyMap()
+    )
 }
 
 private fun KaSimpleCall<*, *>?.typeArgumentsMappingOrEmptyMap(): Map<KaSymbolPointer<KaTypeParameterSymbol>, KaTypePointer<KaType>> =
@@ -609,24 +655,12 @@ internal tailrec fun psiForUast(
     return symbol.psi
 }
 
+context(_: KaSession)
 internal fun KtElement.toPsiElementAsLightElement(
     sourcePsi: KtExpression? = null
 ): PsiElement? {
     if (this is KtProperty) {
-        with(getAccessorLightMethods()) {
-            // Weigh [PsiField]
-            backingField?.let { return it }
-            val readWriteAccess = sourcePsi?.readWriteAccess()
-            when {
-                readWriteAccess?.isWrite == true -> {
-                    setter?.let { return it }
-                }
-                readWriteAccess?.isRead == true -> {
-                    getter?.let { return it }
-                }
-                else -> {}
-            }
-        }
+        toAccessorLightElement(sourcePsi)?.let { return it }
     }
     return toLightElements().firstOrNull()
 }

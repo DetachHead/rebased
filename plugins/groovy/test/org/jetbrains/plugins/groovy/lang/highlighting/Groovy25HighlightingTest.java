@@ -247,7 +247,7 @@ public class Groovy25HighlightingTest extends LightGroovyTestCase implements Hig
   }
 
   @Override
-  public final String getBasePath() {
-    return TestUtils.getTestDataPath() + "highlighting/v25/";
+  public final String getTestDataPath() {
+    return TestUtils.getAbsoluteTestDataPath() + "highlighting/v25/";
   }
 }

@@ -1,4 +1,4 @@
-// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.jetbrains.python.configuration;
 
 import com.intellij.ide.DataManager;
@@ -19,9 +19,13 @@ import com.intellij.openapi.util.Comparing;
 import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.text.HtmlChunk;
+import com.intellij.python.sdk.backend.PythonInterpreterExtKt;
+import com.intellij.python.sdk.common.PyInterpreterItem;
+import com.intellij.python.sdk.common.PyInterpreterRef;
 import com.intellij.ui.CollectionComboBoxModel;
 import com.intellij.ui.ComboboxSpeedSearch;
 import com.intellij.ui.components.DropDownLink;
+import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.ui.JBUI;
 import com.intellij.webcore.packaging.PackagesNotificationPanel;
 import com.jetbrains.python.PyBundle;
@@ -31,19 +35,15 @@ import com.jetbrains.python.packaging.ui.PyInstalledPackagesPanel;
 import com.jetbrains.python.sdk.AddInterpreterActions;
 import com.jetbrains.python.sdk.DialogAction;
 import com.jetbrains.python.sdk.ModuleOrProject;
+import com.jetbrains.python.sdk.ProjectExtKt;
 import com.jetbrains.python.sdk.PyCustomSdkUiProvider;
+import com.jetbrains.python.sdk.PyInterpreterSelection;
 import com.jetbrains.python.sdk.PyRenderedSdkType;
 import com.jetbrains.python.sdk.PySdkExtKt;
 import com.jetbrains.python.sdk.PySdkListCellRenderer;
 import com.jetbrains.python.sdk.PyTransferredSdkRootsKt;
 import com.jetbrains.python.sdk.PythonSdkType;
-import com.intellij.python.sdk.backend.PythonInterpreterExtKt;
-import com.jetbrains.python.sdk.PyInterpreterSelection;
-import com.intellij.util.containers.ContainerUtil;
-import com.intellij.python.sdk.common.PyInterpreterItem;
-import com.intellij.python.sdk.common.PyInterpreterRef;
 import com.jetbrains.python.sdk.legacy.PythonSdkUtil;
-import com.jetbrains.python.sdk.ProjectExtKt;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -61,7 +61,6 @@ import java.util.Map;
 import java.util.function.Consumer;
 
 import static com.jetbrains.python.configuration.SdkConfigurationProgressObserverKt.observeSdkConfigurationInProgress;
-import static com.jetbrains.python.sdk.ModuleExKt.setPythonSdk;
 import static com.jetbrains.python.sdk.PySdkRenderingKt.groupInterpreterItemsByTypesUnderProgress;
 import static com.jetbrains.python.sdk.legacy.PythonSdkUtil.isRemote;
 
@@ -255,7 +254,7 @@ public class PyActiveSdkConfigurable implements UnnamedConfigurable {
 
     if (myModule != null) {
       PyTransferredSdkRootsKt.removeTransferredRoots(myModule, currentSdk);
-      setPythonSdk(myModule, item);
+      PyModuleInterpreterSetter.setPythonInterpreterBlocking(myModule, item);
       PyTransferredSdkRootsKt.transferRoots(myModule, item);
     }
   }
@@ -277,7 +276,8 @@ public class PyActiveSdkConfigurable implements UnnamedConfigurable {
 
   @NotNull
   private List<Sdk> getAvailableSdks() {
-    return ProjectExtKt.getAssignablePythonSdks(myProject, myModule);
+    var moduleOrProject = myModule != null ? new ModuleOrProject.ModuleAndProject(myModule) : new ModuleOrProject.ProjectOnly(myProject);
+    return ProjectExtKt.getAssignablePythonSdks(moduleOrProject);
   }
 
   private void updateSdkListAndSelect(@Nullable Sdk selectedSdk) {

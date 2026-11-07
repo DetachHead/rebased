@@ -1,8 +1,8 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.ide.browsers
 
+import com.intellij.ide.TrustedFiles
 import com.intellij.ide.trustedProjects.ExternallyOpenedFiles
-import com.intellij.ide.trustedProjects.TrustedFiles
 import com.intellij.ide.trustedProjects.TrustedProjects
 import com.intellij.openapi.application.UiWithModelAccess
 import com.intellij.openapi.application.writeIntentReadAction
@@ -10,8 +10,8 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.TestDialog
 import com.intellij.openapi.ui.TestDialogManager
 import com.intellij.openapi.util.registry.Registry
-import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.openapi.vfs.VirtualFile
+import com.intellij.openapi.vfs.VirtualFileManager
 import com.intellij.testFramework.common.timeoutRunBlocking
 import com.intellij.testFramework.junit5.SystemProperty
 import com.intellij.testFramework.junit5.TestApplication
@@ -53,7 +53,7 @@ class BrowserLauncherSafeModeTest {
   private fun createOutsideFile(name: String): VirtualFile {
     val path = tempPath.resolve(name)
     Files.writeString(path, "<html></html>")
-    return requireNotNull(LocalFileSystem.getInstance().refreshAndFindFileByNioFile(path))
+    return requireNotNull(VirtualFileManager.getInstance().refreshAndFindFileByNioPath(path))
   }
 
   private fun fileUrl(file: VirtualFile): String = Urls.newFromVirtualFile(file).toExternalForm()
@@ -87,15 +87,26 @@ class BrowserLauncherSafeModeTest {
     Files.writeString(insidePath, "<html></html>")
     // refreshing under an open project's root fires VFS events synchronously and needs the write-intent lock
     val inside = requireNotNull(writeIntentReadAction {
-      LocalFileSystem.getInstance().refreshAndFindFileByNioFile(insidePath)
+      VirtualFileManager.getInstance().refreshAndFindFileByNioPath(insidePath)
     })
     TrustedFiles.markExternallyOpened(inside)
     assertNull(BrowserLauncherImpl.findStandaloneFile(project, fileUrl(inside)))
   }
 
   @Test
+  fun `the helper is active by default`(): Unit = timeoutRunBlocking {
+    // the registry key is on by default, so the test does not touch it
+    val project = projectFixture.get()
+
+    val file = createOutsideFile("default.html")
+    TrustedFiles.markExternallyOpened(file)
+
+    assertEquals(file, BrowserLauncherImpl.findStandaloneFile(project, fileUrl(file)))
+  }
+
+  @Test
   fun `the helper is inactive while the safe mode is off`(): Unit = timeoutRunBlocking {
-    // the registry key is off by default
+    Registry.get(TrustedFiles.SAFE_MODE_REGISTRY_KEY).setValue(false, asDisposable())
     val project = projectFixture.get()
 
     val file = createOutsideFile("off.html")

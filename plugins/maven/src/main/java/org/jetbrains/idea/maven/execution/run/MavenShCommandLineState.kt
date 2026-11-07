@@ -1,4 +1,4 @@
-// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 
 package org.jetbrains.idea.maven.execution.run
 
@@ -23,6 +23,7 @@ import com.intellij.execution.configurations.RemoteConnectionCreator
 import com.intellij.execution.configurations.RunProfileState
 import com.intellij.execution.filters.TextConsoleBuilderFactory
 import com.intellij.execution.process.KillableColoredProcessHandler
+import com.intellij.execution.process.OSProcessHandler
 import com.intellij.execution.process.ProcessEvent
 import com.intellij.execution.process.ProcessHandler
 import com.intellij.execution.process.ProcessListener
@@ -37,12 +38,14 @@ import com.intellij.openapi.application.readAction
 import com.intellij.openapi.externalSystem.model.task.ExternalSystemTaskId
 import com.intellij.openapi.externalSystem.model.task.ExternalSystemTaskType
 import com.intellij.openapi.externalSystem.service.execution.ExternalSystemRunConfigurationViewManager
+import com.intellij.openapi.util.NlsSafe
 import com.intellij.openapi.util.io.FileUtil
 import com.intellij.openapi.util.io.FileUtilRt
 import com.intellij.openapi.util.registry.Registry
 import com.intellij.platform.eel.EelApi
 import com.intellij.platform.eel.EelOsFamily
 import com.intellij.platform.eel.ExecuteProcessException
+import com.intellij.platform.eel.convertToJVMProcess
 import com.intellij.platform.eel.isWindows
 import com.intellij.platform.eel.path.EelPath
 import com.intellij.platform.eel.provider.LocalEelDescriptor
@@ -63,10 +66,12 @@ import org.jetbrains.idea.maven.buildtool.MavenBuildEventProcessor
 import org.jetbrains.idea.maven.execution.MavenExecutionOptions
 import org.jetbrains.idea.maven.execution.MavenExternalParameters
 import org.jetbrains.idea.maven.execution.MavenExternalParameters.encodeProfiles
+import org.jetbrains.idea.maven.execution.MavenRebuildAction
 import org.jetbrains.idea.maven.execution.MavenResumeAction
 import org.jetbrains.idea.maven.execution.MavenRunConfiguration
 import org.jetbrains.idea.maven.execution.MavenRunConfigurationType
 import org.jetbrains.idea.maven.execution.MavenRunner
+import org.jetbrains.idea.maven.execution.MavenRunnerSettings
 import org.jetbrains.idea.maven.execution.RunnerBundle
 import org.jetbrains.idea.maven.externalSystemIntegration.output.MavenParsingContext
 import org.jetbrains.idea.maven.project.BundledMaven
@@ -247,7 +252,7 @@ class MavenShCommandLineState(val environment: ExecutionEnvironment, private val
 
     try {
       val result = processOptions.eelIt()
-      return KillableColoredProcessHandler.Silent(result.convertToJavaProcess(), commandLineToShowUser, parameters.charset, emptySet())
+      return KillableColoredProcessHandler.Silent(result.convertToJVMProcess(), commandLineToShowUser, parameters.charset, emptySet())
         .also {
           it.addProcessListener(object : ProcessListener {
             override fun processTerminated(event: ProcessEvent) {
@@ -356,7 +361,7 @@ class MavenShCommandLineState(val environment: ExecutionEnvironment, private val
 
     if (MavenResumeAction.isApplicable(myConfiguration)) {
       val resumeAction =
-        MavenResumeAction(res.getProcessHandler(), runner, environment, eventProcessor.parsingContext)
+        MavenResumeAction(res.getProcessHandler(), runner, environment, eventProcessor.parsingContext, myConfiguration)
       restartActions.add(resumeAction)
     }
     res.setRestartActions(*restartActions.toTypedArray())
@@ -398,14 +403,31 @@ class MavenShCommandLineState(val environment: ExecutionEnvironment, private val
     descriptor.withProcessHandler(MavenBuildHandlerFilterSpyWrapper(processHandler, isWindows()), null)
     descriptor.withExecutionEnvironment(environment)
     val startBuildEvent = StartBuildEventImpl(descriptor, "")
+    val withResumeAction = MavenResumeAction.isApplicable(myConfiguration)
+    val commandLine: @NlsSafe String? = (processHandler as? OSProcessHandler)?.commandLine
     val eventProcessor =
-      MavenBuildEventProcessor(myConfiguration, viewManager, descriptor, taskId,
-                               { it }, { startBuildEvent })
+      MavenBuildEventProcessor(myConfiguration, viewManager, descriptor, taskId, { it },
+                               { context ->
+                                 startBuildEvent.withRestartActions(*buildRestartActions(runner, processHandler, context, withResumeAction))
+                               },
+                               commandLine)
 
     processHandler.addProcessListener(BuildToolConsoleProcessAdapter(eventProcessor))
     val res = DefaultExecutionResult(consoleView, processHandler, DefaultActionGroup())
     res.setRestartActions(JvmToggleAutoTestAction())
     return res
+  }
+
+  /** The Build tool window shows a rerun action for a delegated build, and a resume action when Maven can resume from a module. */
+  private fun buildRestartActions(
+    runner: ProgramRunner<*>,
+    processHandler: ProcessHandler,
+    context: MavenParsingContext?,
+    withResumeAction: Boolean,
+  ): Array<AnAction> {
+    val rebuildAction = MavenRebuildAction(environment)
+    if (!withResumeAction) return arrayOf(rebuildAction)
+    return arrayOf(rebuildAction, MavenResumeAction(processHandler, runner, environment, context, myConfiguration))
   }
 
 
@@ -427,7 +449,7 @@ class MavenShCommandLineState(val environment: ExecutionEnvironment, private val
     val mavenVersion = MavenDistributionsCache.getInstance(myConfiguration.project)
       .getMavenDistribution(myConfiguration.runnerParameters.workingDirPath).version
     val encodeProfiles = encodeProfiles(myConfiguration.runnerParameters.profilesMap, mavenVersion)
-    val runnerSettings = myConfiguration.runnerSettings ?: MavenRunner.getInstance(myConfiguration.project).state
+    val runnerSettings = effectiveRunnerSettings
     val generalSettings = myConfiguration.generalSettings ?: MavenProjectsManager.getInstance(myConfiguration.project).generalSettings
     if (encodeProfiles.isNotEmpty()) {
       args.addAll("-P", encodeProfiles)
@@ -530,24 +552,33 @@ class MavenShCommandLineState(val environment: ExecutionEnvironment, private val
     throw IllegalStateException("$pathToMavenListener does not exist")
   }
 
+  /**
+   * The runner settings of the configuration, or the project settings when the configuration inherits them.
+   *
+   * [MavenRunConfiguration.getRunnerSettings] returns null while the "Inherit from settings" option is on.
+   * A direct read of that property drops the project environment variables and the project VM options.
+   */
+  private val effectiveRunnerSettings: MavenRunnerSettings
+    get() = myConfiguration.runnerSettings ?: MavenRunner.getInstance(myConfiguration.project).state
+
   private suspend fun getJavaHome(): String? {
-    val defaultSettings = MavenRunner.getInstance(myConfiguration.project).state
-    val jreName = myConfiguration.runnerSettings?.jreName ?: defaultSettings.jreName
-    val isGlobalRunnerSettings = defaultSettings === myConfiguration.runnerSettings
+    val runnerSettings = effectiveRunnerSettings
+    val isGlobalRunnerSettings = runnerSettings === MavenRunner.getInstance(myConfiguration.project).state
     val javaHome = readAction {
-      MavenExternalParameters.getJdk(myConfiguration.project, jreName, isGlobalRunnerSettings)
+      MavenExternalParameters.getJdk(myConfiguration.project, runnerSettings.jreName, isGlobalRunnerSettings)
     }.homePath ?: return null
     return Path.of(javaHome).asEelPath().toString()
   }
 
   private suspend fun getEnv(existingEnv: Map<String, String>, debug: Boolean): MutableMap<String, String> {
+    val runnerSettings = effectiveRunnerSettings
     val map = HashMap<String, String>()
     map.putAll(existingEnv)
-    myConfiguration.runnerSettings?.environmentProperties?.let { map.putAll(map) }
     val javaHome = getJavaHome() ?: throw ExecutionException(MavenProjectBundle.message("exec.message.failed.to.find.maven.jdk"))
     map["JAVA_HOME"] = javaHome
+    map.putAll(runnerSettings.environmentProperties)
     val optsBuilder = StringBuilder(map["MAVEN_OPTS"] ?: "")
-    myConfiguration.runnerSettings?.vmOptions?.let {
+    runnerSettings.vmOptions.nullize(nullizeSpaces = true)?.let {
       if (optsBuilder.isNotEmpty()) optsBuilder.append(" ")
       optsBuilder.append(ProgramParametersUtil.expandPathAndMacros(it, null, myConfiguration.project))
     }
@@ -558,7 +589,6 @@ class MavenShCommandLineState(val environment: ExecutionEnvironment, private val
       optsBuilder.toString()
     }
     map["MAVEN_OPTS"] = mavenOpts
-    myConfiguration.runnerSettings?.environmentProperties?.let { map.putAll(it) }
     myConfiguration.runnerParameters.multimoduleDir?.nullize()?.let {
       map["MAVEN_BASEDIR"] = ProgramParametersUtil.expandPathAndMacros(it, null, myConfiguration.project)
     }

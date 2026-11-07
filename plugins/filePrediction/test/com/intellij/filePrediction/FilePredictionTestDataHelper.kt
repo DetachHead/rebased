@@ -8,7 +8,6 @@ import com.intellij.openapi.vfs.VirtualFileVisitor
 
 internal object FilePredictionTestDataHelper {
   const val DEFAULT_MAIN_FILE = "MainTest"
-  const val defaultTestData: String = "/plugins/filePrediction/testData/com/intellij/filePrediction"
 
   fun findMainTestFile(root: VirtualFile): VirtualFile? {
     return findChildRecursively(DEFAULT_MAIN_FILE, root)

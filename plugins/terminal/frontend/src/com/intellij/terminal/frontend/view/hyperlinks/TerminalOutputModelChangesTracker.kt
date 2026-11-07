@@ -2,6 +2,7 @@ package com.intellij.terminal.frontend.view.hyperlinks
 
 import com.intellij.openapi.Disposable
 import com.intellij.util.concurrency.annotations.RequiresEdt
+import kotlinx.coroutines.channels.Channel
 import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.annotations.VisibleForTesting
 import org.jetbrains.plugins.terminal.view.TerminalContentChangeEvent
@@ -33,6 +34,9 @@ class TerminalOutputModelChangesTracker(
    */
   private var lastEvictedStamp: Long = Long.MIN_VALUE
 
+  /** Holds a signal if the content changed since the last [awaitContentChange]. Set at the start, like [contentChanged]. */
+  private val contentChangedSignal = Channel<Unit>(Channel.CONFLATED).apply { trySend(Unit) }
+
   init {
     outputModel.addListener(parentDisposable, object : TerminalOutputModelListener {
       override fun afterContentChanged(event: TerminalContentChangeEvent) {
@@ -41,14 +45,20 @@ class TerminalOutputModelChangesTracker(
           firstChangedLine = minOf(firstChangedLine, line)
         }
         contentChanged = true
+        contentChangedSignal.trySend(Unit)
       }
     })
+  }
+
+  /** Suspends until the content changes. Returns at once if it changed since the previous call. */
+  suspend fun awaitContentChange() {
+    contentChangedSignal.receive()
   }
 
   /**
    * Returns the first changed line index since the last call.
    */
-  @RequiresEdt
+  @RequiresEdt(generateAssertion = false /* IJPL-115548 */)
   fun getFirstChangedLineAndReset(): TerminalLineIndex? {
     if (!contentChanged) return null
 
@@ -69,7 +79,7 @@ class TerminalOutputModelChangesTracker(
    * Returns `null` when the answer can't be correctly calculated: a change newer than [modificationStamp] has already been evicted
    * from the bounded history (too many changes happened while the result was being computed).
    */
-  @RequiresEdt
+  @RequiresEdt(generateAssertion = false /* IJPL-115548 */)
   fun getFirstChangedOffsetSinceStamp(modificationStamp: Long): TerminalOffset? {
     // Record a change that already happened but hasn't been saved into the history,
     // so a hyperlinks result processed between flushes sees the up-to-date changed region.

@@ -10,6 +10,6 @@ class Bar {
         }
     }
 
-    fun bug(foo: Foo?) {
+    fun bug(foo: Foo) {
     }
 }

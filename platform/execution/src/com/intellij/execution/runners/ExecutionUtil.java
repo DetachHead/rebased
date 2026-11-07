@@ -33,13 +33,13 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.NlsContexts.DialogMessage;
 import com.intellij.openapi.util.SystemInfoRt;
 import com.intellij.openapi.util.text.StringUtil;
-import com.intellij.ui.ExperimentalUI;
-import com.intellij.ui.IconManager;
 import com.intellij.ui.LayeredIcon;
 import com.intellij.ui.content.Content;
+import com.intellij.ui.icons.IndicatorIcon;
+import com.intellij.ui.icons.LiveIndicatorIcons;
 import com.intellij.util.ExceptionUtil;
-import com.intellij.util.ui.JBUI;
 import com.intellij.util.ui.UIUtil;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -293,29 +293,49 @@ public final class ExecutionUtil {
     }
   }
 
+  /**
+   * Consider using {@link com.intellij.ui.icons.LiveIndicatorIcons#withLiveIndicatorIcon} instead
+   */
   public static @NotNull Icon withLiveIndicator(final @NotNull Icon base) {
-    return ExperimentalUI.isNewUI() ?
-           IconManager.getInstance().withIconBadge(base, JBUI.CurrentTheme.IconBadge.SUCCESS) :
-           getLiveIndicator(base);
+    return LiveIndicatorIcons.withLiveIndicatorIcon(base);
   }
 
+  /**
+   * Consider using {@link com.intellij.ui.icons.LiveIndicatorIcons#getLiveIndicatorIcon} instead
+   */
   public static @NotNull Icon getLiveIndicator(final @Nullable Icon base) {
     return getLiveIndicator(base, true);
   }
 
+  /**
+   * Use {@link com.intellij.ui.icons.LiveIndicatorIcons#getLiveIndicatorIcon} instead
+   */
+  @ApiStatus.Obsolete
   public static @NotNull Icon getLiveIndicator(final @Nullable Icon base, boolean isAlive) {
     return getLiveIndicator(base, 13, 13, isAlive);
   }
 
+  /**
+   * Use {@link com.intellij.ui.icons.LiveIndicatorIcons#getLiveIndicatorIcon} instead
+   */
+  @ApiStatus.Obsolete
   public static @NotNull Icon getLiveIndicator(final @Nullable Icon base, int emptyIconWidth, int emptyIconHeight) {
     return getLiveIndicator(base, emptyIconWidth, emptyIconHeight, true);
   }
 
+  /**
+   * Use {@link com.intellij.ui.icons.LiveIndicatorIcons#getLiveIndicatorIcon} instead
+   */
+  @ApiStatus.Obsolete
   @SuppressWarnings("UseJBColor")
   public static @NotNull Icon getLiveIndicator(final @Nullable Icon base, int emptyIconWidth, int emptyIconHeight, boolean isAlive) {
     return getIndicator(base, emptyIconWidth, emptyIconHeight, isAlive ? Color.GREEN : Color.GRAY);
   }
 
+  /**
+   * Use {@link com.intellij.ui.icons.LiveIndicatorIcons#getLiveIndicatorIcon} instead
+   */
+  @ApiStatus.Obsolete
   public static @NotNull Icon getIndicator(final @Nullable Icon base, int emptyIconWidth, int emptyIconHeight, Color color) {
     return LayeredIcon.layeredIcon(new Icon[]{base, new IndicatorIcon(base, emptyIconWidth, emptyIconHeight, color)});
   }

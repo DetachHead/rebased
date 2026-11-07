@@ -4,7 +4,7 @@ package com.intellij.openapi.updateSettings.impl.pluginsAdvertisement
 import com.intellij.notification.Notification
 import com.intellij.openapi.application.EDT
 import com.intellij.openapi.diagnostic.logger
-import com.intellij.openapi.diagnostic.rethrowControlFlowException
+import com.intellij.diagnostic.rethrowControlFlowException
 import com.intellij.openapi.extensions.ExtensionPointName
 import com.intellij.openapi.project.Project
 import kotlinx.coroutines.Dispatchers

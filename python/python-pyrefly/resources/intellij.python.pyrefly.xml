@@ -13,8 +13,10 @@
     <module name="intellij.platform.core.ui"/>
     <module name="intellij.platform.editor.ex"/>
     <module name="intellij.platform.editor.ui"/>
+    <module name="intellij.platform.eel.provider"/>
     <module name="intellij.platform.ide.core"/>
     <module name="intellij.platform.ide.impl"/>
+    <module name="intellij.platform.ide.observable"/>
     <module name="intellij.platform.lang.impl"/>
     <module name="intellij.platform.lsp"/>
     <module name="intellij.platform.projectModel"/>
@@ -22,8 +24,8 @@
     <module name="intellij.platform.statistics"/>
     <module name="intellij.platform.util.ui"/>
     <module name="intellij.python.lsp.core"/>
-    <module name="intellij.python.pytools"/>
-    <module name="intellij.python.pytools.ui"/>
+    <module name="intellij.python.pyrefly.common"/>
+    <module name="intellij.python.pytools.backend"/>
     <module name="intellij.xml.parser"/>
   </dependencies>
   <!-- endregion -->
@@ -36,8 +38,10 @@
     <registryKey key="pyrefly.type.engine" defaultValue="false"
                  description="Enforce pyrefly type engine"/>
 
-    <registryKey key="pyrefly.type.engine.tsp" defaultValue="false"
-                 description="Use the Type Server Protocol (TSP) instead of LSP for the Pyrefly type engine"
+    <postStartupActivity implementation="com.intellij.python.pyrefly.PyreflyTypeEngineRegistryListener"/>
+
+    <registryKey key="use.bundled.pyrefly" defaultValue="false"
+                 description="Use the bundled Pyrefly as the type engine"
                  restartRequired="true"/>
 
     <python.lsp.typeEngineConfigurable implementation="com.intellij.python.pyrefly.PyreflyPyTypeEngineProvider"/>

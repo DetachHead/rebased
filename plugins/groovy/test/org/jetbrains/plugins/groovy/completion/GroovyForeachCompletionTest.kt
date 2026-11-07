@@ -10,8 +10,8 @@ class GroovyForeachCompletionTest : GroovyCompletionTestBase() {
     return GroovyProjectDescriptors.GROOVY_5_0
   }
 
-  override fun getBasePath(): String {
-    return TestUtils.getTestDataPath() + "groovy/completion/foreach"
+  override fun getTestDataPath(): String {
+    return TestUtils.getAbsoluteTestDataPath() + "groovy/completion/foreach"
   }
 
   fun testValueVariableType() = doVariantableTest("int", "final")

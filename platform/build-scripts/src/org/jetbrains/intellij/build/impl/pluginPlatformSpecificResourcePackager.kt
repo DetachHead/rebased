@@ -1,7 +1,6 @@
 // Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.intellij.build.impl
 
-import kotlinx.collections.immutable.PersistentList
 import org.jetbrains.intellij.build.BuildContext
 import org.jetbrains.intellij.build.CustomAssetShimSource
 import org.jetbrains.intellij.build.FileSource
@@ -19,21 +18,14 @@ import kotlin.io.path.invariantSeparatorsPathString
 /**
  * @param pluginDirs List of OS-specific plugin directories, with appended `plugin.directoryName` already
  */
-internal suspend fun buildPlatformSpecificPluginResources(
+internal fun buildPlatformSpecificPluginResources(
   plugin: PluginLayout,
   pluginDirs: List<Pair<SupportedDistribution, Path>>,
   context: BuildContext,
   isDevMode: Boolean,
 ): List<DistributionFileEntry> {
-  if (!isDevMode) {
-    // Keeping old behavior: `platformResourceGenerators` were not called in dev-mode
-    for ((dist, generators) in plugin.platformResourceGenerators) {
-      handlePlatformResourceGenerator(dist, generators, pluginDirs, context)
-    }
-  }
-
-  for ((dist, generators) in plugin.platformResourceGeneratorsBundledAndDevMode) {
-    handlePlatformResourceGenerator(dist, generators, pluginDirs, context)
+  for (dist in plugin.platformResourceGenerators.keys) {
+    handlePlatformResourceGenerator(dist, plugin.platformResourceGeneratorsFor(dist, classicDev = isDevMode), pluginDirs, context)
   }
 
   val distEntries = ArrayList<DistributionFileEntry>()
@@ -44,16 +36,16 @@ internal suspend fun buildPlatformSpecificPluginResources(
         targetPlatform = platform,
         context = context,
         pluginDir = pluginDir,
-        isDevMode = isDevMode,
+        classicDev = isDevMode,
       )
     )
   }
   return distEntries
 }
 
-private suspend fun handlePlatformResourceGenerator(
+private fun handlePlatformResourceGenerator(
   dist: SupportedDistribution,
-  generators: PersistentList<ResourceGenerator>,
+  generators: List<ResourceGenerator>,
   pluginDirs: List<Pair<SupportedDistribution, Path>>,
   context: BuildContext,
 ) {
@@ -70,15 +62,21 @@ private suspend fun handlePlatformResourceGenerator(
   }
 }
 
-internal suspend fun handleCustomPlatformSpecificAssets(
+/**
+ * @param classicDev whether the build is the classic dev build. It selects the custom assets, see [PluginLayout.customAssetsFor].
+ * @param runCustomAssetShimTasks whether a [CustomAssetShimSource] runs its task. A bundled build runs them; classic dev
+ * mode and a published plugin do not.
+ */
+internal fun handleCustomPlatformSpecificAssets(
   layout: PluginLayout,
   targetPlatform: SupportedDistribution?,
   context: BuildContext,
   pluginDir: Path,
-  isDevMode: Boolean,
+  classicDev: Boolean,
+  runCustomAssetShimTasks: Boolean = !classicDev,
 ): List<DistributionFileEntry> {
   val distEntries = ArrayList<DistributionFileEntry>()
-  for (customAsset in layout.customAssets) {
+  for (customAsset in layout.customAssetsFor(classicDev)) {
     if (targetPlatform == null) {
       if (customAsset.platformSpecific != null) {
         continue
@@ -126,7 +124,7 @@ internal suspend fun handleCustomPlatformSpecificAssets(
           }
 
           is CustomAssetShimSource -> {
-            if (!isDevMode) {
+            if (runCustomAssetShimTasks) {
               distEntries.addAll(source.task(pluginDir, context))
             }
           }

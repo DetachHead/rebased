@@ -27,7 +27,7 @@ import com.intellij.openapi.progress.ProgressManager
 import com.intellij.openapi.progress.Task
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.ex.MessagesEx
-import com.intellij.openapi.updateSettings.impl.PluginUpdateSourceId
+import com.intellij.openapi.updateSettings.impl.PluginUpdateSource
 import com.intellij.openapi.util.Pair
 import com.intellij.openapi.util.ThrowableComputable
 import com.intellij.openapi.util.io.NioFiles
@@ -298,7 +298,7 @@ object PluginInstaller {
 
   @ApiStatus.Internal
   @JvmStatic
-  @RequiresEdt
+  @RequiresEdt(generateAssertion = false /* IJPL-115548 */)
   fun installFromDisk(
     model: InstalledPluginsTableModel,
     pluginEnabler: PluginEnabler,
@@ -306,7 +306,7 @@ object PluginInstaller {
     project: Project?,
     parent: JComponent?,
     callback: Consumer<in PluginInstallCallbackData>,
-    pluginUpdateSourceCallback: BiConsumer<PluginId, PluginUpdateSourceId>,
+    pluginUpdateSourceCallback: BiConsumer<PluginId, PluginUpdateSource>,
   ) {
     try {
       val pluginDescriptor = ProgressManager.getInstance().runProcessWithProgressSynchronously(
@@ -454,14 +454,12 @@ object PluginInstaller {
           callback.accept(callbackData)
         }
       }
-      for ((pluginId, pluginUpdateSourceId) in operation.dependentPluginUpdateSourceIds) {
+      for ((pluginId, pluginUpdateSourceId) in operation.dependentPluginUpdateSources) {
         pluginUpdateSourceCallback.accept(pluginId, pluginUpdateSourceId)
       }
 
       if (file.toString().endsWith(".zip") && keepArchive()) {
-        val tempFile = MarketplacePluginDownloadService.getPluginTempFile()
-        Files.copy(file, tempFile, StandardCopyOption.REPLACE_EXISTING)
-        MarketplacePluginDownloadService.renameFileToZipRoot(tempFile)
+        MarketplacePluginDownloadService().storeArchive(file)
       }
     }
     catch (ex: IOException) {
@@ -472,7 +470,7 @@ object PluginInstaller {
 
   @ApiStatus.Internal
   @JvmStatic
-  @RequiresEdt
+  @RequiresEdt(generateAssertion = false /* IJPL-115548 */)
   fun installAndLoadDynamicPlugin(file: Path, descriptor: IdeaPluginDescriptorImpl): Boolean {
     return installAndLoadDynamicPlugin(file, null, descriptor)
   }
@@ -482,7 +480,7 @@ object PluginInstaller {
    */
   @ApiStatus.Internal
   @JvmStatic
-  @RequiresEdt
+  @RequiresEdt(generateAssertion = false /* IJPL-115548 */)
   fun installAndLoadDynamicPlugin(
     file: Path,
     parent: JComponent?,
@@ -565,7 +563,7 @@ object PluginInstaller {
 
   @ApiStatus.Internal
   @JvmStatic
-  @RequiresEdt
+  @RequiresEdt(generateAssertion = false /* IJPL-115548 */)
   fun installPluginFromCallbackData(callbackData: PluginInstallCallbackData) {
     val descriptor = callbackData.pluginDescriptor
     val file = callbackData.file

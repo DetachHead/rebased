@@ -18,8 +18,11 @@ load(
     "maven_coordinates_urls",
     "maven_url",
     "platform_parts",
+    "pyrefly_platform_directory",
+    "pyrefly_url",
+    "text_repo_files",
 )
-load(":test_deps_extension.bzl", "all_downloads_pinned", "find_download_conflict")
+load(":test_deps_extension.bzl", "all_downloads_pinned", "find_download_conflict", "manifest_content")
 
 _JBR = "https://cache-redirector.jetbrains.com/intellij-jbr"
 _MAVEN = "https://cache-redirector.jetbrains.com/repo.maven.apache.org/maven2"
@@ -45,10 +48,32 @@ _JCEF_URLS = {
     "windows_x64": _JBR + "/jcef-windows-x64-263-b10.tar.gz",
 }
 
+# downloadPyrefly, for `pyreflyBuild=263.6545`. The artifact is the lowercase `pyreflyPlatformDirName`.
+_PYREFLY_URLS = {
+    "darwin_aarch64": _DEPS + "/org/jetbrains/intellij/deps/pyrefly-macos-aarch64/263.6545/pyrefly-macos-aarch64-263.6545.tar.gz",
+    "darwin_x64": _DEPS + "/org/jetbrains/intellij/deps/pyrefly-macos-x86_64/263.6545/pyrefly-macos-x86_64-263.6545.tar.gz",
+    "linux_aarch64": _DEPS + "/org/jetbrains/intellij/deps/pyrefly-linux-aarch64/263.6545/pyrefly-linux-aarch64-263.6545.tar.gz",
+    "linux_x64": _DEPS + "/org/jetbrains/intellij/deps/pyrefly-linux-x86_64/263.6545/pyrefly-linux-x86_64-263.6545.tar.gz",
+    "windows_aarch64": _DEPS + "/org/jetbrains/intellij/deps/pyrefly-windows-aarch64/263.6545/pyrefly-windows-aarch64-263.6545.tar.gz",
+    "windows_x64": _DEPS + "/org/jetbrains/intellij/deps/pyrefly-windows-x86_64/263.6545/pyrefly-windows-x86_64-263.6545.tar.gz",
+}
+
+# pyreflyPlatformDirName - the directory of the binary in the archive and in the plugin
+_PYREFLY_DIRECTORIES = {
+    "darwin_aarch64": "macOS-AArch64",
+    "darwin_x64": "macOS-X86_64",
+    "linux_aarch64": "Linux-AArch64",
+    "linux_x64": "Linux-X86_64",
+    "windows_aarch64": "Windows-AArch64",
+    "windows_x64": "Windows-X86_64",
+}
+
 def _every_platform_is_covered_test_impl(ctx):
     env = unittest.begin(ctx)
     asserts.equals(env, sorted(HOST_PLATFORMS), sorted(_JBR_URLS))
     asserts.equals(env, sorted(HOST_PLATFORMS), sorted(_JCEF_URLS))
+    asserts.equals(env, sorted(HOST_PLATFORMS), sorted(_PYREFLY_URLS))
+    asserts.equals(env, sorted(HOST_PLATFORMS), sorted(_PYREFLY_DIRECTORIES))
     for platform in HOST_PLATFORMS:
         parts = platform_parts(platform)
         asserts.equals(env, platform, "%s_%s" % (parts.os, parts.arch))
@@ -72,11 +97,25 @@ def _jcef_url_test_impl(ctx):
 
 jcef_url_test = unittest.make(_jcef_url_test_impl)
 
+def _pyrefly_url_test_impl(ctx):
+    env = unittest.begin(ctx)
+    for platform, expected in _PYREFLY_URLS.items():
+        asserts.equals(env, expected, pyrefly_url(platform, "263.6545"), platform)
+        asserts.equals(env, _PYREFLY_DIRECTORIES[platform], pyrefly_platform_directory(platform), platform)
+    asserts.equals(
+        env,
+        _DEPS + "/org/jetbrains/intellij/deps/pyrefly-license/263.6545/pyrefly-license-263.6545.tar.gz",
+        pyrefly_url(None, "263.6545"),
+    )
+    return unittest.end(env)
+
+pyrefly_url_test = unittest.make(_pyrefly_url_test_impl)
+
 def _lib_ghostty_vt_url_test_impl(ctx):
     env = unittest.begin(ctx)
     asserts.equals(
         env,
-        "https://packages.jetbrains.team/files/p/ij/intellij-build-dependencies/libghostty-vt/abc123/libghostty-vt.zip.zst",
+        "https://packages.jetbrains.team/files/p/ij/intellij-build-dependencies/libghostty-vt/libghostty-vt-abc123.zip.zst",
         lib_ghostty_vt_url("abc123"),
     )
     return unittest.end(env)
@@ -148,6 +187,41 @@ def _download_repository_integrity_test_impl(ctx):
 
 download_repository_integrity_test = unittest.make(_download_repository_integrity_test_impl)
 
+def _manifest_content_test_impl(ctx):
+    env = unittest.begin(ctx)
+
+    # A repository that declares no file still writes a manifest, and `PreloadedDownloads.parse` rejects a
+    # blank row, so the header must stand alone rather than gain an empty line after it.
+    asserts.equals(env, "intellij-build-downloads\t1\n", manifest_content([]))
+    asserts.equals(
+        env,
+        "intellij-build-downloads\t1\none.zip\t%s\thttps://example.test/one.zip\n" % ("a" * 64),
+        manifest_content(["one.zip\t%s\thttps://example.test/one.zip" % ("a" * 64)]),
+    )
+    asserts.equals(
+        env,
+        "intellij-build-downloads\t1\nfirst\nsecond\n",
+        manifest_content(["first", "second"]),
+    )
+    return unittest.end(env)
+
+manifest_content_test = unittest.make(_manifest_content_test_impl)
+
+# The file holds the value byte for byte, with no trailing newline, as `Files.writeString` of the production generator.
+def _text_repo_files_test_impl(ctx):
+    env = unittest.begin(ctx)
+    asserts.equals(
+        env,
+        {
+            "BUILD": 'package(default_visibility = ["//visibility:public"])\n\nexports_files(["build.txt"])\n',
+            "build.txt": "3.2.0.65851",
+        },
+        text_repo_files("build.txt", "3.2.0.65851"),
+    )
+    return unittest.end(env)
+
+text_repo_files_test = unittest.make(_text_repo_files_test_impl)
+
 def dev_launch_dependencies_test_suite(name):
     """Test suite for the URL builders in dev_launch_dependencies.bzl."""
     unittest.suite(
@@ -156,7 +230,10 @@ def dev_launch_dependencies_test_suite(name):
         jbr_url_test,
         jcef_url_test,
         lib_ghostty_vt_url_test,
+        pyrefly_url_test,
         maven_url_test,
         maven_coordinates_urls_test,
+        manifest_content_test,
         download_repository_integrity_test,
+        text_repo_files_test,
     )

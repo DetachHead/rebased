@@ -7,6 +7,7 @@ import org.jetbrains.annotations.ApiStatus.Internal
 import org.jetbrains.intellij.build.ModuleOutputProvider
 import org.jetbrains.jps.model.JpsProject
 import org.jetbrains.jps.model.java.JpsJavaExtensionService
+import org.jetbrains.jps.model.library.JpsLibrary
 import org.jetbrains.jps.model.library.JpsOrderRootType
 import org.jetbrains.jps.model.module.JpsModule
 import java.nio.file.Files
@@ -26,7 +27,11 @@ class JpsModuleOutputProviderState(
 
   fun findRequiredModule(name: String): JpsModule = index.findRequiredModule(name)
 
-  fun getProjectLibraryToModuleMap(): Map<String, String> = index.getProjectLibraryToModuleMap()
+  fun findFileInModuleSources(module: JpsModule, relativePath: String, onlyProductionSources: Boolean): Path? {
+    return index.sourceFiles.find(module = module, relativePath = relativePath, onlyProductionSources = onlyProductionSources)
+  }
+
+  fun findModulesWithSourceFile(relativePath: String): List<JpsModule> = index.sourceFiles.findOwners(relativePath)
 
   fun getModuleImlFile(module: JpsModule): Path = index.getModuleImlFile(module)
 
@@ -35,7 +40,8 @@ class JpsModuleOutputProviderState(
   }
 }
 
-internal class JpsModuleOutputProvider(
+@Internal
+class JpsModuleOutputProvider(
   private val state: JpsModuleOutputProviderState,
   override val useTestCompilationOutput: Boolean,
 ) : ModuleOutputProvider {
@@ -63,16 +69,27 @@ internal class JpsModuleOutputProvider(
 
   override fun findRequiredModule(name: String): JpsModule = state.findRequiredModule(name)
 
-  override fun findLibraryRoots(libraryName: String, moduleLibraryModuleName: String?): List<Path> {
-    val project = state.project
-    val module = moduleLibraryModuleName?.let { findRequiredModule(it) }
-    val library = if (module == null) {
-      project.libraryCollection.findLibrary(libraryName) ?: error("Could not find project-level library $libraryName")
-    }
-    else {
-      module.libraryCollection.findLibrary(libraryName) ?: error("Could not find module-level library $libraryName in module ${module.name}")
-    }
+  override fun findFileInModuleSources(module: JpsModule, relativePath: String, onlyProductionSources: Boolean): Path? {
+    return state.findFileInModuleSources(module = module, relativePath = relativePath, onlyProductionSources = onlyProductionSources)
+  }
 
+  override fun findModulesWithSourceFile(relativePath: String): List<JpsModule> = state.findModulesWithSourceFile(relativePath)
+
+  private fun findLibrary(libraryName: String, moduleLibraryModuleName: String?): JpsLibrary {
+    val module = moduleLibraryModuleName?.let { findRequiredModule(it) }
+    if (module == null) {
+      return state.project.libraryCollection.findLibrary(libraryName) ?: error("Could not find project-level library $libraryName")
+    }
+    return module.libraryCollection.findLibrary(libraryName) ?: error("Could not find module-level library $libraryName in module ${module.name}")
+  }
+
+  // The model paths, with no file check: an identity is compared, not read.
+  override fun getLibraryJarIdentities(libraryName: String, moduleLibraryModuleName: String?): List<String> {
+    return findLibrary(libraryName = libraryName, moduleLibraryModuleName = moduleLibraryModuleName).getPaths(JpsOrderRootType.COMPILED).map { it.toString() }
+  }
+
+  override fun findLibraryRoots(libraryName: String, moduleLibraryModuleName: String?): List<Path> {
+    val library = findLibrary(libraryName = libraryName, moduleLibraryModuleName = moduleLibraryModuleName)
     val libraryMoniker = "library '$libraryName' " + if (moduleLibraryModuleName == null) "(project level)" else "(in module '$moduleLibraryModuleName'"
 
     val paths = library.getPaths(JpsOrderRootType.COMPILED)
@@ -101,8 +118,6 @@ internal class JpsModuleOutputProvider(
       processedModules = processedModules,
     )
   }
-
-  override fun getProjectLibraryToModuleMap(): Map<String, String> = state.getProjectLibraryToModuleMap()
 
   override fun getModuleImlFile(module: JpsModule): Path = state.getModuleImlFile(module)
 }

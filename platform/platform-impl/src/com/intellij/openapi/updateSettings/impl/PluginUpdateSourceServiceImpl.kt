@@ -1,6 +1,7 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.updateSettings.impl
 
+import com.intellij.ide.IdeBundle
 import com.intellij.ide.plugins.PluginManagerCore
 import com.intellij.ide.plugins.RepositoryHelper
 import com.intellij.ide.plugins.marketplace.utils.MarketplaceCustomizationService
@@ -11,21 +12,38 @@ import com.intellij.openapi.components.State
 import com.intellij.openapi.components.Storage
 import com.intellij.openapi.diagnostic.debug
 import com.intellij.openapi.diagnostic.thisLogger
+import com.intellij.openapi.extensions.PluginDescriptor
 import com.intellij.openapi.extensions.PluginId
 import com.intellij.openapi.updateSettings.impl.PluginUpdateSourceService.Companion.isFunctionalitySupported
+import com.intellij.openapi.util.Key
 import com.intellij.openapi.util.NlsSafe
+import com.intellij.openapi.util.registry.Registry
+import com.intellij.testFramework.TestModeFlags
+import com.intellij.ui.JBAccountInfoService
+import com.intellij.ui.LicensingFacade
 import com.intellij.util.UriUtil
 import com.intellij.util.xmlb.annotations.Attribute
 import com.intellij.util.xmlb.annotations.Tag
 import com.intellij.util.xmlb.annotations.XMap
 import kotlinx.serialization.Serializable
+import org.jetbrains.annotations.ApiStatus
+import org.jetbrains.annotations.Nls
 import org.jetbrains.annotations.NonNls
+import org.jetbrains.annotations.TestOnly
+import java.util.Random
+
+internal const val REGISTRY_KEY_DISABLE_UPDATE_SOURCES_FOR_INTERNAL_USERS =
+  "platform.disable.plugin.update.sources.ui.and.filtering.for.internal.users"
 
 @State(name = "PluginUpdateSources", storages = [Storage("pluginUpdateSources.xml", roamingType = RoamingType.DISABLED)])
 internal class PluginUpdateSourceServiceImpl : PluginUpdateSourceService,
                                                SerializablePersistentStateComponent<PluginUpdateSourceServiceImpl.State>(State()) {
 
-  override fun getPluginUpdateSourceId(pluginId: PluginId): PluginUpdateSourceId? {
+  companion object {
+    fun getImplInstance(): PluginUpdateSourceServiceImpl = PluginUpdateSourceService.getInstance() as PluginUpdateSourceServiceImpl
+  }
+
+  override fun getPluginUpdateSourceId(pluginId: PluginId): PluginUpdateSource? {
     if (!isFunctionalitySupported()) {
       return null
     }
@@ -33,13 +51,16 @@ internal class PluginUpdateSourceServiceImpl : PluginUpdateSourceService,
     thisLogger().debug { "Requested pluginSourceId for $pluginId: $source" }
     if (source != null) return source
     val plugin = PluginUpdateSourcePluginsProvider.getInstance().getAllPlugins().firstOrNull { it.pluginId == pluginId }
-    if (plugin != null && plugin.isBundled && plugin.allowBundledUpdate() && PluginManagerCore.isDevelopedByJetBrains(plugin)) {
+    if (plugin.hasImplicitMarketplaceUpdateSource()) {
       return createMarketplacePluginUpdateSourceId()
     }
     return null
   }
 
-  override fun setPluginUpdateSourceId(pluginId: PluginId, updateSourceId: PluginUpdateSourceId) {
+  private fun PluginDescriptor?.hasImplicitMarketplaceUpdateSource(): Boolean =
+    this != null && isBundled && allowBundledUpdate() && PluginManagerCore.isDevelopedByJetBrains(this)
+
+  override fun setPluginUpdateSourceId(pluginId: PluginId, updateSourceId: PluginUpdateSource) {
     if (!isFunctionalitySupported()) {
       return
     }
@@ -60,15 +81,15 @@ internal class PluginUpdateSourceServiceImpl : PluginUpdateSourceService,
     updateState({ copy(sources = state.sources - pluginId.idString) }) { "Plugin uninstalled: $pluginId" }
   }
 
-  override fun createMarketplacePluginUpdateSourceId(): PluginUpdateSourceId {
+  override fun createMarketplacePluginUpdateSourceId(): PluginUpdateSource {
     return createRepository(null)
   }
 
-  override fun createCustomRepositoryPluginUpdateSourceId(host: String): PluginUpdateSourceId {
+  override fun createCustomRepositoryPluginUpdateSourceId(host: String): PluginUpdateSource {
     return createRepository(host)
   }
 
-  override fun getPersistedPluginUpdateSourceId(pluginId: PluginId): PluginUpdateSourceId? {
+  override fun getPersistedPluginUpdateSourceId(pluginId: PluginId): PluginUpdateSource? {
     val updateSourceId = state.sources[pluginId.idString]?.toPluginSourceId()
     thisLogger().debug { "Requested persisted pluginSourceId for $pluginId: $updateSourceId" }
     return updateSourceId
@@ -93,9 +114,12 @@ internal class PluginUpdateSourceServiceImpl : PluginUpdateSourceService,
     }
   }
 
-  override fun getAllSources(): List<PluginUpdateSourceId> {
-    val sources = RepositoryHelper.getCustomPluginRepositoryHosts()
-      .map { createRepository(it) }.distinctBy { it.host }.toMutableList()
+  override fun getAllSources(): List<PluginUpdateSource> {
+    val sources: MutableList<Repository> = RepositoryHelper.getCustomPluginRepositoryHosts()
+      .map { createRepository(it) }
+      .filter { !it.isMarketplace }
+      .distinctBy { it.host }
+      .toMutableList()
     sources.add(createRepository(null))
     return sources
   }
@@ -118,8 +142,20 @@ internal class PluginUpdateSourceServiceImpl : PluginUpdateSourceService,
 
   internal fun resetPluginUpdateSources() {
     updateState({ State() }) {
-      "Reset plugin update sources"
+      "Erase plugin update sources"
     }
+  }
+
+  fun allowUpdateFromMarketplaceWhenApplicable(
+    updateSource: PluginUpdateSource,
+    plugin: PluginDescriptor,
+    safePluginIdList: List<String>,
+  ): PluginUpdateSource {
+    if (!isInternalUser()) return updateSource
+    if (!(updateSource as Repository).isNightlyRepository) return updateSource
+    if (!plugin.hasImplicitMarketplaceUpdateSource() && !safePluginIdList.contains(plugin.pluginId.idString)) return updateSource
+    return Repository(isMarketplace = true, isNightlyRepository = true,
+                      host = MarketplaceCustomizationService.getInstance().getPluginDownloadUrl())
   }
 
   internal data class State(
@@ -130,32 +166,108 @@ internal class PluginUpdateSourceServiceImpl : PluginUpdateSourceService,
 
 @Serializable
 private data class Repository(
-  override val host: @NlsSafe String,
-  override val isMarketplace: Boolean,
-) : PluginUpdateSourceId
+  val host: @NlsSafe String,
+  val isMarketplace: Boolean,
+  val isNightlyRepository: Boolean,
+) : PluginUpdateSource {
+
+  override val presentableName: @Nls String
+    get() = when {
+      isMarketplace -> IdeBundle.message("plugin.update.source.presentable.name.marketplace")
+      else -> host
+    }
+
+  override fun canInstallUpdatesFrom(other: PluginUpdateSource): Boolean {
+    if (other !is Repository) return false
+    return when {
+      isMarketplace && other.isMarketplace -> true
+      isNightlyRepository && other.isNightlyRepository -> true
+      host == other.host -> true
+      else -> false
+    }
+  }
+
+  override val semanticPriority: Int
+    get() {
+      var priority = 0
+      if (isMarketplace) priority += 2
+      if (isNightlyRepository) priority += 1
+      return priority
+    }
+}
 
 @Tag("updateSource")
 internal data class XmlSerializableRepository(
   @JvmField @Attribute("host") val hostToSerialize: @NlsSafe String,
   @JvmField @Attribute("isMarketplace") val isMarketplaceToSerialize: Boolean,
+  @JvmField @Attribute("isNightlyRepository") val isNightlyRepositoryToSerialize: Boolean,
 ) {
   @Suppress("unused")
-  constructor() : this("", true) //for serialization
+  constructor() : this("", true, false) //for serialization
 
-  fun toPluginSourceId(): PluginUpdateSourceId = Repository(hostToSerialize, isMarketplaceToSerialize)
+  fun toPluginSourceId(): PluginUpdateSource {
+    return Repository(hostToSerialize,
+                      isMarketplaceToSerialize,
+                      isNightlyRepositoryToSerialize && isInternalUser())
+  }
 }
 
-private fun createRepository(initialHost: String?): PluginUpdateSourceId {
-  val isMarketplace = initialHost == null
+private const val CUSTOM_BUILT_IN_PLUGIN_REPOSITORY_PROPERTY = "intellij.plugins.custom.built.in.repository.url"
+
+private fun createRepository(initialHost: String?): Repository {
+  val host = normalizeHost(initialHost)
+  val isMarketplace = initialHost == null || MarketplaceChannelUrlService.getInstance().isMarketplaceChannelUrl(host)
+  return Repository(host,
+                    isMarketplace,
+                    isNightlyRepository(host, isInternalUser()))
+}
+
+private fun normalizeHost(initialHost: String?): String {
   var host = initialHost ?: MarketplaceCustomizationService.getInstance().getPluginDownloadUrl()
   host = UriUtil.trimParameters(host).trimEnd('/')
-  return Repository(host, isMarketplace)
+  return host
 }
 
-internal fun createRepository(model: PluginUiModel): PluginUpdateSourceId {
+internal fun createRepository(model: PluginUiModel): PluginUpdateSource {
   return createRepository(model.repositoryName)
 }
 
-private fun PluginUpdateSourceId.toXmlSerializableRepository(): XmlSerializableRepository {
-  return XmlSerializableRepository(host, isMarketplace)
+internal fun isNightlyRepository(host: String, isInternalMode: Boolean): Boolean {
+  if (!isInternalMode) return false
+  return System.getProperty(CUSTOM_BUILT_IN_PLUGIN_REPOSITORY_PROPERTY)
+    ?.split(',')
+    ?.map { normalizeHost(it) }
+    ?.contains(host) == true
+}
+
+private fun isInternalUser(): Boolean {
+  if (TestModeFlags.`is`(FORCE_INTERNAL_USER_FOR_TESTS_IN_PLUGIN_UPDATE_SOURCES)) return true
+  val isJetBrainsEmail = JBAccountInfoService.getInstance()?.userData?.email?.endsWith("@jetbrains.com") == true
+  val isJetBrainsTeam = LicensingFacade.getInstance()?.licensedTo?.contains("JetBrains Team") == true
+  return isJetBrainsEmail || isJetBrainsTeam
+}
+
+internal fun isPluginUpdateSourceUIAndFilteringDisabledForInternalUser(): Boolean {
+  return Registry.`is`(REGISTRY_KEY_DISABLE_UPDATE_SOURCES_FOR_INTERNAL_USERS, false) && isInternalUser()
+}
+
+@ApiStatus.Internal
+@TestOnly
+val FORCE_INTERNAL_USER_FOR_TESTS_IN_PLUGIN_UPDATE_SOURCES: Key<Boolean> = Key("PluginUpdateSourceService.forceInternalUser")
+
+private fun PluginUpdateSource.toXmlSerializableRepository(): XmlSerializableRepository {
+  val repository = this as Repository
+  return XmlSerializableRepository(repository.host, repository.isMarketplace, repository.isNightlyRepository)
+}
+
+@ApiStatus.Internal
+@TestOnly
+fun createNightlyPluginUpdateSourceId(): PluginUpdateSource {
+  return Repository(host = "someHost${Random().nextInt(Int.MAX_VALUE)}", isMarketplace = false, isNightlyRepository = true)
+}
+
+@ApiStatus.Internal
+@TestOnly
+fun createNightlyAndMarketplacePluginUpdateSourceId(): PluginUpdateSource {
+  return Repository(host = "someHost${Random().nextInt(Int.MAX_VALUE)}", isMarketplace = true, isNightlyRepository = true)
 }

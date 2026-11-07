@@ -87,6 +87,7 @@ open class TextEditorWithPreview @JvmOverloads constructor(
     myPreview.putUserData(PARENT_SPLIT_EDITOR_KEY, this)
     EventQueue.invokeLater {
       ui.value
+      initialize()
     }
   }
 
@@ -193,6 +194,8 @@ open class TextEditorWithPreview @JvmOverloads constructor(
   }
 
   protected open fun createSplitter(): JBSplitter = OnePixelSplitter()
+
+  protected open fun initialize(): Unit = Unit
 
   override fun getComponent(): JComponent = ui.value.component
 

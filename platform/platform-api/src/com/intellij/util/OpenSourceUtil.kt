@@ -12,7 +12,6 @@ import com.intellij.openapi.fileEditor.OpenFileDescriptor
 import com.intellij.openapi.project.Project
 import com.intellij.platform.ide.navigation.NavigationOptions
 import com.intellij.platform.ide.navigation.NavigationService
-import com.intellij.platform.ide.navigation.NavigationTaskCoordinator
 import com.intellij.platform.ide.navigation.requestNavigate
 import com.intellij.platform.ide.progress.runWithModalProgressBlocking
 import com.intellij.pom.Navigatable
@@ -31,9 +30,7 @@ internal fun navigate(project: Project, requestFocus: Boolean, tryNotToScroll: B
   }
   val filteredNavigatables = navigatables.filterNotNull()
   val options = NavigationOptions.defaultOptions().requestFocus(requestFocus).preserveCaret(tryNotToScroll)
-  NavigationTaskCoordinator.getInstance(project).dispatchNavigation {
-    project.serviceAsync<NavigationService>().navigate(filteredNavigatables, options)
-  }
+  requestNavigate(project, filteredNavigatables, options)
 }
 
 /**

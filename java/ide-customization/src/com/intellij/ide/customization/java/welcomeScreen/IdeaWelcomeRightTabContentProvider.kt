@@ -9,12 +9,10 @@ import com.intellij.platform.ide.nonModalWelcomeScreen.rightTab.WelcomeRightTabC
 import com.intellij.platform.ide.nonModalWelcomeScreen.rightTab.WelcomeScreenFeatureApi
 import com.intellij.platform.ide.nonModalWelcomeScreen.rightTab.WelcomeScreenFeatureUI
 import com.intellij.platform.project.projectId
-import com.intellij.util.IconUtil
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import java.awt.Image
 import java.net.URL
-import javax.swing.Icon
 
 internal class IdeaWelcomeRightTabContentProvider(override val coroutineScope: CoroutineScope) : WelcomeRightTabContentProvider {
   private val bgImageLoader = object : DialogBackgroundImageProviderBase() {
@@ -29,25 +27,29 @@ internal class IdeaWelcomeRightTabContentProvider(override val coroutineScope: C
   override val title = IdeBundle.messagePointer("idea.non.modal.welcome.screen.right.tab.header")
   override val secondaryTitle = IdeBundle.messagePointer("idea.non.modal.welcome.screen.right.tab.secondary.header")
 
-  override val isDisableOptionVisible = false
-
   override val fileTypeIcon = AllIcons.Ultimate.IdeaUltimatePromo
 
+  /**
+   * The Air plugin contributes the agent prompt input as a section above the feature grid, under its own feature key.
+   * That input is the tab's call to action on its own, so the grid stays empty while the input shows. The feature
+   * buttons stand in for the input while it does not show.
+   */
+  override val featureKeysReplacingFeatureGrid: Set<String> = setOf(IdeaFeatureKeys.AIR_SESSIONS)
+
   override fun getFeatureButtonModels(project: Project): List<WelcomeRightTabContentProvider.FeatureButtonModel> {
-    return listOfNotNull(
-      pluginProvidedFeatureButtonModel(IdeaFeatureKeys.AIR_SESSIONS),
+    return listOf(
       WelcomeRightTabContentProvider.FeatureButtonModel(
-        text = IdeBundle.message("configurable.TerminalOptionsConfigurable.display.name"),
-        icon = scale(AllIcons.Debugger.Console, true),
+        text = IdeBundle.message("idea.non.modal.welcome.screen.new.file"),
+        icon = AllIcons.FileTypes.Text,
         onClick = { _, _ ->
-          featureButtonOnClick(project, IdeaFeatureKeys.TERMINAL)
+          featureButtonOnClick(project, IdeaFeatureKeys.NEW_FILE)
         }
       ),
       WelcomeRightTabContentProvider.FeatureButtonModel(
-        text = IdeBundle.message("welcome.screen.plugins.title"),
-        icon = scale(AllIcons.Nodes.Plugin, true),
+        text = IdeBundle.message("idea.non.modal.welcome.screen.open.terminal"),
+        icon = AllIcons.Debugger.Console,
         onClick = { _, _ ->
-          featureButtonOnClick(project, IdeaFeatureKeys.PLUGINS)
+          featureButtonOnClick(project, IdeaFeatureKeys.TERMINAL)
         }
       )
     )
@@ -56,9 +58,9 @@ internal class IdeaWelcomeRightTabContentProvider(override val coroutineScope: C
   /**
    * Builds a button for a feature a plugin owns, or returns `null` when the plugin ships no button.
    *
-   * The plugin supplies the icon and the label, so its own message bundle keeps the wording. The backend half gates
+   * The plugin supplies the icon and the label, so its own message bundle keeps the wording. The handler half gates
    * the button too: the welcome right tab drops a [WelcomeRightTabContentProvider.FeatureButtonModelWithBackend]
-   * whose `welcomeScreenFeatureBackend` no loaded plugin registers.
+   * whose `welcomeScreenFeatureFrontend` or `welcomeScreenFeatureBackend` no loaded plugin registers.
    */
   private fun pluginProvidedFeatureButtonModel(featureKey: String): WelcomeRightTabContentProvider.FeatureButtonModel? {
     val feature = WelcomeScreenFeatureUI.getForFeatureKey(featureKey) ?: return null
@@ -66,11 +68,9 @@ internal class IdeaWelcomeRightTabContentProvider(override val coroutineScope: C
     return WelcomeRightTabContentProvider.FeatureButtonModelWithBackend(
       featureKey = feature.featureKey,
       text = text,
-      icon = scale(feature.icon, true),
+      icon = feature.icon
     )
   }
-
-  private fun scale(icon: Icon, color: Boolean) = IconUtil.scale(icon, null, 1.5f) // TODO: colorize to blue
 
   private fun featureButtonOnClick(project: Project, featureKey: String) {
     coroutineScope.launch {

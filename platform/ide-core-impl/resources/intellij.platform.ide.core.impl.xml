@@ -7,6 +7,9 @@
     <module name="intellij.libraries.kotlinx.coroutines.core"/>
     <module name="intellij.platform.analysis"/>
     <module name="intellij.platform.analysis.impl"/>
+    <module name="intellij.platform.backend.observation"/>
+    <module name="intellij.platform.backend.workspace"/>
+    <module name="intellij.platform.concurrency"/>
     <module name="intellij.platform.core"/>
     <module name="intellij.platform.core.impl"/>
     <module name="intellij.platform.core.ui"/>
@@ -17,6 +20,7 @@
     <module name="intellij.platform.util.coroutines"/>
     <module name="intellij.platform.util.ui"/>
     <module name="intellij.platform.workspace.jps"/>
+    <module name="intellij.platform.workspace.storage"/>
   </dependencies>
   <!-- endregion -->
   <extensionPoints>
@@ -167,7 +171,6 @@ The refresh itself is toggled by (Preferences | Appearance &amp; Behavior | Syst
                  description="Defines storing Run Anything context combobox directories number."/>
     <registryKey key="ide.enable.notification.trace.data.sharing" defaultValue="true" description="Enables notification about sharing trace data"/>
     <notificationGroup id="scrolling-capabilities-debug" displayType="NONE" hideFromSettings="true"/>
-    <notificationGroup id="editor-rendering-benchmark" displayType="NONE" hideFromSettings="true"/>
     <notificationGroup id="Clear IDE Statistics" displayType="BALLOON" hideFromSettings="true"/>
     <notificationGroup id="Test ToolWindow Notification" displayType="TOOL_WINDOW" toolWindowId="TODO" hideFromSettings="true"/>
     <notificationGroup id="Test Sticky Notification" displayType="STICKY_BALLOON" hideFromSettings="true"/>
@@ -178,13 +181,10 @@ The refresh itself is toggled by (Preferences | Appearance &amp; Behavior | Syst
     <notificationGroup id="Diff Changes Loading Error" displayType="BALLOON" hideFromSettings="true"/>
     <notificationGroup id="Collect Zipped Logs" displayType="BALLOON" hideFromSettings="true"/>
     <notificationGroup id="Dump Threads Group" displayType="BALLOON" isLogByDefault="false" hideFromSettings="true"/>
-    <notificationGroup id="Cached value profiling" displayType="BALLOON" hideFromSettings="true"/>
     <notificationGroup id="File Watcher Messages" displayType="STICKY_BALLOON" bundle="messages.IdeCoreBundle"
                        key="notification.group.file.watcher"/>
     <notificationGroup id="Test Results" displayType="TOOL_WINDOW" toolWindowId="Run" isLogByDefault="false" hideFromSettings="true"/>
     <notificationGroup id="Settings External Change Conflict" displayType="STICKY_BALLOON" hideFromSettings="true"/>
-    <notificationGroup id="code.style.cache.dump" displayType="BALLOON" hideFromSettings="true" isLogByDefault="false"/>
-    <notificationGroup id="editor.state.dump" displayType="BALLOON" hideFromSettings="true" isLogByDefault="false"/>
     <registryKey key="html.editor.timeout" defaultValue="15000" description="HTML editor content loading timeout, ms"/>
     <registryKey key="performance.watcher.maxDumpDuration.ms" defaultValue="40000"
                  description="Maximum duration of performance watcher dumps in ms"/>
@@ -197,6 +197,9 @@ The refresh itself is toggled by (Preferences | Appearance &amp; Behavior | Syst
     <registryKey key="performance.watcher.enable.smoke.and.mirrors.compensation" defaultValue="true"
                  description="Enable UI freezes reporting for long-running background tasks that may impale UI interactions without a visible impact on UI rendering"/>
     <registryKey key="performance.watcher.pooled.enabled" defaultValue="true"
+                 description="Watch `Default` and `IO` pools for thread starvation.
+                  `performance.watcher.pooled.dump.threads.enabled` and `performance.watcher.pooled.compensation.enabled` have to be enabled separately"/>
+    <registryKey key="performance.watcher.pooled.dump.threads.enabled" defaultValue="true"
                  description="Write thread dumps if none pooled threads are available."/>
     <registryKey key="performance.watcher.pooled.unresponsive.interval.ms" defaultValue="15000"
                  description="Log if none pooled threads are available for longer than the specified time interval in ms"/>
@@ -204,6 +207,16 @@ The refresh itself is toggled by (Preferences | Appearance &amp; Behavior | Syst
                  description="Increase unresponsive interval after each recorded dump"/>
     <registryKey key="performance.watcher.pooled.maximum.dumps" defaultValue="10"
                  description="Stop recording thread dumps after specified amount. Use '-1' to keep writing the thread dumps."/>
+    <registryKey key="performance.watcher.pooled.compensation.enabled" defaultValue="true"
+                 description="Grant extra parallelism to a pooled dispatcher when it becomes unresponsive, and revoke it once responsive again, independent of thread dump reporting."/>
+    <registryKey key="performance.watcher.pooled.compensation.interval.ms" defaultValue="2000"
+                 description="Grant additional pool parallelism if no pooled threads are available for longer than the specified time interval in ms"/>
+    <registryKey key="performance.watcher.pooled.compensation.checks.for.revoke" defaultValue="5"
+                 description="Number of consecutive healthy checks required before a parallelism revoke is attempted"/>
+    <registryKey key="performance.watcher.pooled.compensation.checks.to.confirm.revoke" defaultValue="3"
+                 description="Number of consecutive healthy checks required to confirm a tentative parallelism revoke"/>
+    <registryKey key="performance.watcher.pooled.compensation.max.grants" defaultValue="100"
+                 description="Maximum number of pooled-thread parallelism grants allowed"/>
     <registryKey key="popup.advertiser.speed.search" defaultValue="false" description="Shows speed search advertiser in popups"/>
     <registryKey key="popup.menu.drag.distance.threshold.mac" defaultValue="10" description="The drag distance required to trigger a menu item by dragging with the right mouse button (macOS)"/>
     <registryKey key="popup.menu.drag.distance.threshold.linux" defaultValue="10" description="The drag distance required to trigger a menu item by dragging with the right mouse button (Linux)"/>
@@ -298,10 +311,12 @@ The refresh itself is toggled by (Preferences | Appearance &amp; Behavior | Syst
                   Set to 0 to show immediately; the value is capped at the system multi-click interval."/>
     <registryKey key="platform.enable.plugin.update.source.feature" defaultValue="true"
                  description="Enables plugin update sources feature (IJPL-171317)"/>
-    <registryKey key="platform.limit.plugin.update.source.by.configured.one" defaultValue="false"
+    <registryKey key="platform.limit.plugin.update.source.by.configured.one" defaultValue="true"
                  description="Restricts updating plugins to the configured source (IJPL-171317)"/>
-    <registryKey key="platform.make.plugin.update.source.visible.in.ui" defaultValue="false"
+    <registryKey key="platform.make.plugin.update.source.visible.in.ui" defaultValue="true"
                  description="Makes plugin update sources visible in UI (IJPL-171317)"/>
+    <registryKey key="platform.disable.plugin.update.sources.ui.and.filtering.for.internal.users" defaultValue="true"
+                 description="Hides plugin update sources in the UI and disables plugin update source filtering for internal users."/>
     <registryKey defaultValue="true" key="use.dependencies.cache.service" restartRequired="true"
                  description="Rescan delta of AdditionalLibraryProvider, IndexableSetContributor, DirectoryIndexExcludePolicy values instead of full project."/>
     <registryKey defaultValue="20" key="scanning.dumb.mode.threshold" restartRequired="true"
@@ -453,6 +468,8 @@ The refresh itself is toggled by (Preferences | Appearance &amp; Behavior | Syst
                  description="Switches submenu in File - New to popup step" />
     <registryKey key="ide.allow.folder.as.project" defaultValue="false"
                  description="Allow opening folder as project without modules" />
+    <registryKey key="ide.project.open.without.module" defaultValue="false"
+                 description="Open a project with no module: directory project configurators do not run, and JPS files do not contribute modules" />
     <notificationGroup id="Automatic Module Unloading" displayType="BALLOON" bundle="messages.ProjectBundle"
                        key="notification.group.automatic.module.unloading"/>
     <registryKey key="sdk.detector.enabled" defaultValue="true" description="Toggles SDK detection features"/>
@@ -484,7 +501,7 @@ The refresh itself is toggled by (Preferences | Appearance &amp; Behavior | Syst
     />
     <registryKey
       key="editor.skeleton.delay.ms"
-      defaultValue="500"
+      defaultValue="1000"
       description="Skeleton fade in duration (in milliseconds)"
     />
   </extensions>

@@ -1,6 +1,5 @@
 package com.intellij.grazie.cloud
 
-import ai.grazie.ner.model.SentenceWithNERAnnotations
 import ai.grazie.nlp.langs.Language
 import ai.grazie.rules.de.GermanTreeSupport
 import ai.grazie.rules.en.EnglishTreeSupport
@@ -9,135 +8,45 @@ import ai.grazie.rules.tree.Tree
 import ai.grazie.rules.tree.TreeSupport
 import ai.grazie.rules.uk.UkrainianTreeSupport
 import ai.grazie.text.exclusions.SentenceWithExclusions
-import ai.grazie.tree.model.SentenceWithTreeDependencies
-import cloud.jetbrains.sdk.ml.tree.client.model.ConfidenceMetrics
-import cloud.jetbrains.sdk.ml.tree.client.model.Node
-import cloud.jetbrains.sdk.ml.tree.client.model.SentenceWithTree
 import com.github.benmanes.caffeine.cache.Caffeine
-import com.intellij.grazie.GrazieBundle
-import com.intellij.grazie.GrazieConfig
+import com.intellij.grazie.ide.ui.configurable.StyleConfigurable.Companion.ruleEngineLanguages
 import com.intellij.grazie.jlanguage.CACHE_SIZE
 import com.intellij.grazie.jlanguage.LazyCachingConcurrentDisambiguator
-import com.intellij.grazie.rule.CloudOrLocalBatchParser
-import com.intellij.grazie.rule.SentenceBatcher
-import com.intellij.grazie.rule.SentenceBatcher.AsyncBatchParser
-import com.intellij.grazie.rule.SentenceTokenizer
-import com.intellij.grazie.text.TextChecker.ProofreadingContext
-import com.intellij.grazie.text.TextContent
 import com.intellij.grazie.utils.HighlightingUtil
 import com.intellij.grazie.utils.HunspellUtil
-import com.intellij.grazie.utils.NaturalTextDetector.seemsNatural
-import com.intellij.grazie.utils.getLanguageIfAvailable
-import com.intellij.grazie.utils.hasLanguage
-import com.intellij.openapi.Disposable
-import com.intellij.openapi.components.Service
-import com.intellij.openapi.components.service
-import com.intellij.openapi.diagnostic.Logger
-import com.intellij.openapi.progress.Cancellation.ensureActive
 import com.intellij.openapi.progress.ProgressManager
-import com.intellij.openapi.project.Project
-import com.intellij.openapi.util.Disposer
-import com.intellij.platform.util.progress.RawProgressReporter
-import com.intellij.psi.PsiFile
-import com.intellij.util.application
+import com.intellij.openapi.progress.util.runWithCheckCanceled
 import com.intellij.util.containers.ContainerUtil
-import kotlinx.coroutines.Deferred
-import kotlinx.coroutines.async
-import kotlinx.coroutines.coroutineScope
 import org.languagetool.language.English
-import cloud.jetbrains.sdk.ml.ner.client.model.Annotation as CloudAnnotation
-import cloud.jetbrains.sdk.ml.ner.client.model.Label as CloudLabel
-import cloud.jetbrains.sdk.ml.ner.client.model.Range as CloudNerRange
-import cloud.jetbrains.sdk.ml.ner.client.model.SentenceWithNERAnnotations as CloudSentenceWithNERAnnotations
-import cloud.jetbrains.sdk.ml.tree.client.model.TextRange as CloudTextRange
-
+import java.util.SequencedMap
 
 object DependencyParser {
-  private val LOG = Logger.getInstance(DependencyParser::class.java)
   private val cachedTrees = Caffeine.newBuilder()
     .softValues()
     .maximumSize(CACHE_SIZE)
     .build<SentenceWithLanguage, Tree>()
 
-  @JvmStatic
-  fun getParser(context: ProofreadingContext, minimal: Boolean): AsyncBatchParser<Tree>? {
-    if (context.language == Language.UNKNOWN) return null
-    return getParser(context.language, context.text.containingFile, minimal)
-  }
-
-  @JvmStatic
-  fun getParser(text: TextContent, minimal: Boolean): AsyncBatchParser<Tree>? {
-    val language = getLanguageIfAvailable(text) ?: return null
-    return getParser(language, text.containingFile, minimal)
-  }
-
-  private fun getParser(language: Language, file: PsiFile, minimal: Boolean): AsyncBatchParser<Tree>? {
-    if (!GrazieCloudConnector.seemsCloudConnected()) return getLocalParser(language)
-    val batcher = getBatcher(language) ?: return null
-    val cloud = when {
-      minimal -> batcher.minimal(file.project)
-      else -> batcher.forFile(file.viewProvider)
-    }
-    return CloudOrLocalBatchParser(
-      project = file.project,
-      cloud = cloud,
-      local = { getLocalParser(language) }
-    )
-  }
-
-  private fun getLocalParser(language: Language): AsyncBatchParser<Tree> {
-    return object : AsyncBatchParser<Tree> {
-      override suspend fun parseAsync(sentences: List<SentenceWithExclusions>): LinkedHashMap<SentenceWithExclusions, Tree?> {
-        val support = obtainSupport(language)
-        if (support != null) {
-          val ltLanguage = SentenceBatcher.findInstalledLTLanguage(language)
-          (ltLanguage?.disambiguator as? LazyCachingConcurrentDisambiguator)?.ensureInitializedAsync()
-          @Suppress("UNCHECKED_CAST")
-          return sentences.associateWith { swe ->
-            cachedTrees.get(SentenceWithLanguage(swe.sentence, language)) { swl ->
-              ensureActive()
-              Tree.createFlatTree(support, swl.sentence)
-            }
-          } as LinkedHashMap<SentenceWithExclusions, Tree?>
+  fun parse(language: Language, sentences: List<SentenceWithExclusions>): SequencedMap<SentenceWithExclusions, Tree?> {
+    val support = obtainSupport(language) ?: return LinkedHashMap()
+    val ltLanguage = HighlightingUtil.findInstalledLang(language)?.jLanguage
+    (ltLanguage?.disambiguator as? LazyCachingConcurrentDisambiguator)?.ensureInitialized()
+    return sentences.associateWithTo(LinkedHashMap()) { swe ->
+      cachedTrees.get(SentenceWithLanguage(swe.sentence, language)) { swl ->
+        runWithCheckCanceled {
+          Tree.createFlatTree(support, swl.sentence) { ProgressManager.checkCanceled() }
         }
-
-        return LinkedHashMap()
       }
     }
   }
 
-  internal suspend fun getLocalTrees(contexts: List<ProofreadingContext>): Map<Language, Map<SentenceWithExclusions, Tree?>> {
-    val checkedDomains = HighlightingUtil.checkedDomains()
-    return contexts
-      .filter { it.hasLanguage() && it.text.domain in checkedDomains && !HighlightingUtil.isTooLargeText(it.text) && seemsNatural(it.text) }
-      .groupBy { it.language }
-      .map { (language, contexts) ->
-        val sentences = contexts.flatMap { context ->
-          SentenceTokenizer.tokenize(context.text).flatMap { listOfNotNull(it.swe(), it.stubbedSwe()) }
-        }
-        language to getLocalParser(language).parseAsync(sentences)
-      }
-      .toMap()
-  }
-
-  internal fun getBatcher(language: Language): Batcher? {
-    return application.service<BatcherHolder>().batchers[language]
-  }
-
-  private val lang2SupportClass = mapOf(
-    Language.ENGLISH to "ai.grazie.rules.en.EnglishTreeSupport",
-    Language.GERMAN to "ai.grazie.rules.de.GermanTreeSupport",
-    Language.UKRAINIAN to "ai.grazie.rules.uk.UkrainianTreeSupport",
-    Language.RUSSIAN to "ai.grazie.rules.ru.RussianTreeSupport"
-  )
-  private val supports: MutableMap<Language, TreeSupport> = ContainerUtil.createConcurrentSoftValueMap()
+  private val supports = ContainerUtil.createConcurrentSoftValueMap<Language, TreeSupport>()
 
   @JvmStatic
   fun obtainSupport(language: Language): TreeSupport? {
-    if (language !in lang2SupportClass) {
+    if (language !in ruleEngineLanguages) {
       return null
     }
-    val ltLanguage = SentenceBatcher.findInstalledLTLanguage(language) ?: return null
+    val ltLanguage = HighlightingUtil.findInstalledLang(language)?.jLanguage ?: return null
     return supports.computeIfAbsent(language) {
       when (language) {
         Language.ENGLISH -> EnglishTreeSupport(ltLanguage as English) { HunspellUtil.obtainEnglish() }
@@ -149,108 +58,6 @@ object DependencyParser {
     }
   }
 
-  @Service
-  private class BatcherHolder: Disposable {
-    val batchers = mapOf(
-      Language.ENGLISH to Batcher(Language.ENGLISH),
-      Language.GERMAN to Batcher(Language.GERMAN),
-      Language.UKRAINIAN to Batcher(Language.UKRAINIAN),
-      Language.RUSSIAN to Batcher(Language.RUSSIAN)
-    )
-
-    init {
-      GrazieConfig.subscribe(this) { clearCaches() }
-      GrazieCloudConnector.subscribeToAuthorizationStateEvents(this) { clearCaches() }
-    }
-
-    private fun clearCaches() {
-      supports.clear()
-      batchers.values.forEach { it.clearCache() }
-    }
-
-    override fun dispose() {
-      batchers.values.forEach(Disposer::dispose)
-    }
-  }
-
-  internal class Batcher(language: Language): SentenceBatcher<Tree>(language, TreeSupport.CLOUD_BATCH_SIZE, quoteMarkup = true) {
-    override suspend fun parse(sentences: List<SentenceWithExclusions>, project: Project): Map<SentenceWithExclusions, Tree> {
-      if (GrazieCloudConnector.isAfterRecentGecError()) {
-        return emptyMap()
-      }
-      val support = obtainSupport(language) ?: return emptyMap()
-      val sentenceStrings = sentences.map { it.sentence }
-
-      return coroutineScope {
-        val start = System.currentTimeMillis()
-        val asyncLabels: Deferred<List<SentenceWithNERAnnotations>?>? =
-          if (support.needsNer()) async {
-            APIQueries.nerAnnotations(language, sentenceStrings, project)
-          } else null
-
-        val trees = APIQueries.trees(language, support.cloudTreeModelName, support.cloudParserOptions, sentenceStrings, project)
-        val labels = asyncLabels?.await()?.associateBy { it.text } ?: emptyMap()
-
-        LOG.debug("Parsing servers responded in ${System.currentTimeMillis() - start}ms for ${sentenceStrings.size} sentences")
-
-        if (trees == null) emptyMap()
-        else sentences.zip(trees).associate {
-          it.first to support.buildTree(
-            fromLegacyTree(it.second),
-            fromLegacyNer(labels[it.first.sentence])
-          ) { ProgressManager.checkCanceled() }
-        }
-      }
-    }
-
-    @Suppress("UnstableApiUsage")
-    override fun reportStatus(reporter: RawProgressReporter) {
-      super.reportStatus(reporter)
-      reporter.text(GrazieBundle.message("progress.text.parsing.natural.language.text"))
-    }
-
-    //TODO: Remove `fromLegacy*` methods when IntelliJ migrates to JCP auth
-    /** Converts from the deprecated Grazie-internal tree model to the JCP-generated one.  */
-    fun fromLegacyTree(conllu: SentenceWithTreeDependencies): SentenceWithTree {
-      val nodes = conllu.tree.map { node ->
-        Node {
-          range = CloudTextRange {
-            start = node.range.start
-            endExclusive = node.range.endExclusive
-          }
-          id = node.id
-          headId = node.headId
-          dependency = node.dependency
-        }
-      }.toList()
-
-      return SentenceWithTree {
-        text = conllu.text
-        tree = nodes
-        confidenceMetrics = ConfidenceMetrics {
-          minRelsDiff = 1.0
-          minArcsDiff = 1.0
-        }
-      }
-    }
-
-    /** Converts from the deprecated Grazie-internal NER model to the JCP-generated one.  */
-    fun fromLegacyNer(ner: SentenceWithNERAnnotations?): CloudSentenceWithNERAnnotations? {
-      val ner = ner ?: return null
-      return CloudSentenceWithNERAnnotations {
-        text = ner.text
-        annotations = ner.annotations.map { annotation ->
-          CloudAnnotation {
-            range = CloudNerRange {
-              start = annotation.range.start
-              endExclusive = annotation.range.endExclusive
-            }
-            label = CloudLabel.valueOf(annotation.label.name)
-          }
-        }
-      }
-    }
-  }
 }
 
 private data class SentenceWithLanguage(val sentence: String, val language: Language)

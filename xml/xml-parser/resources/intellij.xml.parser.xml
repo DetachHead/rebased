@@ -5,19 +5,21 @@
     <module name="intellij.platform.core"/>
     <module name="intellij.platform.core.impl"/>
     <module name="intellij.platform.editor.ui"/>
+    <module name="intellij.platform.syntax"/>
     <module name="intellij.platform.syntax.psi"/>
+    <module name="intellij.platform.syntax.util"/>
     <module name="intellij.xml.syntax"/>
   </dependencies>
   <!-- endregion -->
   <extensionPoints>
-    <extensionPoint name="embeddedTokenTypesProvider" interface="com.intellij.lexer.EmbeddedTokenTypesProvider" dynamic="true"/>
+    <extensionPoint qualifiedName="com.intellij.embeddedTokenTypesProvider" interface="com.intellij.lexer.EmbeddedTokenTypesProvider" dynamic="true"/>
 
-    <extensionPoint name="html.scriptContentProvider"
+    <extensionPoint qualifiedName="com.intellij.html.scriptContentProvider"
                     beanClass="com.intellij.lang.LanguageExtensionPoint" dynamic="true">
       <with attribute="implementationClass" implements="com.intellij.lang.HtmlScriptContentProvider"/>
     </extensionPoint>
 
-    <extensionPoint name="html.embeddedContentSupport"
+    <extensionPoint qualifiedName="com.intellij.html.embeddedContentSupport"
                     interface="com.intellij.html.embedding.HtmlEmbeddedContentSupport"
                     dynamic="true"/>
   </extensionPoints>

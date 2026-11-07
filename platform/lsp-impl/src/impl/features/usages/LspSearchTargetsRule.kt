@@ -21,6 +21,7 @@ import com.intellij.platform.lsp.api.LspClient
 import com.intellij.platform.lsp.api.customization.LspFindReferencesSupport
 import com.intellij.platform.lsp.impl.LspClientImpl
 import com.intellij.platform.lsp.impl.LspClientManagerImpl
+import com.intellij.platform.lsp.impl.supportsFindReferences
 import com.intellij.platform.lsp.util.getLsp4jPosition
 import com.intellij.util.IconUtil
 import org.eclipse.lsp4j.Position

@@ -19,6 +19,8 @@ import com.intellij.openapi.util.Key
 import com.intellij.openapi.util.Ref
 import com.intellij.openapi.util.UserDataHolder
 import com.intellij.psi.PsiElement
+import com.intellij.util.ThreeState
+import com.jetbrains.python.PyNames
 import com.jetbrains.python.PyPsiBundle
 import com.jetbrains.python.ast.PyAstFunction
 import com.jetbrains.python.codeInsight.dataflow.scope.ScopeUtil
@@ -26,6 +28,7 @@ import com.jetbrains.python.codeInsight.typing.PyTypingTypeProvider
 import com.jetbrains.python.documentation.PythonDocumentationProvider
 import com.jetbrains.python.inspections.PyInspectionMessages.CodifiedParam
 import com.jetbrains.python.inspections.PyInspectionMessages.ProblemMessage
+import com.jetbrains.python.psi.AccessDirection
 import com.jetbrains.python.psi.PyClass
 import com.jetbrains.python.psi.PyExpression
 import com.jetbrains.python.psi.PyFunction
@@ -33,9 +36,11 @@ import com.jetbrains.python.psi.PyPossibleClassMember
 import com.jetbrains.python.psi.PyPsiFacade
 import com.jetbrains.python.psi.PyTargetExpression
 import com.jetbrains.python.psi.PyTypedElement
+import com.jetbrains.python.psi.PyUtil
 import com.jetbrains.python.psi.PyUtil.isObjectClass
 import com.jetbrains.python.psi.impl.PyBuiltinCache
 import com.jetbrains.python.psi.impl.PyTypeProvider
+import com.jetbrains.python.psi.resolve.PyResolveContext
 import com.jetbrains.python.psi.resolve.RatedResolveResult
 import com.jetbrains.python.psi.types.PyRecursiveTypeVisitor.PyTypeTraverser
 import com.jetbrains.python.psi.types.PyTypeChecker.GenericSubstitutions
@@ -219,23 +224,19 @@ object PyTypeUtil {
    */
   @JvmStatic
   fun toUnionFromRef(): Collector<Ref<PyType?>?, *, Ref<PyType?>?> {
-    return toUnionFromRef { type1, type2 -> PyUnionType.union(type1, type2) }
+    return toUnionFromRef { type1, type2 -> PyUnionType.unionOrUnknown(type1, type2) }
   }
 
   fun toUnsafeUnionFromRef(): Collector<Ref<PyType?>?, *, Ref<PyType?>?> {
-    return toUnionFromRef { _, types ->
-      PyUnsafeUnionType.unsafeUnion(types)
-    }
+    return toUnionFromRef { type1, type2 -> PyUnsafeUnionType.unsafeUnion(type1, type2) }
   }
 
   @JvmStatic
   fun toUnionFromRef(streamSource: PyType?): Collector<Ref<PyType?>?, *, Ref<PyType?>?> {
     return if (streamSource is PyUnsafeUnionType)
-      toUnionFromRef { _, types ->
-        PyUnsafeUnionType.unsafeUnion(types)
-      }
+      toUnionFromRef { type1, type2 -> PyUnsafeUnionType.unsafeUnion(type1, type2) }
     else {
-      toUnionFromRef { type1, type2 -> PyUnionType.union(type1, type2) }
+      toUnionFromRef { type1, type2 -> PyUnionType.unionOrUnknown(type1, type2) }
     }
   }
 
@@ -254,7 +255,7 @@ object PyTypeUtil {
    * using [PyUnionType.union].
    * 
    * 
-   * Note that it's different from using `foldLeft(PyUnionType::union)` because the latter returns `Optional<PyType>`,
+   * Note that it's different from using `foldLeft(PyUnionType::unionOrUnknown)` because the latter returns `Optional<PyType>`,
    * and it doesn't support `null` values throwing `NullPointerException` if the final result of
    * [PyUnionType.union] was `null`.
    * 
@@ -267,21 +268,21 @@ object PyTypeUtil {
   fun toUnion(): Collector<PyType?, *, PyType?> {
     return Collectors.collectingAndThen(
       Collectors.toList()
-    ) { members -> PyUnionType.union(members) }
+    ) { members -> PyUnionType.unionOrUnknown(members) }
   }
 
   @ApiStatus.Experimental
   fun toUnsafeUnion(): Collector<PyType?, *, PyType?> {
     return Collectors.collectingAndThen(
       Collectors.toList()
-    ) { PyUnsafeUnionType.unsafeUnion() }
+    ) { members -> PyUnsafeUnionType.unsafeUnion(members) }
   }
 
   @ApiStatus.Experimental
   fun toIntersection(): Collector<PyType?, *, PyType?> {
     return Collectors.collectingAndThen(
       Collectors.toList()
-    ) { PyIntersectionType.intersection() }
+    ) { members -> PyIntersectionType.intersectionOrTop(members) }
   }
 
   @JvmStatic
@@ -289,7 +290,7 @@ object PyTypeUtil {
     return if (streamSource is PyUnsafeUnionType)
       toUnion { PyUnsafeUnionType.unsafeUnion(it) }
     else toUnion { members ->
-      PyUnionType.union(members)
+      PyUnionType.unionOrUnknown(members)
     }
   }
 
@@ -316,9 +317,7 @@ object PyTypeUtil {
    * ```
    *
    * If [transform] returns an empty list, the result is the identity element of the composite kind:
-   * `Never` for a union or an unsafe union (bottom), and `object` for an intersection (top). The `object` type is
-   * resolved against [this]'s original members and degrades to [PyAnyType.unknown] only for an anchorless intersection
-   * (one made solely of `Any`/`None`).
+   * [PyNeverType.NEVER] for a union or an unsafe union (bottom), and [PyTopType] for an intersection (top).
    *
    * @see compositeMap
    * @see compositeMatchesAsSubtype
@@ -385,11 +384,11 @@ object PyTypeUtil {
 
   /**
    * Rebuilds a composite type of the same kind as [this] from [members], folding an empty [members] to the identity
-   * element of that kind: `Never` for unions/unsafe unions, `Unknown` for intersections.
+   * element of that kind: [PyNeverType.NEVER] for unions/unsafe unions, [PyTopType] for intersections.
    */
   private fun PyType?.rebuildLike(members: List<PyType?>): PyType? =
     when (this) {
-      is PyIntersectionType -> PyIntersectionType.intersection(members)
+      is PyIntersectionType -> PyIntersectionType.intersectionOrTop(members)
       is PyUnsafeUnionType -> if (members.isEmpty()) PyNeverType.NEVER else PyUnsafeUnionType.unsafeUnion(members)
       else -> PyUnionType.unionOrNever(members)
     }
@@ -798,6 +797,113 @@ object PyTypeUtil {
       }
       return this
     }
+  }
+
+  /**
+   * Determines whether a value of the given [type] is always truthy ([ThreeState.YES]),
+   * always falsy ([ThreeState.NO]), or statically undetermined ([ThreeState.UNSURE])
+   * when used in a boolean context (`if x`, `x and y`, `x or y`, ...).
+   *
+   * Recognizes:
+   *  - `None` (always falsy);
+   *  - boolean, integer and string literal types (a false literal, a zero-valued integer literal, an empty string, ...);
+   *  - classes whose `__bool__` returns a literal `bool` (e.g. a false literal);
+   *  - classes that have no `__bool__` but whose `__len__` returns a literal `int`.
+   *
+   * For a union the result is conclusive only if all of its members agree.
+   */
+  @JvmStatic
+  @ApiStatus.Internal
+  fun getTypeTruthiness(type: PyType?, location: PsiElement?, context: TypeEvalContext): ThreeState {
+    if (type is PyUnionType) {
+      return combineMemberTruthiness(type) { getTypeTruthiness(it, location, context) }
+    }
+    if (type == null) return ThreeState.UNSURE
+    if (type.isNoneType) return ThreeState.NO
+    if (type is PyLiteralType) {
+      type.boolValue?.let { return ThreeState.fromBoolean(it) }
+      type.intValue?.let { return ThreeState.fromBoolean(it.signum() != 0) }
+      type.stringValue?.let { return ThreeState.fromBoolean(it.isNotEmpty()) }
+      return ThreeState.UNSURE
+    }
+    if (type is PyClassType) {
+      // A class object (`if SomeClass:`, `SomeClass or x`) is always truthy: its truthiness comes from the
+      // metaclass, not from the instance `__bool__`/`__len__`. Don't consult the instance dunders here, otherwise
+      // a class with a literal-returning instance `__bool__` would be wrongly treated as always falsy.
+      if (type.isDefinition) return ThreeState.UNSURE
+      val anchor = location as? PyExpression
+      // `__bool__` takes precedence over `__len__`, exactly like at runtime.
+      val boolReturnType = getDunderReturnType(type, PyNames.BOOL, anchor, context)
+      if (boolReturnType != null) {
+        return literalReturnTruthiness(boolReturnType.get()) { it.boolValue }
+      }
+      val lenReturnType = getDunderReturnType(type, PyNames.LEN, anchor, context)
+      if (lenReturnType != null) {
+        return literalReturnTruthiness(lenReturnType.get()) { it.intValue?.signum()?.let { sign -> sign != 0 } }
+      }
+    }
+    return ThreeState.UNSURE
+  }
+
+  /**
+   * Keeps only the members of [type] (treated as a union of one or more types) whose truthiness
+   * is compatible with [keepTruthy]. Members with undetermined truthiness are always kept.
+   *
+   * Returns:
+   *  - `Ref(narrowedType)` with the kept members (the wrapped type may be `null`, meaning unknown);
+   *  - `null` if no member is kept, i.e. the value can never be [keepTruthy].
+   *
+   * Used to infer the type of `or`/`and` expressions: in `a or b` the value is `a` only when `a`
+   * is truthy, and in `a and b` it is `a` only when `a` is falsy.
+   */
+  @JvmStatic
+  @ApiStatus.Internal
+  fun narrowTypeByTruthiness(
+    type: PyType?,
+    keepTruthy: Boolean,
+    location: PsiElement?,
+    context: TypeEvalContext,
+  ): Ref<PyType?>? {
+    if (type == null) return Ref<PyType?>(null)
+    val toDrop = if (keepTruthy) ThreeState.NO else ThreeState.YES
+    val members = type.toStream().toList()
+    val kept = members.filter { getTypeTruthiness(it, location, context) != toDrop }
+    return when {
+      kept.isEmpty() -> null
+      kept.size == members.size -> Ref<PyType?>(type)
+      else -> Ref(PyUnionType.union(kept))
+    }
+  }
+
+  /**
+   * Returns the return type of the dunder [name] of [type], or `null` when [type] has no such member.
+   *
+   * [PyUtil.getReturnTypeOfMember] gives an unknown type for a missing member, so it cannot tell a missing `__bool__`
+   * from a `__bool__` with an unknown return type.
+   */
+  private fun getDunderReturnType(type: PyClassType, name: String, anchor: PyExpression?, context: TypeEvalContext): Ref<PyType?>? {
+    val members = type.resolveMember(name, anchor, AccessDirection.READ, PyResolveContext.defaultContext(context))
+    if (members.isNullOrEmpty()) return null
+    return Ref(PyUtil.getReturnTypeOfMember(type, name, anchor, context))
+  }
+
+  private fun combineMemberTruthiness(union: PyUnionType, memberTruthiness: (PyType?) -> ThreeState): ThreeState {
+    var result: ThreeState? = null
+    for (member in union.members) {
+      val truthiness = memberTruthiness(member)
+      if (truthiness == ThreeState.UNSURE) return ThreeState.UNSURE
+      if (result == null) result = truthiness
+      else if (result != truthiness) return ThreeState.UNSURE
+    }
+    return result ?: ThreeState.UNSURE
+  }
+
+  private fun literalReturnTruthiness(returnType: PyType?, literalTruthiness: (PyLiteralType) -> Boolean?): ThreeState {
+    if (returnType is PyUnionType) {
+      return combineMemberTruthiness(returnType) { literalReturnTruthiness(it, literalTruthiness) }
+    }
+    val value = (returnType as? PyLiteralType)?.let(literalTruthiness) ?: return ThreeState.UNSURE
+    return ThreeState.fromBoolean(value)
   }
 }
 

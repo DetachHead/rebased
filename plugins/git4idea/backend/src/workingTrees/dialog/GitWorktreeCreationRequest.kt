@@ -4,11 +4,17 @@ package git4idea.workingTrees.dialog
 import com.intellij.openapi.vcs.FilePath
 import git4idea.GitReference
 import git4idea.repo.GitRepository
+import git4idea.workingTrees.GitWorktreeAdditionalConfigCopier
+import java.nio.file.Path
 
 internal data class GitWorktreeCreationRequest(
   val repository: GitRepository,
   val workingTreePath: FilePath,
   val branch: WorktreeBranchSpec,
+  val setupScriptPath: Path? = null,
+  val copyWorktreeIncludeMatches: Boolean = false,
+  val additionalSettingsHandles: List<GitWorktreeSettingsPanelHandle> = emptyList(),
+  val enabledAdditionalConfigCopiers: Set<GitWorktreeAdditionalConfigCopier> = emptySet(),
 )
 
 internal sealed interface WorktreeBranchSpec {

@@ -10,10 +10,9 @@ fun Char.newFun(x: X, c: Char): Char = this
 
 fun foo(s: String, t: X) {
     val chars = s.filter {
-        (X('a') + X('b'))?.let { t1 -> it.newFun(t1, t.c) } != 'a'
+        (X('a') + X('b'))?.let { x -> it.newFun(x, t.c) } != 'a'
     }
 }
 
 operator fun X.plus(x: X): X? = null
-// FUS_QUICKFIX_NAME: org.jetbrains.kotlin.idea.quickfix.replaceWith.DeprecatedSymbolUsageFix
-// FUS_K2_QUICKFIX_NAME: org.jetbrains.kotlin.idea.k2.codeinsight.fixes.replaceWith.DeprecatedSymbolUsageFix
+// FUS_QUICKFIX_NAME: org.jetbrains.kotlin.idea.k2.codeinsight.fixes.replaceWith.DeprecatedSymbolUsageFix

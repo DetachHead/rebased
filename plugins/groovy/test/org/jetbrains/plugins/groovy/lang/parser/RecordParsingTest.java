@@ -3,8 +3,8 @@ package org.jetbrains.plugins.groovy.lang.parser;
 
 public class RecordParsingTest extends GroovyParsingTestCase {
   @Override
-  public String getBasePath() {
-    return super.getBasePath() + "types/record";
+  public String getTestDataPath() {
+    return super.getTestDataPath() + "types/record";
   }
 
   public void testRecord1() { doTest(); }

@@ -11,7 +11,7 @@ import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
 import com.intellij.openapi.components.serviceIfCreated
 import com.intellij.openapi.diagnostic.Logger
-import com.intellij.openapi.diagnostic.rethrowControlFlowException
+import com.intellij.diagnostic.rethrowControlFlowException
 import com.intellij.openapi.editor.Document
 import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.fileTypes.FileTypeRegistry
@@ -96,7 +96,7 @@ internal class GitIndexFileSystemRefresher(private val project: Project) : Dispo
     return cache.get(Key(root, filePath))?.takeIf { it.isValid }
   }
 
-  @RequiresBackgroundThread
+  @RequiresBackgroundThread(generateAssertion = false /* IJPL-115548 */)
   fun createFile(
     root: VirtualFile, filePath: FilePath,
   ): GitIndexVirtualFile? {
@@ -272,7 +272,7 @@ internal class GitIndexFileSystemRefresher(private val project: Project) : Dispo
     }
   }
 
-  @RequiresBackgroundThread
+  @RequiresBackgroundThread(generateAssertion = false /* IJPL-115548 */)
   fun getFileContent(root: VirtualFile, filePath: FilePath): ByteArray = try {
     GitFileUtils.getFileContent(project, root, "", VcsFileUtil.relativePath(root, filePath))
   }

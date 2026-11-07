@@ -41,6 +41,7 @@ import com.jetbrains.python.psi.types.PyClassType
 import com.jetbrains.python.psi.types.PyCollectionTypeImpl
 import com.jetbrains.python.psi.types.PyTupleType
 import com.jetbrains.python.psi.types.PyType
+import com.jetbrains.python.psi.types.PyTypeChecker
 import com.jetbrains.python.psi.types.PyTypeProviderBase
 import com.jetbrains.python.psi.types.PyTypeUtil.derefOrUnknown
 import com.jetbrains.python.psi.types.PyTypeUtil.notNullToRef
@@ -69,7 +70,7 @@ class PyTypedDictTypeProvider : PyTypeProviderBase() {
     return type.notNullToRef()
   }
 
-  override fun prepareCalleeTypeForCall(type: PyType?, callee: PyExpression, context: TypeEvalContext): Ref<PyCallableType?>? {
+  override fun prepareCalleeTypeForCall(type: PyType?, callee: PyExpression, context: TypeEvalContext): Ref<PyType?>? {
     return if (type is PyTypedDictType) Ref.create(type) else null
   }
 
@@ -136,7 +137,7 @@ class PyTypedDictTypeProvider : PyTypeProviderBase() {
 private fun getTypedDictTypeForTarget(target: PyTargetExpression, context: TypeEvalContext): PyTypedDictType? {
   return StubAwareComputation.on(target)
     .withCustomStub { it.getCustomStub(PyTypedDictStub::class.java) }
-    .overStub { getTypedDictTypeFromStub(target, it, context) }
+    .overStub { getTypedDictTypeFromStub(target, it) }
     .withStubBuilder { PyTypedDictStubImpl.create(it) }
     .compute(context)
 }
@@ -175,7 +176,7 @@ private fun getTypedDictMemberType(referenceTarget: PsiElement, context: TypeEva
 
   val builtinCache = PyBuiltinCache.getInstance(referenceTarget)
   val strType = builtinCache.strType ?: return null
-  val valueType = collectTypedDictValueType(receiverType, builtinCache) ?: return null
+  val valueType = collectTypedDictValueType(receiverType, builtinCache, context) ?: return null
 
   val returnType: PyType = when (method) {
     TypedDictMethod.KEYS -> {
@@ -212,24 +213,28 @@ private fun buildGetMethodType(
   val key = PyEvaluator.evaluate(callExpression.getArgument(0, "key", PyExpression::class.java), String::class.java)
   val defaultArgument = callExpression.getArgument(1, "default", PyExpression::class.java)
   val default = if (defaultArgument != null) context.getType(defaultArgument) else builtinCache.noneType
-  val valueTypeAndTotality = typedDictType.fields[key]
+  val valueTypeAndTotality = typedDictType.fields(context)[key]
   return PyCallableTypeImpl(parameters,
                             when {
                               valueTypeAndTotality == null -> default
                               valueTypeAndTotality.qualifiers.isRequired == true -> valueTypeAndTotality.type
-                              else -> PyUnionType.union(valueTypeAndTotality.type, default)
+                              else -> PyUnionType.unionOrUnknown(valueTypeAndTotality.type, default)
                             })
 }
 
-private fun collectTypedDictValueType(typedDictType: PyTypedDictType, builtinCache: PyBuiltinCache): PyType? {
+private fun collectTypedDictValueType(
+  typedDictType: PyTypedDictType,
+  builtinCache: PyBuiltinCache,
+  context: TypeEvalContext,
+): PyType? {
   val valueTypes = mutableListOf<PyType?>()
 
-  typedDictType.fields.values.forEach { field ->
+  typedDictType.fields(context).values.forEach { field ->
     valueTypes.add(field.type)
   }
 
-  if (!typedDictType.isClosed && typedDictType.extraItemsType != null) {
-    valueTypes.add(typedDictType.extraItemsType)
+  if (!typedDictType.isClosed && typedDictType.extraItemsType(context) != null) {
+    valueTypes.add(typedDictType.extraItemsType(context))
   }
 
   val nonNullTypes = valueTypes.filterNotNull()
@@ -237,7 +242,7 @@ private fun collectTypedDictValueType(typedDictType: PyTypedDictType, builtinCac
     return builtinCache.objectType
   }
 
-  return PyUnionType.union(nonNullTypes)
+  return PyUnionType.unionOrUnknown(nonNullTypes)
 }
 
 private fun getTypedDictTypeForCallee(referenceExpression: PyReferenceExpression, context: TypeEvalContext): PyType? {
@@ -282,43 +287,113 @@ private fun getTypedDictTypeForClass(
 ): PyTypedDictType? {
   if (!cls.isTypingTypedDictInheritor(context)) return null
 
-  var inheritedExtraItemsType: PyType? = null
-  var inheritedClosedStatus: Boolean? = null
+  val forms = Ref.deref(PyUtil.getParameterizedCachedValue(cls, context) { evalContext ->
+    val definition = createTypedDictTypeForClass(cls, evalContext)
+    Ref.create(definition?.let { it to it.toInstance() })
+  }) ?: return null
+  return if (isDefinition) forms.first else forms.second
+}
 
-  cls.getAncestorTypes(context).forEach {
-    if (it is PyTypedDictType) {
-      if (inheritedExtraItemsType == null && it.extraItemsType != null) {
-        inheritedExtraItemsType = it.extraItemsType
-      }
-      if (inheritedClosedStatus == null) {
-        inheritedClosedStatus = it.isClosed
-      }
-    }
-  }
+private fun createTypedDictTypeForClass(cls: PyClass, context: TypeEvalContext): PyTypedDictType? {
+
+  val typedDictAncestors = typedDictAncestors(cls, context)
+    .filterIsInstance<PyTypedDictType>()
 
   val extraItemsText = getSuperClassKeywordArgumentText(cls, TYPED_DICT_EXTRA_ITEMS_PARAMETER)
   val closedText = getSuperClassKeywordArgumentText(cls, TYPED_DICT_CLOSED_PARAMETER)
 
-  val parsedExtraItems = extraItemsText?.let { getStringBasedTypeForTypedDict(it, cls, context) }
-  val extraItemsType = parsedExtraItems?.first?.get() ?: inheritedExtraItemsType ?: PyAnyType.unknown
-  val extraItemsQualifiers = parsedExtraItems?.second ?: PyTypedDictType.TypedDictFieldQualifiers()
+  val extraItemsProvider = { evalContext: TypeEvalContext ->
+    val type =
+      if (extraItemsText != null) PyTypingTypeProvider.getStringBasedType(extraItemsText, cls, evalContext).derefOrUnknown()
+      else typedDictAncestors.firstNotNullOfOrNull { it.extraItemsType(evalContext) } ?: PyAnyType.unknown
+    extraItems(type, extraItemsText, cls, evalContext)
+  }
 
   val closed = when (closedText) {
     PyNames.TRUE -> true
     PyNames.FALSE -> false
-    else -> inheritedClosedStatus ?: false
+    else -> typedDictAncestors.firstOrNull()?.isClosed ?: false
   }
 
+  val name = cls.name ?: return null
+  val dictClass = PyBuiltinCache.getInstance(cls).dictType?.pyClass ?: return null
   return PyTypedDictType(
-    cls.name ?: return null,
-    TDFields(collectFields(cls, context)),
-    PyBuiltinCache.getInstance(cls).dictType?.pyClass ?: return null,
-    isDefinition,
+    name,
+    { evalContext -> collectFields(cls, evalContext) },
+    dictClass,
+    true,
     cls,
     closed,
-    extraItemsType,
-    extraItemsQualifiers,
+    extraItemsProvider,
+    ownTypeParameters(cls, context),
   )
+}
+
+/**
+ * The ancestors up to `TypedDict` itself, past which come `dict` and its own hierarchy.
+ *
+ * Without AST the ancestors are resolved from the superclass names in the stub, so `TypedDict` is the resolved class rather than
+ * a synthetic [PyCustomType] and a TypedDict ancestor is a plain [PyClassType]. The boundary is found by name so that both modes
+ * see the same slice, and the arguments dropped along with the expressions are put back by [specializeTypedDictAncestors].
+ */
+private fun typedDictAncestors(cls: PyClass, context: TypeEvalContext): List<PyClassLikeType?> =
+  PyUtil.getParameterizedCachedValue(cls, context) { evalContext ->
+    val ancestors = cls.getAncestorTypes(evalContext)
+    val boundary = ancestors.indexOfFirst { nameIsTypedDict(it?.classQName) }
+    val inheritedAsTypedDict = if (boundary >= 0) ancestors.take(boundary) else ancestors
+    specializeTypedDictAncestors(cls, inheritedAsTypedDict, evalContext)
+  }
+
+/**
+ * [PyClass.getAncestorTypes] reports a bare `Base` for `class Child(Base[int])`. This function reads each subscripted
+ * superclass expression as a type hint, and puts the parameterized ancestor back.
+ *
+ * A TypedDict takes its items from the ancestor itself, so it specializes an inherited item as soon as the ancestors are
+ * known. A generic class instead waits until somebody asks for the attribute.
+ *
+ * This runs on the finished ancestor list. Evaluation of `Base[T]` anchors `T` in the scope that declares it. That asks
+ * for the type parameters of [cls], and through them for the ancestors that are still being computed.
+ */
+private fun specializeTypedDictAncestors(
+  cls: PyClass,
+  ancestors: List<PyClassLikeType?>,
+  context: TypeEvalContext,
+): List<PyClassLikeType?> {
+  val specializedBases = mutableMapOf<PyClass, PyTypedDictType>()
+  for (expression in PyTypingTypeProvider.getSuperClassExpressions(cls)) {
+    if (expression !is PySubscriptionExpression) continue
+    val baseType = Ref.deref(PyTypingTypeProvider.getType(expression, context)) as? PyTypedDictType ?: continue
+    if (!baseType.isParameterized) continue
+    val baseClass = baseType.declarationElement as? PyClass ?: continue
+    specializedBases[baseClass] = baseType
+  }
+  if (specializedBases.isEmpty()) return ancestors
+
+  return ancestors.map { specializedBases[it?.declaringClass()] ?: it }
+}
+
+/** A TypedDict type is built on the `dict` class, so it is identified by its own declaration rather than by [PyClassType.getPyClass]. */
+private fun PyClassLikeType.declaringClass(): PyClass? = when (this) {
+  is PyTypedDictType -> declarationElement as? PyClass
+  is PyClassType -> pyClass
+  else -> null
+}
+
+/** Read from the declaration, not from the items, which a recursive TypedDict cannot evaluate while it is being built. */
+private fun ownTypeParameters(cls: PyClass, context: TypeEvalContext): List<PyType?> =
+  PyTypeChecker.findGenericDefinitionType(cls, context)?.typeArguments.orEmpty()
+
+/** `extra_items` is a keyword argument rather than an assignment, so the item it stands for has no value expression. */
+private fun extraItems(
+  type: PyType?,
+  extraItemsText: String?,
+  anchor: PsiElement,
+  context: TypeEvalContext,
+): PyTypedDictType.FieldTypeAndTotality {
+  val qualifiers = extraItemsText
+    ?.let { getStringBasedTypedDictQualifiers(it, anchor, context) }
+    ?: PyTypedDictType.TypedDictFieldQualifiers()
+  return PyTypedDictType.FieldTypeAndTotality(null, type, qualifiers)
 }
 
 private fun getSuperClassKeywordArgumentText(cls: PyClass, name: String): String? {
@@ -340,43 +415,47 @@ private fun getSuperClassKeywordArgumentText(cls: PyClass, name: String): String
 
 private fun collectFields(cls: PyClass, context: TypeEvalContext): TDFields {
   val fields = mutableMapOf<String, PyTypedDictType.FieldTypeAndTotality>()
-  val ancestors = cls.getAncestorTypes(context)
-  val typedDictCustomTypeIndex = ancestors.indexOfFirst { it is PyCustomType && nameIsTypedDict(it.classQName) }
-  // When some ancestor is located in another file its type will be PyClassType because of difference in getting ancestor types.
-  // (see com.jetbrains.python.psi.impl.PyClassImpl.fillSuperClassesNoSwitchToAst)
-  // When AST is unavailable, the type of resolved element is returned, TypedDict reference is resolved to PyClass,
-  // therefore the type of that PyClass is PyClassType.
-  // That's why in case when AST for ancestors is unavailable we need to collect fields from PyClassType instances.
-  if (typedDictCustomTypeIndex > 0) {
-    ancestors.take(typedDictCustomTypeIndex)
-      .forEach { if (it is PyClassType) fields.putAll(collectTypingTDInheritorFields(it.pyClass, context)) }
+  for (ancestorType in typedDictAncestors(cls, context)) {
+    when (ancestorType) {
+      is PyTypedDictType -> fields.putAll(ancestorType.fields(context))
+      // Without AST a TypedDict ancestor is a plain PyClassType, see typedDictAncestors.
+      is PyClassType -> if (ancestorType.pyClass.isTypingTypedDictInheritor(context)) {
+        fields.putAll(collectTypingTDInheritorFields(ancestorType.pyClass, context))
+      }
+    }
   }
-  else {
-    ancestors.forEach { if (it is PyTypedDictType) fields.putAll(it.fields) }
-  }
-  fields.putAll(collectTypingTDInheritorFields(cls, context))
+  fields.putAll(collectDeclaredFields(cls, context))
   return TDFields(fields)
 }
 
 private fun collectTypingTDInheritorFields(cls: PyClass, context: TypeEvalContext): TDFields {
   val type = cls.getType(context)
   if (type is PyTypedDictType) {
-    return TDFields(type.fields)
+    return TDFields(type.fields(context))
   }
+  return collectDeclaredFields(cls, context)
+}
 
+/**
+ * Scans the class's own declarations instead of going through [PyClass.getType], which for [cls] would re-enter the very
+ * TypedDict type whose items are being computed — the recursion that used to leave a cut `Unknown` in the cache.
+ */
+private fun collectDeclaredFields(cls: PyClass, context: TypeEvalContext): TDFields {
   val fields = mutableListOf<Pair<PyExpression, PyTypedDictType.TypedDictFieldQualifiers>>()
   val totality = getTotality(cls)
   cls.processClassLevelDeclarations { element, _ ->
     if (element is PyTargetExpression) {
       val stub = element.stub
       if (context.maySwitchToAST(cls) || stub == null) {
-        if (element.annotation != null) {
-          fields.add(Pair(element, checkTypeSpecification(element.annotation!!.value, context, totality)))
+        val annotation = element.annotation
+        if (annotation != null) {
+          fields.add(Pair(element, checkTypeSpecification(annotation.value, context, totality)))
         }
       }
       else {
-        if (stub.annotation != null) {
-          val annotation = PyUtil.createExpressionFromFragment(stub.annotation!!, cls)
+        val stubAnnotation = stub.annotation
+        if (stubAnnotation != null) {
+          val annotation = PyUtil.createExpressionFromFragment(stubAnnotation, cls)
           fields.add(Pair(stub.psi, checkTypeSpecification(annotation, context, totality)))
         }
       }
@@ -437,7 +516,10 @@ private fun checkIfClassIsDirectTypedDictInheritor(cls: PyClass, context: TypeEv
     return cls.superClassExpressions.any { isTypedDict(it, context) }
   }
   else {
-    return stub.superClassesText.any { isTypedDict(PyUtil.createExpressionFromFragment(it, cls) ?: return false, context) }
+    return stub.superClassesText.any {
+      val superClassExpression = PyUtil.createExpressionFromFragment(it, cls) ?: return false
+      isTypedDict(superClassExpression, context)
+    }
   }
 }
 
@@ -454,20 +536,27 @@ private fun getTotality(cls: PyClass): Boolean {
 private fun getTypedDictTypeFromStub(
   target: PyTargetExpression,
   stub: PyTypedDictStub?,
-  context: TypeEvalContext,
 ): PyTypedDictType? {
   if (stub == null) return null
 
   val dictClass = PyBuiltinCache.getInstance(target).dictType?.pyClass ?: return null
 
-  val extraItemsInfo = stub.extraItemsType?.let { typeString ->
-    getStringBasedTypeForTypedDict(typeString, target, context)
+  val extraItemsText = stub.extraItemsType
+  val extraItemsProvider = { evalContext: TypeEvalContext ->
+    val type = extraItemsText?.let { PyTypingTypeProvider.getStringBasedType(it, target, evalContext) }.derefOrUnknown()
+    extraItems(type, extraItemsText, target, evalContext)
   }
-  val extraItemsType = extraItemsInfo?.first.derefOrUnknown()
-  val extraItemsQualifiers = extraItemsInfo?.second ?: PyTypedDictType.TypedDictFieldQualifiers()
 
-  val typedDictFields = parseTypedDictFields(target, stub.fields, context, stub.isRequired)
-  return PyTypedDictType(stub.name, typedDictFields, dictClass, true, target, stub.isClosed, extraItemsType, extraItemsQualifiers)
+  return PyTypedDictType(
+    stub.name,
+    { evalContext -> parseTypedDictFields(target, stub.fields, evalContext, stub.isRequired) },
+    dictClass,
+    true,
+    target,
+    stub.isClosed,
+    extraItemsProvider,
+    declaredTypeParameters = emptyList(),
+  )
 }
 
 private fun parseTypedDictFields(
@@ -507,11 +596,23 @@ private fun getStringBasedTypeForTypedDict(
   anchor: PsiElement,
   context: TypeEvalContext,
 ): Pair<Ref<PyType?>?, PyTypedDictType.TypedDictFieldQualifiers?>? {
-  val file = FileContextUtil.getContextFile(anchor) ?: return null
-  val expr = PyUtil.createExpressionFromFragment(contents, file)
+  val expr = createStringBasedTypedDictExpression(contents, anchor) ?: return null
   var qualifiers: PyTypedDictType.TypedDictFieldQualifiers? = null
   if (expr is PySubscriptionExpression) {
     qualifiers = parseTypedDictFieldQualifiers(expr, context)
   }
-  return if (expr != null) Pair(PyTypingTypeProvider.getType(expr, context), qualifiers) else null
+  return Pair(PyTypingTypeProvider.getType(expr, context), qualifiers)
+}
+
+private fun getStringBasedTypedDictQualifiers(
+  contents: String,
+  anchor: PsiElement,
+  context: TypeEvalContext,
+): PyTypedDictType.TypedDictFieldQualifiers? =
+  (createStringBasedTypedDictExpression(contents, anchor) as? PySubscriptionExpression)
+    ?.let { parseTypedDictFieldQualifiers(it, context) }
+
+private fun createStringBasedTypedDictExpression(contents: String, anchor: PsiElement): PyExpression? {
+  val file = FileContextUtil.getContextFile(anchor) ?: return null
+  return PyUtil.createExpressionFromFragment(contents, file)
 }

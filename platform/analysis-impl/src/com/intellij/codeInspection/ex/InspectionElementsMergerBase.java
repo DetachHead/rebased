@@ -52,7 +52,11 @@ public abstract class InspectionElementsMergerBase extends InspectionElementsMer
   }
 
   protected boolean areSettingsMerged(@NotNull Map<String, Element> inspectionsSettings, @NotNull Element inspectionElement) {
-    final Element merge = merge(inspectionsSettings, true);
+    Element merge = merge(inspectionsSettings, false);
+    if (merge != null && JDOMUtil.areElementsEqual(merge, inspectionElement)) {
+      return true;
+    }
+    merge = merge(inspectionsSettings, true);
     return merge != null && JDOMUtil.areElementsEqual(merge, inspectionElement);
   }
 

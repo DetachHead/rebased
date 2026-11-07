@@ -1,7 +1,6 @@
 // Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.platform.ide.progress
 
-import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.NlsContexts.ModalProgressTitle
 import com.intellij.openapi.util.NlsContexts.ProgressTitle
 import com.intellij.platform.ide.progress.suspender.TaskSuspender
@@ -12,7 +11,7 @@ import org.jetbrains.annotations.ApiStatus.Internal
 interface TaskSupport {
 
   suspend fun <T> withBackgroundProgressInternal(
-    project: Project,
+    owner: BackgroundTaskOwner,
     title: @ProgressTitle String,
     cancellation: TaskCancellation,
     suspender: TaskSuspender?,

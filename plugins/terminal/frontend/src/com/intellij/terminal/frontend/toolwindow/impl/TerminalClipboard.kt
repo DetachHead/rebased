@@ -15,7 +15,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.jetbrains.plugins.terminal.fus.ReworkedTerminalUsageCollector
-import org.jetbrains.plugins.terminal.fus.TerminalCommandUsageStatistics
 import org.jetbrains.plugins.terminal.fus.TerminalInsertedContentSource
 import org.jetbrains.plugins.terminal.fus.TerminalInsertedContentType
 import java.awt.Image
@@ -45,15 +44,11 @@ internal object TerminalClipboard {
         .useBracketedPasteMode()
         .send(result.text)
 
-      val commandLine = view.getRunningProcessCommandLine()
-      val processExecutable = commandLine?.let {
-        TerminalCommandUsageStatistics.getLoggableCommandData(commandLine, expandAbsoluteOrRelativePath = true).command
-      }
       ReworkedTerminalUsageCollector.logContentInserted(
         project = project,
         contentType = result.contentType,
         fileSource = TerminalInsertedContentSource.CLIPBOARD,
-        processExecutable = processExecutable,
+        processExecutable = view.getRunningProcessExecutableForFus(),
       )
     }
   }

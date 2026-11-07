@@ -4,28 +4,15 @@ package com.intellij.openapi.editor.impl
 import com.intellij.openapi.editor.ex.DocumentModState
 import com.intellij.openapi.editor.ex.DocumentOp
 import com.intellij.openapi.editor.ex.DocumentSnapshot
-import com.intellij.openapi.editor.ex.DocumentSputnik
-import com.intellij.openapi.editor.ex.DocumentSputniks
 import com.intellij.openapi.editor.ex.DocumentText
-import com.intellij.openapi.editor.ex.DocumentTextPatch
-import com.intellij.openapi.editor.impl.marker.PMarkerRoot
-import com.intellij.openapi.editor.impl.marker.PMarkerRootImpl
-import com.intellij.openapi.editor.impl.marker.SnapshotMarkerEngineImpl
-import com.intellij.openapi.util.Key
-import java.util.concurrent.atomic.AtomicReference
 
 internal class DocumentSnapshotImpl private constructor(
   private val text: DocumentText,
   private val modState: DocumentModState,
-  private val sputniks: DocumentSputniks,
-  root: PMarkerRoot = PMarkerRootImpl.empty(),
 ) : DocumentSnapshot {
-  internal val markerRoot: AtomicReference<PMarkerRoot> = AtomicReference(root)
-
   constructor(text: DocumentText) : this(
     text = text,
     modState = DocumentModStateImpl(),
-    sputniks = DocumentSputniksImpl.EMPTY,
   )
 
   override fun text(): DocumentText {
@@ -36,11 +23,6 @@ internal class DocumentSnapshotImpl private constructor(
     return modState
   }
 
-  override fun <S : DocumentSputnik> sputnik(key: Key<S>): S? {
-    @Suppress("UNCHECKED_CAST") // sound because setSputnik associates a sputnik only with a key of its own type
-    return sputniks.get(key) as S?
-  }
-
   override fun withMetadata(metadata: DocumentSnapshot): DocumentSnapshot {
     if (this === metadata || text === metadata.text()) {
       return metadata
@@ -48,40 +30,17 @@ internal class DocumentSnapshotImpl private constructor(
     return this
   }
 
-  internal fun copyWithMarkerRoot(root: PMarkerRoot): DocumentSnapshotImpl {
-    return DocumentSnapshotImpl(text, modState, sputniks, root)
+  override fun copyWithNewIdentity(): DocumentSnapshotImpl {
+    return DocumentSnapshotImpl(text, modState)
   }
 
   override fun applyOp(op: DocumentOp): DocumentSnapshot {
     val newText = text.applyOp(op)
     val newModState = modState.applyOp(text, newText, op)
-    val canAffectSputniks = op is DocumentOp.SetSputnik || newText !== text
-    if (newText === text && newModState === modState && !canAffectSputniks) {
+    if (newText === text && newModState === modState) {
       return this
     }
-    val newSnapshot = if (newText === text && newModState === modState) {
-      this
-    }
-    else {
-      DocumentSnapshotImpl(newText, newModState, sputniks, markerRoot.get())
-    }
-    val after = if (canAffectSputniks && (sputniks !== DocumentSputniksImpl.EMPTY || op is DocumentOp.SetSputnik)) {
-      sputniks.applyOp(this, newSnapshot, op) { newSputniks ->
-        DocumentSnapshotImpl(newText, newModState, newSputniks, markerRoot.get())
-      }
-    }
-    else {
-      newSnapshot
-    }
-    if (after !== this) {
-      if (op is DocumentTextPatch) {
-        SnapshotMarkerEngineImpl.applyPatch(this, after, op)
-      }
-      else {
-        SnapshotMarkerEngineImpl.inherit(this, after)
-      }
-    }
-    return after
+    return DocumentSnapshotImpl(newText, newModState)
   }
 
   override fun dumpState(): String {
@@ -105,7 +64,6 @@ internal class DocumentSnapshotImpl private constructor(
 
   override fun toString(): String {
     val id = Integer.toHexString(System.identityHashCode(this))
-    val sputnikId = Integer.toHexString(System.identityHashCode(sputniks))
-    return "DocumentSnapshot@$id{text=$text, modState=$modState, sputniks=@$sputnikId}"
+    return "DocumentSnapshot@$id{text=$text, modState=$modState}"
   }
 }

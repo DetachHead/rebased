@@ -5,11 +5,9 @@ import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ReadAction
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.externalSystem.autoimport.AutoImportProjectTracker.Companion.isAsyncChangesProcessing
-import com.intellij.openapi.externalSystem.autoimport.ExternalSystemModificationType.EXTERNAL
 import com.intellij.openapi.externalSystem.autoimport.ExternalSystemSettingsFilesModificationContext.Event
 import com.intellij.openapi.externalSystem.autoimport.ExternalSystemSettingsFilesModificationContext.ReloadStatus
-import com.intellij.openapi.externalSystem.autoimport.AutoImportProjectStatus.ProjectEvent.Companion.externalInvalidate
-import com.intellij.openapi.externalSystem.autoimport.AutoImportProjectStatus.ProjectEvent.Companion.externalModify
+import com.intellij.openapi.externalSystem.autoimport.AutoImportProjectStatus.ProjectEvent.Invalidate
 import com.intellij.openapi.externalSystem.autoimport.AutoImportProjectStatus.ProjectEvent.Revert
 import com.intellij.openapi.externalSystem.autoimport.AutoImportProjectStatus.ProjectEvent.Synchronize
 import com.intellij.openapi.externalSystem.autoimport.AutoImportProjectStatus.Stamp
@@ -29,8 +27,9 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.SimpleModificationTracker
 import com.intellij.openapi.util.io.FileUtil
 import com.intellij.openapi.util.io.FileUtilRt.toSystemIndependentName
-import com.intellij.openapi.vfs.LocalFileSystem
+import com.intellij.openapi.vfs.StandardFileSystems
 import com.intellij.openapi.vfs.VirtualFile
+import com.intellij.openapi.vfs.newvfs.RefreshQueue
 import kotlinx.serialization.Serializable
 import org.jetbrains.annotations.ApiStatus
 import java.nio.file.Path
@@ -55,7 +54,7 @@ class AutoImportProjectSettingsFilesTracker(
   private val settingsAsyncSupplier = SettingsFilesAsyncSupplier()
 
   private fun calculateSettingsFilesCRC(settingsFiles: Set<String>): Map<String, Long> {
-    val localFileSystem = LocalFileSystem.getInstance()
+    val localFileSystem = StandardFileSystems.local()
     return settingsFiles
       .asSequence()
       .mapNotNull { localFileSystem.findFileByPath(it) }
@@ -154,7 +153,7 @@ class AutoImportProjectSettingsFilesTracker(
     val operationStamp = Stamp.nextStamp()
     settingsFilesStatus.set(SettingsFilesStatus(state.settingsFiles.toMap()))
     when (state.isDirty) {
-      true -> projectStatus.markDirty(operationStamp, EXTERNAL)
+      true -> projectStatus.markDirty(operationStamp)
       else -> projectStatus.markSynchronized(operationStamp)
     }
   }
@@ -163,7 +162,7 @@ class AutoImportProjectSettingsFilesTracker(
     submitSettingsFilesStatusUpdate("refreshChanges") {
       isRefreshVfs = true
       syncEvent = ::Revert
-      changeEvent = ::externalInvalidate
+      changeEvent = ::Invalidate
       callback = { projectTracker.scheduleChangeProcessing() }
     }
   }
@@ -180,7 +179,7 @@ class AutoImportProjectSettingsFilesTracker(
       if (isRefreshVfs) {
         val settingsFiles = settingsPaths.mapNotNull { Path.of(it) }
         if (settingsFiles.isNotEmpty()) {
-          LocalFileSystem.getInstance().refreshNioFiles(settingsFiles)
+          RefreshQueue.getInstance().refreshPaths(false, false, null, settingsFiles)
         }
       }
       callback(settingsPaths)
@@ -305,7 +304,7 @@ class AutoImportProjectSettingsFilesTracker(
         isRefreshVfs = true
         reloadStatus = ReloadStatus.JUST_STARTED
         syncEvent = ::Synchronize
-        changeEvent = ::externalInvalidate
+        changeEvent = ::Invalidate
       }
     }
 
@@ -314,7 +313,7 @@ class AutoImportProjectSettingsFilesTracker(
         isRefreshVfs = true
         reloadStatus = ReloadStatus.JUST_FINISHED
         syncEvent = ::Synchronize
-        changeEvent = ::externalInvalidate
+        changeEvent = ::Invalidate
         callback = { applyChangesOperation.traceFinish() }
       }
     }
@@ -323,7 +322,7 @@ class AutoImportProjectSettingsFilesTracker(
       submitSettingsFilesStatusUpdate("onSettingsFilesListChange") {
         isInvalidateCache = true
         syncEvent = ::Revert
-        changeEvent = ::externalModify
+        changeEvent = ::Invalidate
         callback = { projectTracker.scheduleChangeProcessing() }
       }
     }

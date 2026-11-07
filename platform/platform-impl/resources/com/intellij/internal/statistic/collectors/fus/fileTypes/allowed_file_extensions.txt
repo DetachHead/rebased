@@ -1653,3 +1653,8 @@ wisp
 prg
 ch
 prw
+godot
+verse
+versetest
+vproject
+uefnproject

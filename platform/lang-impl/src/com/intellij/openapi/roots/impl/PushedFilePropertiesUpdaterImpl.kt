@@ -1,6 +1,7 @@
 // Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.roots.impl
 
+import com.intellij.diagnostic.rethrowControlFlowException
 import com.intellij.ide.plugins.DynamicPluginListener
 import com.intellij.ide.plugins.IdeaPluginDescriptor
 import com.intellij.openapi.application.ApplicationManager
@@ -10,7 +11,6 @@ import com.intellij.openapi.application.WriteAction
 import com.intellij.openapi.application.runReadActionBlocking
 import com.intellij.openapi.diagnostic.Attachment
 import com.intellij.openapi.diagnostic.Logger
-import com.intellij.openapi.diagnostic.rethrowControlFlowException
 import com.intellij.openapi.module.Module
 import com.intellij.openapi.progress.ProgressIndicator
 import com.intellij.openapi.progress.checkCanceled
@@ -27,8 +27,8 @@ import com.intellij.openapi.roots.ContentIteratorEx
 import com.intellij.openapi.roots.ModuleRootEvent
 import com.intellij.openapi.roots.ModuleRootListener
 import com.intellij.openapi.roots.ProjectFileIndex
-import com.intellij.openapi.roots.impl.FilesScanExecutor.runOnAllThreads
 import com.intellij.openapi.util.Condition
+import com.intellij.openapi.util.registry.Registry
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.openapi.vfs.VirtualFileWithId
 import com.intellij.openapi.vfs.newvfs.events.VFileCopyEvent
@@ -44,12 +44,11 @@ import com.intellij.util.concurrency.annotations.RequiresReadLock
 import com.intellij.util.containers.TreeNodeProcessingResult
 import com.intellij.util.gist.GistManager
 import com.intellij.util.gist.GistManagerImpl
+import com.intellij.util.indexing.DumbModeReindexingScheduler
 import com.intellij.util.indexing.FileBasedIndex
-import com.intellij.util.indexing.FileBasedIndexImpl
-import com.intellij.util.indexing.FileBasedIndexProjectHandler
+import com.intellij.util.indexing.FileBasedIndexEx
 import com.intellij.util.indexing.FilePropertyPusherEx
 import com.intellij.util.indexing.IndexingBundle
-import com.intellij.util.indexing.IndexingStamp
 import com.intellij.util.indexing.UnindexedFilesUpdater
 import com.intellij.util.indexing.diagnostic.ChangedFilesPushedDiagnostic.addEvent
 import com.intellij.util.indexing.diagnostic.ChangedFilesPushingStatistics
@@ -151,8 +150,9 @@ class PushedFilePropertiesUpdaterImpl(private val myProject: Project) : PushedFi
         }
       }
     }
+    // Threshold shared with FileBasedIndexProjectHandler via the "ide.dumb.mode.minFilesToStart" registry key.
     val pushingSomethingSynchronously =
-      !syncTasks.isEmpty() && syncTasks.size < FileBasedIndexProjectHandler.ourMinFilesToStartDumbMode
+      !syncTasks.isEmpty() && syncTasks.size < Registry.intValue("ide.dumb.mode.minFilesToStart", 20)
     if (pushingSomethingSynchronously) {
       // push synchronously to avoid entering dumb mode in the middle of a meaningful write action
       // when only a few files are created/moved
@@ -280,7 +280,7 @@ class PushedFilePropertiesUpdaterImpl(private val myProject: Project) : PushedFi
 
   private fun scheduleDumbModeReindexingIfNeeded() {
     signalBulkInvalidationNeeded()
-    FileBasedIndexProjectHandler.scheduleReindexingInDumbMode(myProject)
+    myProject.getService(DumbModeReindexingScheduler::class.java).scheduleReindexingInDumbMode()
   }
 
   override fun filePropertiesChanged(fileOrDir: VirtualFile, acceptFileCondition: Condition<in VirtualFile>) {
@@ -328,7 +328,7 @@ class PushedFilePropertiesUpdaterImpl(private val myProject: Project) : PushedFi
     }
   }
 
-  @RequiresReadLock
+  @RequiresReadLock(generateAssertion = false /* IJPL-115548 */)
   private fun doApplyPushersToFile(fileOrDir: VirtualFile,
                                    pushers: List<FilePropertyPusher<*>>,
                                    moduleValues: Array<Any?>?) {
@@ -364,10 +364,10 @@ class PushedFilePropertiesUpdaterImpl(private val myProject: Project) : PushedFi
     // value - requesting reindex here would be redundant. It's only needed for a file that was
     // already indexed before, since a pushed property change alone doesn't affect any content
     // stamp that the normal check would notice.
-    val fileId = FileBasedIndex.getFileId(file)
-    if (fileId > 0 && IndexingStamp.getNontrivialFileIndexedStates(fileId).isNotEmpty()) {
-      val fileBasedIndex = FileBasedIndex.getInstance()
-      if (fileBasedIndex is FileBasedIndexImpl) {
+    val fileBasedIndex = FileBasedIndex.getInstance()
+    if (fileBasedIndex is FileBasedIndexEx) {
+      val fileId = FileBasedIndex.getFileId(file)
+      if (fileId > 0 && fileBasedIndex.getAppliedIndexes(fileId).isNotEmpty()) {
         fileBasedIndex.requestReindex(file, false)
       }
     }
@@ -523,7 +523,7 @@ class PushedFilePropertiesUpdaterImpl(private val myProject: Project) : PushedFi
       }
 
       val tasksQueue = ConcurrentLinkedQueue(tasks)
-      runOnAllThreads {
+      UnindexedFilesUpdater.runOnAllThreads {
         var runnable: Runnable? = tasksQueue.poll()
         while (runnable != null) {
           runnable.run()

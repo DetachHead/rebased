@@ -7,12 +7,11 @@ import com.intellij.model.Pointer
 import com.intellij.model.Symbol
 import com.intellij.model.psi.ImplicitReferenceProvider
 import com.intellij.model.psi.PsiSymbolReference
-import com.intellij.navigation.NavigatableSymbol
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.NlsContexts
 import com.intellij.openapi.util.NlsSafe
 import com.intellij.openapi.util.TextRange
-import com.intellij.platform.backend.documentation.DocumentationTarget
+import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.platform.backend.navigation.NavigationRequest
 import com.intellij.platform.backend.navigation.NavigationTarget
 import com.intellij.platform.backend.presentation.TargetPresentation
@@ -22,6 +21,8 @@ import com.intellij.platform.lsp.impl.features.highlighting.LspDocumentLink
 import com.intellij.pom.Navigatable
 import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiFile
+import com.intellij.psi.PsiManager
+import com.intellij.util.IconUtil
 
 /**
  * This class is used to create references and therefore to follow links that were received from an LSP server using the
@@ -36,7 +37,8 @@ internal class LspDocumentLinkReferenceProvider : ImplicitReferenceProvider {
     if (file is VirtualFileWindow) return null
 
     LspClientManagerImpl.getInstanceImpl(psiFile.project).getClientsWithThisFileOpen(file).forEach { lspClient ->
-      val documentLinkInfo = lspClient.getDocumentLinkInfos(file).find { it.textRange.contains(offsetInElement) }
+      val cache = lspClient.highlightingCacheRegistry.documentLinkCache
+      val documentLinkInfo = cache.getHighlightings(file).find { it.textRange.contains(offsetInElement) }
       if (documentLinkInfo != null) {
         return LspDocumentLinkSymbolReference(lspClient, psiFile, documentLinkInfo.textRange, documentLinkInfo.highlightingInfo)
       }
@@ -64,21 +66,77 @@ private class LspDocumentLinkSymbolReference(
     val uri = documentLink.targetUri ?: return emptyList()
     @Suppress("HttpUrlsUsage")
     if ((uri.startsWith("http://") || uri.startsWith("https://"))) {
-      return listOf(LspOpenBrowserNavigatableSymbol(uri))
+      return listOf(LspOpenBrowserNavigatableSymbol(uri, documentLink.tooltip))
     }
 
     val targetFileOrDir = lspClient.descriptor.findFileByUri(uri) ?: return emptyList()
-    return listOf(LspNavigatableSymbol(lspClient.project, targetFileOrDir, null))
+    return listOf(LspPathDocumentLinkSymbol(lspClient.project, targetFileOrDir, lspClient.descriptor.roots.asList()))
   }
 }
 
 
-private class LspOpenBrowserNavigatableSymbol(private val url: @NlsSafe String) : NavigatableSymbol, DocumentationTarget {
+/**
+ * The file or directory a document link points at, as opposed to [LspOpenBrowserNavigatableSymbol] for one that points at a URL.
+ *
+ * Carries no Ctrl+hover label: see [LspNavigationSymbol].
+ */
+internal class LspPathDocumentLinkSymbol(
+  private val project: Project,
+  private val targetFileOrDir: VirtualFile,
+  private val roots: List<VirtualFile>,
+) : LspNavigationSymbol {
+  override fun createPointer(): Pointer<LspPathDocumentLinkSymbol> = Pointer {
+    if (targetFileOrDir.isValid) LspPathDocumentLinkSymbol(project, targetFileOrDir, roots) else null
+  }
+
+  override fun computePresentation(): TargetPresentation = computeLinkPresentation(project, targetFileOrDir, roots)
+
+  override fun getNavigationTargets(project: Project): List<NavigationTarget> = listOf(
+    LspDocumentLinkNavigationTarget(project, targetFileOrDir, roots)
+  )
+}
+
+
+private class LspDocumentLinkNavigationTarget(
+  private val project: Project,
+  private val targetFileOrDir: VirtualFile,
+  private val roots: List<VirtualFile>,
+) : NavigationTarget {
+  override fun createPointer(): Pointer<LspDocumentLinkNavigationTarget> = Pointer.hardPointer(this)
+
+  override fun computePresentation(): TargetPresentation = computeLinkPresentation(project, targetFileOrDir, roots)
+
+  override fun navigationRequest(): NavigationRequest? {
+    if (targetFileOrDir.isDirectory) {
+      val psiDirectory = PsiManager.getInstance(project).findDirectory(targetFileOrDir) ?: return null
+      return NavigationRequest.directoryNavigationRequest(psiDirectory)
+    }
+    return NavigationRequest.sourceNavigationRequest(project, targetFileOrDir, 0)
+  }
+}
+
+
+private fun computeLinkPresentation(project: Project, targetFileOrDir: VirtualFile, roots: List<VirtualFile>): TargetPresentation =
+  TargetPresentation.builder(targetFileOrDir.name)
+    .icon(IconUtil.computeFileIcon(targetFileOrDir, 0, project))
+    .locationText(getPresentablePath(targetFileOrDir, roots))
+    .presentation()
+
+
+/**
+ * The web page a document link points at.
+ *
+ * @param tooltip [LspDocumentLink.tooltip], the same words the link carries where it is rendered in the editor
+ */
+internal class LspOpenBrowserNavigatableSymbol(
+  private val url: @NlsSafe String,
+  private val tooltip: @NlsSafe String?,
+) : LspNavigationSymbol {
+  override fun computeDocumentationHint(): @NlsContexts.HintText String? = tooltip
+
   override fun createPointer(): Pointer<LspOpenBrowserNavigatableSymbol> = Pointer.hardPointer(this)
 
   override fun computePresentation(): TargetPresentation = TargetPresentation.builder(url).icon(AllIcons.General.Web).presentation()
-
-  override fun computeDocumentationHint(): @NlsContexts.HintText String = url
 
   override fun getNavigationTargets(project: Project): List<NavigationTarget> = listOf(
     object : NavigationTarget {

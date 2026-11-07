@@ -2,8 +2,8 @@
 package com.intellij.platform.ide.bootstrap;
 
 import com.intellij.util.system.OS;
+import com.intellij.util.system.WindowsKernel32;
 import com.intellij.util.system.WindowsSystemLibraries;
-
 import javax.swing.SwingUtilities;
 import java.io.PrintWriter;
 import java.io.StringWriter;
@@ -45,15 +45,15 @@ final class UiThreadPriority {
     var debug = Boolean.getBoolean("ide.set.qos.for.edt.debug");
     var currentThread = Thread.currentThread();
 
-    int jvmPriorityBefore = currentThread.getPriority();
-    int nativePriorityBefore = debug ? WindowsThread.currentPriority() : -1;
+    var jvmPriorityBefore = currentThread.getPriority();
+    var nativePriorityBefore = debug ? WindowsThread.currentPriority() : -1;
 
     currentThread.setPriority(Thread.MAX_PRIORITY);  // the actual work
 
     if (debug) {
-      int nativeThreadId = WindowsThread.currentId();
-      int nativePriorityAfter = WindowsThread.currentPriority();
-      int jvmPriorityAfter = currentThread.getPriority();
+      var nativeThreadId = WindowsThread.currentId();
+      var nativePriorityAfter = WindowsThread.currentPriority();
+      var jvmPriorityAfter = currentThread.getPriority();
 
       /*
        * Expected output:
@@ -99,7 +99,7 @@ final class UiThreadPriority {
   /** {@code kernel32.dll} downcalls for the debug output; {@code HANDLE} is an address. */
   private static final class WindowsThread {
     private static final Linker LINKER = Linker.nativeLinker();
-    private static final SymbolLookup KERNEL32 = WindowsSystemLibraries.lookup("kernel32.dll");
+    private static final SymbolLookup KERNEL32 = WindowsSystemLibraries.kernel32();
 
     /** {@code HANDLE GetCurrentThread()}, a pseudo handle that needs no close */
     static final MethodHandle GET_CURRENT_THREAD = LINKER.downcallHandle(KERNEL32.findOrThrow("GetCurrentThread"), FunctionDescriptor.of(ADDRESS));
@@ -110,7 +110,7 @@ final class UiThreadPriority {
 
     static int currentPriority() {
       try {
-        MemorySegment thread = (MemorySegment)GET_CURRENT_THREAD.invokeExact();
+        var thread = (MemorySegment)GET_CURRENT_THREAD.invokeExact();
         return (int)GET_THREAD_PRIORITY.invokeExact(thread);
       }
       catch (Throwable t) {

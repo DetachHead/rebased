@@ -22,8 +22,8 @@ import java.util.List;
 
 public class GroovyGenerateMembersTest extends LightJavaCodeInsightFixtureTestCase {
   @Override
-  public final String getBasePath() {
-    return TestUtils.getTestDataPath() + "generate";
+  public final String getTestDataPath() {
+    return TestUtils.getAbsoluteTestDataPath() + "generate";
   }
 
   public void testConstructorAtOffset() {

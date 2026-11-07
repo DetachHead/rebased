@@ -1,12 +1,13 @@
 package com.intellij.tools.build.bazel.ijPluginPackager
 
+import com.intellij.openapi.util.JDOMUtil
 import com.intellij.platform.pluginSystem.parser.impl.elements.ContentModuleElement
 import com.intellij.platform.pluginSystem.parser.impl.elements.ModuleLoadingRuleValue
 import com.intellij.platform.pluginSystem.parser.impl.parseContentAndXIncludes
-import com.intellij.util.io.toByteArray
 import io.opentelemetry.api.trace.Tracer
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runInterruptible
+import org.jdom.Element
 import org.jetbrains.bazel.jvm.WorkRequest
 import org.jetbrains.bazel.jvm.WorkRequestExecutor
 import org.jetbrains.bazel.jvm.WorkRequestReaderWithoutDigest
@@ -16,6 +17,8 @@ import java.io.Writer
 import java.nio.ByteBuffer
 import java.nio.file.Files
 import java.nio.file.Path
+import kotlin.io.path.name
+import kotlin.io.path.pathString
 import kotlin.io.path.readText
 
 /**
@@ -27,10 +30,13 @@ import kotlin.io.path.readText
  *
  * The first argument is the path to the output directory where the distribution should be generated.
  * Other arguments are:
- * * `--descriptor_module module_name:path_to_jar` (mandatory): specifies the name of a JPS module containing the plugin descriptor and path to its JAR file;
+ * * `--descriptor_module module_name:path_to_jar[,path_to_jar...]` (mandatory): specifies the name of a JPS module containing the plugin descriptor and path to its JAR file;
+ *   the first path contains the plugin descriptor, each additional path is a module-level library JAR, which is packed as a separate JAR in
+ *   the `lib` directory;
  * * `--content_module module_name:path_to_jar[,path_to_jar...]`: includes a plugin content module in the distribution; the first path contains the module XML descriptor, if
  *   additional paths are specified, they are packed together with the content module;
  *   Specify each module only once.
+ * * `--non_classpath_data relative_output_path:input_path`: copies a file or directory to the relative path in the plugin distribution;
  * * `--packed_modules path`: enables generation of the `packed-modules.yaml` file, which names each jar in the distribution and the modules packed into it;
  * * `--plugin_version version`: updates `<version>` tag in `plugin.xml` with the provided version;
  * * `--since_build build`: updates `since-build` attribute in `<idea-version>` tag in `plugin.xml` with the provided value;
@@ -58,6 +64,7 @@ object IjPluginPackager {
     var descriptorModule: ModuleArgument? = null
     var packedModulesPath: Path? = null
     val contentModuleArguments = HashMap<String, ModuleArgument>()
+    val nonClasspathData = ArrayList<NonClasspathDataArgument>()
     var pluginVersion: String? = null
     var sinceBuild: String? = null
     var untilBuild: String? = null
@@ -73,12 +80,15 @@ object IjPluginPackager {
         "--content_module" -> {
           val module = parseModuleArgument(args[index + 1], baseDir)
           val oldValue = contentModuleArguments.put(module.name, module)
-          require(oldValue == null) { "Two --content_module arguments for the same module: ${module.name}" }
+          if (oldValue != null) {
+            throw IjPluginPackagingException("Two 'content_modules' arguments for the same module '${module.name}' in 'ij_plugin' rule")
+          }
         }
         "--packed_modules" -> {
           require(packedModulesPath == null) { "--packed_modules must be specified only once" }
           packedModulesPath = baseDir.resolve(args[index + 1])
         }
+        "--non_classpath_data" -> nonClasspathData.add(parseNonClasspathDataArgument(args[index + 1], baseDir))
         "--plugin_version" -> {
           require(pluginVersion == null) { "--plugin_version must be specified only once" }
           pluginVersion = args[index + 1]
@@ -106,13 +116,14 @@ object IjPluginPackager {
     val descriptorModuleArgument = requireNotNull(descriptorModule) { "--descriptor_module must be specified" }
     val descriptorJar = descriptorModuleArgument.jars.first()
     val originalPluginXmlContent = readEntryFromZip(descriptorJar, PLUGIN_DESCRIPTOR_ENTRY_NAME)
-    requireNotNull(originalPluginXmlContent) { "$PLUGIN_DESCRIPTOR_ENTRY_NAME is not found in $descriptorJar" }
-    val contentModules = parseContentAndXIncludes(originalPluginXmlContent, descriptorJar.toString()).contentModules
+                                   ?: throw IjPluginPackagingException("$PLUGIN_DESCRIPTOR_ENTRY_NAME is not found in $descriptorJar")
+    val contentModuleElements = parseContentAndXIncludes(originalPluginXmlContent, descriptorJar.toString()).contentModules
     val packedModulesWriter = packedModulesPath?.let { PackedModulesWriter(it, outputDirectory) }
 
-    val contentModuleDescriptors = packContentModulesAndReturnTheirDescriptors(
-      contentModules = contentModules,
-      contentModuleArguments = contentModuleArguments,
+    val contentModules = readContentModuleDescriptors(contentModuleElements, contentModuleArguments)
+    val (contentModulesToMergeWithMainJar, contentModulesToPackSeparately) = contentModules.partition { it.shouldBeMergedToMainJar }
+    packContentModuleJars(
+      contentModules = contentModulesToPackSeparately,
       libDirectory = libDirectory,
       packedModulesWriter = packedModulesWriter,
     )
@@ -127,70 +138,159 @@ object IjPluginPackager {
       }
     }
 
-    val descriptorOutputJar = libDirectory.resolve(generateNameForPluginDescriptorJar(descriptorModuleArgument.name))
-    PluginJarPackager(descriptorOutputJar).use {
+    val pluginDescriptorJarName = generateNameForPluginDescriptorJar(descriptorModuleArgument.name)
+    val descriptorOutputJar = libDirectory.resolve(pluginDescriptorJarName)
+    PluginJarPackager(descriptorOutputJar).use { packager ->
       val patchedPluginXmlContent = patchPluginDescriptor(
         originalContent = originalPluginXmlContent,
         pluginVersion = computePluginVersion(pluginVersion, buildNumberFromFile),
         sinceBuild = substituteBuildNumber(sinceBuild, buildNumberFromFile),
         untilBuild = substituteBuildNumber(untilBuild, buildNumberFromFile),
-        contentModuleDescriptors = contentModuleDescriptors
+        contentModules = contentModules.associateBy { it.moduleElement.name },
+        presentablePluginDescriptorLocation = descriptorJar.pathString,
       )
-      it.addFile(PLUGIN_DESCRIPTOR_ENTRY_NAME, patchedPluginXmlContent)
-      it.addEntriesFromJar(descriptorJar) { filePath, dataFetcher ->
+      packager.addFile(PLUGIN_DESCRIPTOR_ENTRY_NAME, patchedPluginXmlContent, presentableOrigin = descriptorJar.pathString)
+      packager.addEntriesFromJar(descriptorJar) { filePath, dataFetcher ->
         if (!isIncludedFromModuleOutput(filePath) || filePath == PLUGIN_DESCRIPTOR_ENTRY_NAME) {
           return@addEntriesFromJar null
         }
-        dataFetcher()
+        moduleOutputEntry(packager, filePath, dataFetcher)
+      }
+      contentModulesToMergeWithMainJar.forEach { contentModule ->
+        val jar = contentModule.jars.singleOrNull()
+                  ?: error("Content module packed with the main JAR must have exactly one jar, but '${contentModule.moduleElement.name}' has ${contentModule.jars}")
+        packager.addEntriesFromJar(jar) { filePath, dataFetcher ->
+          if (!isIncludedFromModuleOutput(filePath)) {
+            return@addEntriesFromJar null
+          }
+          moduleOutputEntry(packager, filePath, dataFetcher)
+        }
       }
     }
     packedModulesWriter?.addModule(descriptorOutputJar, descriptorModuleArgument.name)
+    contentModulesToMergeWithMainJar.forEach {
+      packedModulesWriter?.addContentModule(descriptorOutputJar, it.moduleElement.name)
+    }
+    copyNonClasspathData(nonClasspathData, outputDirectory)
+    val additionalJars = descriptorModuleArgument.jars.asSequence().drop(1)
+    packAdditionalJarsForDescriptorModule(
+      jars = additionalJars,
+      libDirectory = libDirectory,
+      pluginDescriptorJarName = pluginDescriptorJarName,
+      pluginDescriptorModuleName = descriptorModuleArgument.name,
+      packedModulesWriter = packedModulesWriter
+    )
     packedModulesWriter?.write()
   }
 
-  private fun packContentModulesAndReturnTheirDescriptors(
-    contentModules: List<ContentModuleElement>,
-    contentModuleArguments: HashMap<String, ModuleArgument>,
+  private fun packAdditionalJarsForDescriptorModule(
+    jars: Sequence<Path>,
+    libDirectory: Path,
+    pluginDescriptorJarName: String,
+    pluginDescriptorModuleName: String,
+    packedModulesWriter: PackedModulesWriter?
+  ) {
+    val existingJarNames = HashMap<String, String>()
+    existingJarNames[pluginDescriptorJarName] = "plugin descriptor module JAR"
+    jars.forEach {  jar ->
+      val targetJarName = removeVersionFromJar(jar.name)
+      val old = existingJarNames.put(targetJarName, jar.pathString)
+      val targetJar = libDirectory.resolve(targetJarName)
+      if (old != null) {
+        throw IjPluginPackagingException("Duplicate JAR name: both $old and ${jar.pathString} are put to ${targetJar.pathString}")
+      }
+      PluginJarPackager(targetJar).use {
+        it.addEntriesFromJar(jar) { filePath, dataFetcher ->
+          if (isSkippedFromLibraries(filePath)) {
+            return@addEntriesFromJar null
+          }
+          dataFetcher()
+        }
+      }
+      packedModulesWriter?.addModuleLibrary(targetJar, pluginDescriptorModuleName, jar.name)
+    }
+  }
+
+  private fun readContentModuleDescriptors(
+    contentModuleElements: List<ContentModuleElement>,
+    contentModuleArguments: Map<String, ModuleArgument>,
+  ): List<ContentModuleData> {
+    return contentModuleElements.map { contentModuleElement ->
+      val contentModuleArgument = contentModuleArguments.get(contentModuleElement.name)
+                                  ?: throw IjPluginPackagingException("No 'content_module' argument is specified in 'ij_plugin' rule for '${contentModuleElement.name}' registered in plugin.xml")
+      val contentModuleDescriptorJar = contentModuleArgument.jars.first()
+      val contentDescriptorName = "${contentModuleElement.name}.xml"
+      val descriptorContent = readEntryFromZip(contentModuleDescriptorJar, contentDescriptorName)
+      if (descriptorContent == null) {
+        throw IjPluginPackagingException("Module descriptor '${contentDescriptorName}' is not found in '${contentModuleDescriptorJar.pathString}'")
+      }
+      val contentDescriptorRoot = try {
+        JDOMUtil.load(descriptorContent)
+      } catch (e: Exception) {
+        throw IjPluginPackagingException("Failed to parse module descriptor '${contentDescriptorName}' in '${contentModuleDescriptorJar.pathString}': ${e.message}")
+      }
+      ContentModuleData(contentModuleElement, contentDescriptorRoot, contentModuleArgument.jars)
+    }
+  }
+
+  private fun packContentModuleJars(
+    contentModules: List<ContentModuleData>,
     libDirectory: Path,
     packedModulesWriter: PackedModulesWriter?,
-  ): Map<String, ByteArray> {
-    val contentModuleDescriptors = HashMap<String, ByteArray>()
+  ) {
     for (contentModule in contentModules) {
-      val contentModuleArgument = requireNotNull(contentModuleArguments[contentModule.name]) { "No --content_module argument for '${contentModule.name}' registered in plugin.xml" }
-      val destinationDirectory = if (contentModule.loadingRule == ModuleLoadingRuleValue.EMBEDDED) libDirectory else libDirectory.resolve("modules")
+      val contentModuleElement = contentModule.moduleElement
+      val destinationDirectory = if (contentModuleElement.loadingRule == ModuleLoadingRuleValue.EMBEDDED) libDirectory else libDirectory.resolve("modules")
       Files.createDirectories(destinationDirectory)
-      val contentDescriptorName = "${contentModule.name}.xml"
-      val outputJar = destinationDirectory.resolve("${contentModule.name}.jar")
+      val outputJar = destinationDirectory.resolve("${contentModuleElement.name}.jar")
       PluginJarPackager(outputJar).use {
-        val containMultipleLibraries = contentModuleArgument.jars.size > 2
-        for ((index, jar) in contentModuleArgument.jars.withIndex()) {
+        val containMultipleLibraries = contentModule.jars.size > 2
+        for ((index, jar) in contentModule.jars.withIndex()) {
           val first = index == 0
           it.addEntriesFromJar(jar) { filePath, dataFetcher ->
             if (!isIncludedFromModuleOutput(filePath)) {
               return@addEntriesFromJar null
             }
-            if (!first && containMultipleLibraries && isSkippedWhileMergingLibraries(filePath)) {
+            if (first) {
+              return@addEntriesFromJar moduleOutputEntry(it, filePath, dataFetcher)
+            }
+            if (containMultipleLibraries && isSkippedWhileMergingLibraries(filePath) || isSkippedFromLibraries(filePath)) {
               return@addEntriesFromJar null
             }
-            val data = dataFetcher()
-            if (first && filePath == contentDescriptorName) {
-              val dataBytes = data.toByteArray()
-              contentModuleDescriptors[contentModule.name] = dataBytes
-              ByteBuffer.wrap(dataBytes)
+            if (filePath == MANIFEST_ENTRY_NAME && it.containsEntry(MANIFEST_ENTRY_NAME)) {
+              // the module output kept its own manifest, and a JAR holds one manifest
+              return@addEntriesFromJar null
             }
-            else {
-              data
-            }
+            dataFetcher()
           }
         }
       }
-      packedModulesWriter?.addContentModule(outputJar, contentModule.name)
+      if (packedModulesWriter != null) {
+        packedModulesWriter.addContentModule(outputJar, contentModuleElement.name)
+        contentModule.jars.asSequence().drop(1).forEach { jar ->
+          packedModulesWriter.addModuleLibrary(outputJar, contentModuleElement.name, jar.name)
+        }
+      }
     }
-    return contentModuleDescriptors
   }
 
   private fun isIncludedFromModuleOutput(filePath: String): Boolean {
     return filePath != "icon-robots.txt" && !filePath.endsWith("/icon-robots.txt")
+  }
+
+  /**
+   * Returns the content of an entry of a module output JAR to be included in [packager], or `null` if the entry should be skipped.
+   * The manifest loses the attributes a jar tool wrote for the build (see [patchModuleOutputManifest]), and a manifest yields to one that
+   * an earlier JAR already put into [packager].
+   */
+  private fun moduleOutputEntry(packager: PluginJarPackager, filePath: String, dataFetcher: () -> ByteBuffer): ByteBuffer? {
+    if (filePath != MANIFEST_ENTRY_NAME) {
+      return dataFetcher()
+    }
+    if (packager.containsEntry(MANIFEST_ENTRY_NAME)) {
+      return null
+    }
+    return patchModuleOutputManifest(dataFetcher())
   }
 
   /**
@@ -200,6 +300,13 @@ object IjPluginPackager {
     // this function intentionally doesn't include all patterns from librarySourcesFilter.kt because exclusion of files may break library's logic
     return filePath == "META-INF/MANIFEST.MF"
            || filePath == "module-info.class" // IJ platform doesn't use JPMS, so it's ok to skip these entries
+  }
+
+  /**
+   * Returns `true` if files with the given relative path inside JAR coming from a library should be skipped.
+   */
+  private fun isSkippedFromLibraries(filePath: String): Boolean {
+    return filePath == "META-INF/INDEX.LIST" // the included list will become incorrect, and JAR Index isn't supported since JVM 21 (JDK-8302819)
   }
 
   private fun parseModuleArgument(argument: String, baseDir: Path): ModuleArgument {
@@ -217,14 +324,43 @@ object IjPluginPackager {
     )
   }
 
+  private fun parseNonClasspathDataArgument(argument: String, baseDir: Path): NonClasspathDataArgument {
+    val separatorIndex = argument.indexOf(':')
+    require(separatorIndex > 0 && separatorIndex < argument.lastIndex) {
+      "Expected a non-classpath data argument in the form relative_output_path:input_path. Got: $argument"
+    }
+    val outputPath = argument.substring(0, separatorIndex)
+    val relativeOutputPath = Path.of(outputPath)
+    if (relativeOutputPath.isAbsolute) {
+      throw IjPluginPackagingException("Non-classpath data output path must be relative: $outputPath")
+    }
+    return NonClasspathDataArgument(
+      relativeOutputPath = relativeOutputPath,
+      source = baseDir.resolve(argument.substring(separatorIndex + 1)),
+    )
+  }
+
   private data class ModuleArgument(
     @JvmField val name: String,
     @JvmField val jars: List<Path>,
   )
 }
 
+internal class ContentModuleData(
+  val moduleElement: ContentModuleElement,
+  val moduleDescriptorRoot: Element,
+  val jars: List<Path>,
+) {
+  val shouldBeMergedToMainJar: Boolean
+    // `package` attribute is deprecated but still used in many plugins in the monorepo (IJPL-216355)
+    get() = moduleElement.loadingRule != ModuleLoadingRuleValue.EMBEDDED && moduleDescriptorRoot.getAttributeValue("package") != null && jars.size == 1
+}
+
 private const val BUILD_NUMBER_FROM_FILE_MARKER = $$"$build_number_from_file"
 
+/**
+ * Update together with `SNAPSHOT_VERSION_SEGMENT` in community/platform/build-scripts/src/org/jetbrains/intellij/build/impl/SnapshotBuildNumber.kt
+ */
 private fun computePluginVersion(string: String?, buildNumberFromFile: Lazy<String>): String? {
   return if (string == BUILD_NUMBER_FROM_FILE_MARKER) {
     //transform `263.SNAPSHOT` text to `263.99999999.0` to follow SemVer format
@@ -241,6 +377,13 @@ private fun substituteBuildNumber(string: String?, buildNumberFromFile: Lazy<Str
   return if (string == BUILD_NUMBER_FROM_FILE_MARKER) buildNumberFromFile.value else string
 }
 
+private val JAR_NAME_WITH_VERSION_PATTERN = Regex("(.*)-\\d+(?:\\.\\d+)*\\.jar")
+
+private fun removeVersionFromJar(fileName: String): String {
+  val matcher = JAR_NAME_WITH_VERSION_PATTERN.matchEntire(fileName)
+  return if (matcher != null) "${matcher.groupValues[1]}.jar" else fileName
+}
+
 internal object IjPluginPackagerExecutor : WorkRequestExecutor {
   override suspend fun execute(request: WorkRequest, writer: Writer, baseDir: Path, tracer: Tracer): Int {
     val paramsFile = request.arguments.singleOrNull()?.takeIf { it.startsWith(FLAG_FILE_PREFIX) }
@@ -252,10 +395,15 @@ internal object IjPluginPackagerExecutor : WorkRequestExecutor {
       return 3
     }
 
-    // failures are reported by the worker framework, which also tears the worker down on `Error`
-    runInterruptible(Dispatchers.IO) {
-      val args = Files.readAllLines(baseDir.resolve(paramsFile.removePrefix(FLAG_FILE_PREFIX)))
-      IjPluginPackager.packPlugin(args = args, baseDir = baseDir)
+    try {
+      runInterruptible(Dispatchers.IO) {
+        val args = Files.readAllLines(baseDir.resolve(paramsFile.removePrefix(FLAG_FILE_PREFIX)))
+        IjPluginPackager.packPlugin(args = args, baseDir = baseDir)
+      }
+    }
+    catch (e: IjPluginPackagingException) {
+      writer.appendLine("ERROR: ${e.message}")
+      return 1
     }
     return 0
   }

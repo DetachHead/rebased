@@ -1,0 +1,87 @@
+load("@rules_jvm//:jvm.bzl", "jvm_library")
+
+### auto-generated section `build intellij.platform.buildScripts.pluginModelTool` start
+jvm_library(
+    name = "plugin-model-tool",
+    srcs = glob(
+        [
+            "src/**/*.kt",
+            "src/**/*.java",
+            "src/**/*.form",
+        ],
+        allow_empty = True,
+    ),
+    module_name = "intellij.platform.buildScripts.pluginModelTool",
+    visibility = ["//visibility:public"],
+    deps = [
+        # do not sort,
+        "@lib//:kotlin-stdlib",
+        "//libraries/jetbrains/annotations",
+        "//platform/build-scripts",
+        "//platform/build-scripts/api",
+        "//platform/build-scripts/downloader",
+        "//platform/build-scripts/product-dsl",
+        "//platform/build-scripts/plugin-preparation",
+        "//platform/build-scripts/product-dsl/plugin-graph",
+        "//platform/distribution-content",
+        "//platform/pluginSystem/parser/impl",
+        "//jps/model-api:model",
+        "//jps/model-serialization",
+        "//platform/util",
+        "//platform/util/jdom",
+        "//platform/runtime/product",
+        "//platform/runtime/repository",
+        "//build/tasks",
+        "//libraries/kotlinx/serialization/json",
+        "//libraries/kotlinx/serialization/core",
+        "//libraries/kotlinx/collections-immutable:libraries-kotlinx-collections-immutable",
+        "//libraries/opentelemetry",
+        "//libraries/hash4j",
+    ],
+)
+
+jvm_library(
+    name = "plugin-model-tool_test_lib",
+    testonly = True,
+    srcs = glob(
+        [],
+        allow_empty = True,
+    ),
+    module_name = "intellij.platform.buildScripts.pluginModelTool",
+    visibility = ["//visibility:public"],
+    runtime_deps = [
+        # do not sort,
+        ":plugin-model-tool",
+        "//libraries/jetbrains/annotations:annotations_test_lib",
+        "//platform/build-scripts:build-scripts_test_lib",
+        "//platform/build-scripts/api:api_test_lib",
+        "//platform/build-scripts/downloader:downloader_test_lib",
+        "//platform/build-scripts/product-dsl:product-dsl_test_lib",
+        "//platform/build-scripts/plugin-preparation:plugin-preparation_test_lib",
+        "//platform/build-scripts/product-dsl/plugin-graph:plugin-graph_test_lib",
+        "//platform/distribution-content:distribution-content_test_lib",
+        "//platform/pluginSystem/parser/impl:impl_test_lib",
+        "//jps/model-api:model_test_lib",
+        "//jps/model-serialization:model-serialization_test_lib",
+        "//platform/util:util_test_lib",
+        "//platform/util/jdom:jdom_test_lib",
+        "//platform/runtime/product:product_test_lib",
+        "//platform/runtime/repository:repository_test_lib",
+        "//build/tasks:tasks_test_lib",
+        "//libraries/kotlinx/serialization/json:json_test_lib",
+        "//libraries/kotlinx/serialization/core:core_test_lib",
+        "//libraries/kotlinx/collections-immutable:libraries-kotlinx-collections-immutable_test_lib",
+        "//libraries/opentelemetry:opentelemetry_test_lib",
+        "//libraries/hash4j:hash4j_test_lib",
+    ],
+)
+### auto-generated section `build intellij.platform.buildScripts.pluginModelTool` end
+
+### auto-generated section `iml intellij.platform.buildScripts.pluginModelTool` start
+exports_files(
+    [
+        "intellij.platform.buildScripts.pluginModelTool.iml",
+    ],
+    visibility = ["//visibility:public"],
+)
+### auto-generated section `iml intellij.platform.buildScripts.pluginModelTool` end

@@ -1,6 +1,7 @@
 // Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.sqlite
 
+import com.intellij.ide.plugins.getPluginDistDirByClass
 import com.intellij.openapi.application.PathManager
 import com.intellij.openapi.util.SystemInfoRt
 import com.intellij.openapi.util.io.NioFiles
@@ -35,9 +36,11 @@ private fun loadSqliteNativeLibrary() {
   @Suppress("SpellCheckingInspection")
   val nativeLibraryName = System.mapLibraryName("sqliteij")?.replace(".dylib", ".jnilib")!!
   val relativeDirName = "${osNameToDirName()}-${if (CpuArch.isArm64()) "aarch64" else "x86_64"}"
+  val classLoader = SqliteCodes::class.java.classLoader
   val libPath = getLibPath()
-  if (libPath != null) {
-    val nativeLibFile = Path.of(libPath, "native", relativeDirName, nativeLibraryName).toAbsolutePath().normalize()
+  val nativeDir = if (libPath == null) null else pluginNativeDir()
+  if (nativeDir != null) {
+    val nativeLibFile = nativeDir.resolve(relativeDirName).resolve(nativeLibraryName).toAbsolutePath().normalize()
     if (Files.exists(nativeLibFile)) {
       System.load(nativeLibFile.toString())
       return
@@ -46,7 +49,6 @@ private fun loadSqliteNativeLibrary() {
 
   // load the os-dependent library from the jar file
   val nativeLibraryPath = "sqlite/$relativeDirName"
-  val classLoader = SqliteCodes::class.java.classLoader
   val hasNativeLib = classLoader.getResource("$nativeLibraryPath/$nativeLibraryName") != null
   if (hasNativeLib) {
     // try extracting the library from jar
@@ -63,6 +65,21 @@ private fun loadSqliteNativeLibrary() {
   else {
     throw Exception("No native library found for os.name=${SystemInfoRt.OS_NAME}, os.arch=${CpuArch.CURRENT}")
   }
+}
+
+/**
+ * Returns `lib/native` of the plugin that holds [SqliteCodes], or null outside a plugin layout.
+ * In a product, this is the VCS plugin, because `intellij.platform.sqlite` is its content module.
+ */
+private fun pluginNativeDir(): Path? {
+  val pluginDir = try {
+    getPluginDistDirByClass(SqliteCodes::class.java)
+  }
+  catch (ignore: IllegalStateException) {
+    // a unit test loads the module jar outside a plugin layout
+    null
+  }
+  return pluginDir?.resolve("lib/native")
 }
 
 private fun getLibPath(): String? {

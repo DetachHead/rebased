@@ -1,9 +1,9 @@
-// "Add non-null asserted (arg!!) call" "true"
-// DISABLE_ERRORS
+// "Add non-null asserted (arg!!) call" "false"
+// K2_AFTER_ERROR: UNSAFE_CALL
+// K2_ERROR: UNSAFE_CALL
 
 fun foo(arg: String?) {
     if (arg == null) {
         arg<caret>.length
     }
 }
-// FUS_QUICKFIX_NAME: org.jetbrains.kotlin.idea.quickfix.AddExclExclCallFix

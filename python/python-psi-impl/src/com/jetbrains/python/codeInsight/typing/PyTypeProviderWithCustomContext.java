@@ -2,7 +2,6 @@ package com.jetbrains.python.codeInsight.typing;
 
 import com.intellij.openapi.util.Ref;
 import com.intellij.psi.PsiElement;
-import com.jetbrains.python.psi.PyCallExpression;
 import com.jetbrains.python.psi.PyCallSiteExpression;
 import com.jetbrains.python.psi.PyCallSiteOwner;
 import com.jetbrains.python.psi.PyCallable;
@@ -11,7 +10,6 @@ import com.jetbrains.python.psi.PyExpression;
 import com.jetbrains.python.psi.PyFunction;
 import com.jetbrains.python.psi.PyNamedParameter;
 import com.jetbrains.python.psi.PyReferenceExpression;
-import com.jetbrains.python.psi.types.PyCallableType;
 import com.jetbrains.python.psi.types.PyType;
 import com.jetbrains.python.psi.types.PyTypeProviderBase;
 import com.jetbrains.python.psi.types.TypeEvalContext;
@@ -132,25 +130,16 @@ public abstract class PyTypeProviderWithCustomContext<Context> extends PyTypePro
     return null;
   }
 
-  @Deprecated
   @Override
-  public final @Nullable Ref<@Nullable PyCallableType> prepareCalleeTypeForCall(@Nullable PyType type,
-                                                                                @NotNull PyCallExpression call,
-                                                                                @NotNull TypeEvalContext context) {
-    PyExpression callee = call.getCallee();
-    return callee == null ? null : prepareCalleeTypeForCall(type, callee, context);
-  }
-
-  @Override
-  public final @Nullable Ref<@Nullable PyCallableType> prepareCalleeTypeForCall(@Nullable PyType type,
-                                                                                @NotNull PyExpression callee,
-                                                                                @NotNull TypeEvalContext context) {
+  public final @Nullable Ref<@Nullable PyType> prepareCalleeTypeForCall(@Nullable PyType type,
+                                                                        @NotNull PyExpression callee,
+                                                                        @NotNull TypeEvalContext context) {
     return withCustomContext(context, customContext -> {
       return prepareCalleeTypeForCall(type, callee, customContext);
     });
   }
 
-  public Ref<PyCallableType> prepareCalleeTypeForCall(@Nullable PyType type, @NotNull PyExpression callee, @NotNull Context context) {
+  public Ref<PyType> prepareCalleeTypeForCall(@Nullable PyType type, @NotNull PyExpression callee, @NotNull Context context) {
     return null;
   }
 

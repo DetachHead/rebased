@@ -4,8 +4,11 @@ package com.intellij.tools.build.bazel.jvmIncBuilder.tmh;
 import com.intellij.tools.build.bazel.jvmIncBuilder.instrumentation.FailSafeMethodVisitor;
 import org.jetbrains.org.objectweb.asm.*;
 
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 
 public final class TMHInstrumenter {
@@ -46,9 +49,10 @@ public final class TMHInstrumenter {
         @Override
         public AnnotationVisitor visitAnnotation(String annotationDescriptor, boolean visible) {
           for (TMHAssertionGenerator assertionGenerator : assertionGenerators) {
-            if (assertionGenerator.isMyAnnotation(annotationDescriptor)) {
+            if (assertionGenerator.isMyAnnotation(annotationDescriptor) && assertionGenerator.isApplicableMethod(methodDescriptor)) {
               return assertionGenerator.getAnnotationChecker(Opcodes.API_VERSION, () -> {
-                annotatedMethods.put(methodKey, new InstrumentationInfo(assertionGenerator));
+                annotatedMethods.computeIfAbsent(methodKey, k -> new InstrumentationInfo())
+                  .assertionGenerators.add(assertionGenerator);
                 annotated = true;
               });
             }
@@ -83,10 +87,33 @@ public final class TMHInstrumenter {
         return super.visitMethod(access, name, descriptor, signature, exceptions);
       }
       return new FailSafeMethodVisitor(Opcodes.API_VERSION, super.visitMethod(access, name, descriptor, signature, exceptions)) {
+        private Label myPrologueStart;
+        private Label myOriginalFirstLabel;
+
         @Override
         public void visitCode() {
-          instrumentationInfo.assertionGenerator.generateAssertion(mv, instrumentationInfo.methodStartLineNumber);
+          myPrologueStart = new Label();
+          mv.visitLabel(myPrologueStart);
+          for (TMHAssertionGenerator generator : instrumentationInfo.assertionGenerators) {
+            generator.generateAssertion(mv, instrumentationInfo.methodStartLineNumber);
+          }
           super.visitCode();
+        }
+
+        @Override
+        public void visitLabel(Label label) {
+          if (myOriginalFirstLabel == null) {
+            myOriginalFirstLabel = label;
+          }
+          super.visitLabel(label);
+        }
+
+        @Override
+        public void visitLocalVariable(String name, String desc, String signature, Label start, Label end, int index) {
+          Objects.requireNonNull(myOriginalFirstLabel, "no label was visited before the first visitLocalVariable call");
+          Objects.requireNonNull(myPrologueStart, "no code was visited before the first visitLocalVariable call");
+          Label newStart = start == myOriginalFirstLabel ? myPrologueStart : start;
+          super.visitLocalVariable(name, desc, signature, newStart, end, index);
         }
       };
     }
@@ -117,9 +144,7 @@ public final class TMHInstrumenter {
   }
 
   private static final class InstrumentationInfo {
-    final TMHAssertionGenerator assertionGenerator;
+    final List<TMHAssertionGenerator> assertionGenerators = new ArrayList<>();
     int methodStartLineNumber = -1;
-
-    private InstrumentationInfo(TMHAssertionGenerator generator) {assertionGenerator = generator;}
   }
 }

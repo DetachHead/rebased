@@ -24,7 +24,7 @@ import com.intellij.openapi.components.SettingsCategory
 import com.intellij.openapi.components.impl.stores.ComponentStorageUtil
 import com.intellij.openapi.diagnostic.debug
 import com.intellij.openapi.diagnostic.getOrLogException
-import com.intellij.openapi.diagnostic.rethrowControlFlowException
+import com.intellij.diagnostic.rethrowControlFlowException
 import com.intellij.openapi.extensions.PluginDescriptor
 import com.intellij.openapi.options.Scheme
 import com.intellij.openapi.options.SchemeProcessor
@@ -36,9 +36,9 @@ import com.intellij.openapi.progress.runBlockingCancellable
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.io.NioFiles
 import com.intellij.openapi.util.io.writeWithEnsureWritable
-import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.openapi.vfs.SafeWriteRequestor
 import com.intellij.openapi.vfs.VirtualFile
+import com.intellij.openapi.vfs.VirtualFileManager
 import com.intellij.openapi.vfs.newvfs.NewVirtualFile
 import com.intellij.openapi.vfs.newvfs.RefreshQueue
 import com.intellij.openapi.vfs.newvfs.events.VFileDeleteEvent
@@ -139,7 +139,7 @@ class SchemeManagerImpl<T : Scheme, MUTABLE_SCHEME : T>(
 
   private fun refreshVirtualDirectory() {
     // a parent component store refreshes the root directory, so we don't have to use `refreshAndFind*`
-    val directory = LocalFileSystem.getInstance().findFileByNioFile(ioDirectory) ?: return
+    val directory = VirtualFileManager.getInstance().findFileByNioPath(ioDirectory) ?: return
     cachedVirtualDirectory = directory
     directory.children
     (directory as? NewVirtualFile)?.markDirty()
@@ -382,7 +382,9 @@ class SchemeManagerImpl<T : Scheme, MUTABLE_SCHEME : T>(
 
   internal suspend fun saveImpl(events: MutableList<VFileEvent>) {
     if (isLoadingSchemes.get()) {
+      // a scheme added during the load has no file info yet, so saving it now writes it as a new file
       LOG.warn("Skip save - schemes are loading")
+      return
     }
 
     var hasSchemes = false
@@ -536,7 +538,7 @@ class SchemeManagerImpl<T : Scheme, MUTABLE_SCHEME : T>(
 
       if (isUpdateVfs) {
         if (dir == null) {
-          dir = LocalFileSystem.getInstance().refreshAndFindFileByNioFile(ioDirectory)
+          dir = VirtualFileManager.getInstance().refreshAndFindFileByNioPath(ioDirectory)
           cachedVirtualDirectory = dir
         }
         if (dir != null) {
@@ -658,7 +660,7 @@ class SchemeManagerImpl<T : Scheme, MUTABLE_SCHEME : T>(
   internal fun getVirtualDirectory(): VirtualFile? {
     var result = cachedVirtualDirectory
     if (result == null) {
-      result = LocalFileSystem.getInstance().findFileByNioFile(ioDirectory)
+      result = VirtualFileManager.getInstance().findFileByNioPath(ioDirectory)
       cachedVirtualDirectory = result
     }
     return result

@@ -11,6 +11,9 @@
     <module name="intellij.java.ui"/>
     <module name="intellij.libraries.kotlinc.kotlin.compiler.common"/>
     <module name="intellij.platform.analysis"/>
+    <module name="intellij.platform.backend.workspace"/>
+    <module name="intellij.platform.buildView"/>
+    <module name="intellij.platform.consoleView"/>
     <module name="intellij.platform.core"/>
     <module name="intellij.platform.core.impl"/>
     <module name="intellij.platform.core.ui"/>
@@ -23,11 +26,13 @@
     <module name="intellij.platform.ide.impl"/>
     <module name="intellij.platform.lang"/>
     <module name="intellij.platform.lang.core"/>
+    <module name="intellij.platform.lang.impl"/>
     <module name="intellij.platform.projectModel"/>
     <module name="intellij.platform.projectModel.impl"/>
     <module name="intellij.platform.smRunner"/>
     <module name="intellij.platform.util.ui"/>
     <module name="intellij.platform.workspace.jps"/>
+    <module name="intellij.platform.workspace.storage"/>
   </dependencies>
   <!-- endregion -->
   <extensions defaultExtensionNs="org.jetbrains.plugins.gradle">
@@ -39,11 +44,20 @@
   <extensions defaultExtensionNs="com.intellij">
     <attachSourcesProvider implementation="org.jetbrains.idea.devkit.gradle.IntelliJPlatformAttachSourcesProvider"/>
     <consoleFilterProvider implementation="org.jetbrains.idea.devkit.gradle.GradlePluginConsoleFilterProvider"/>
+    <console.folding implementation="org.jetbrains.idea.devkit.gradle.IdeLayoutWarningsCodeFolding"/>
     <completion.contributor language="kotlin"
                             implementationClass="org.jetbrains.idea.devkit.gradle.IntelliJPlatformVersionsCompletionContributor"/>
     <externalProjectDataService implementation="org.jetbrains.idea.devkit.gradle.IntelliJPlatformGradleDataService"/>
     <projectService serviceInterface="org.jetbrains.idea.devkit.gradle.IntelliJPlatformGradleModelProvider"
                     serviceImplementation="org.jetbrains.idea.devkit.gradle.IntelliJPlatformGradleModelProviderImpl"/>
+    <!--suppress PluginXmlCapitalization -->
+    <localInspection language="" shortName="OutdatedIntelliJPlatformGradlePluginVersion"
+                     bundle="messages.DevKitGradleBundle"
+                     groupBundle="messages.DevKitBundle"
+                     groupPathKey="inspections.group.path" groupKey="inspections.group.code"
+                     enabledByDefault="true" level="WEAK WARNING"
+                     implementationClass="org.jetbrains.idea.devkit.gradle.OutdatedIntelliJPlatformGradlePluginVersionInspection"
+                     key="inspection.intellij.platform.gradle.plugin.outdated.version.name"/>
   </extensions>
 
   <applicationListeners>

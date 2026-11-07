@@ -23,8 +23,8 @@ import org.jetbrains.plugins.groovy.util.TestUtils;
  */
 public class IntroduceConstantTest extends LightJavaCodeInsightFixtureTestCase {
   @Override
-  protected String getBasePath() {
-    return TestUtils.getTestDataPath() + "refactoring/introduceConstant/";
+  protected String getTestDataPath() {
+    return TestUtils.getAbsoluteTestDataPath() + "refactoring/introduceConstant/";
   }
 
   public void testSimple() {

@@ -5,6 +5,9 @@
     <module name="intellij.libraries.teamcity.service.messages"/>
     <module name="intellij.platform.analysis"/>
     <module name="intellij.platform.codeStyle"/>
+    <module name="intellij.platform.concurrency"/>
+    <module name="intellij.platform.consoleView"/>
+    <module name="intellij.platform.consoleView.impl"/>
     <module name="intellij.platform.core"/>
     <module name="intellij.platform.core.impl"/>
     <module name="intellij.platform.core.ui"/>
@@ -34,8 +37,6 @@
                  description="Print raw TeamCity service messages to the console output (verbose mode)"
                  key="test.console.verbose"/>
     <projectService serviceImplementation="com.intellij.execution.testframework.sm.TestHistoryConfiguration"/>
-    <runDashboardCustomizer implementation="com.intellij.execution.testframework.sm.runner.SMTRunnerRunDashboardCustomizer"
-                            order="first" id="smtRunnerCustomizer"/>
     <projectSettings service="com.intellij.execution.testframework.sm.TestHistoryConfiguration"/>
   </extensions>
   <actions>

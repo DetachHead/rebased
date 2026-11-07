@@ -9,6 +9,7 @@
     <module name="intellij.maven.completion"/>
     <module name="intellij.platform.analysis"/>
     <module name="intellij.platform.codeStyle"/>
+    <module name="intellij.platform.concurrency"/>
     <module name="intellij.platform.core"/>
     <module name="intellij.platform.core.impl"/>
     <module name="intellij.platform.editor.ui"/>
@@ -35,7 +36,7 @@
     <postStartupActivity implementation="org.jetbrains.plugins.gradle.integrations.maven.GradleProjectStartupActivity"/>
     <externalSystemTaskNotificationListener
         implementation="org.jetbrains.plugins.gradle.integrations.maven.GradleMavenProjectImportNotificationListener"/>
-    <completion.contributor language="Groovy" order="first"
+    <completion.contributor id="gradleMavenDependencies" language="Groovy" order="first"
                             implementationClass="org.jetbrains.plugins.gradle.integrations.maven.codeInsight.completion.MavenDependenciesGradleCompletionContributor"/>
     <projectService serviceImplementation="org.jetbrains.plugins.gradle.integrations.maven.MavenRepositoriesHolder"/>
   </extensions>

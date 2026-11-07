@@ -51,8 +51,9 @@ import com.intellij.openapi.compiler.CompilerManager;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.fileEditor.ex.FileEditorManagerEx;
 import com.intellij.openapi.util.Disposer;
+import com.intellij.openapi.util.EmptyRunnable;
 import com.intellij.openapi.util.Key;
-import com.intellij.openapi.vfs.LocalFileSystem;
+import com.intellij.openapi.vfs.StandardFileSystems;
 import com.intellij.openapi.vfs.VfsUtil;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.JavaPsiFacade;
@@ -125,7 +126,7 @@ public abstract class DebuggerTestCase extends ExecutionWithDebuggerToolsTestCas
     // Without a recursive refresh, newly added test-source files (e.g. companion .java classes for new debugger tests)
     // are invisible to PSI, and JavaPsiFacade.findClass returns null inside createBreakpoints(String).
     String srcPath = getSrcPath(getTestAppPath()).replace(File.separatorChar, '/');
-    VirtualFile srcDir = LocalFileSystem.getInstance().refreshAndFindFileByPath(srcPath);
+    VirtualFile srcDir = StandardFileSystems.local().refreshAndFindFileByPath(srcPath);
     if (srcDir != null) {
       VfsUtil.markDirtyAndRefresh(false, true, true, srcDir);
     }
@@ -196,6 +197,9 @@ public abstract class DebuggerTestCase extends ExecutionWithDebuggerToolsTestCas
       waitProcess(getDebugProcess().getProcessHandler());
       waitForCompleted();
       //disposeSession(myDebuggerSession);
+      // DebuggerSession.dispose() unregisters the session in Application.invokeLater().
+      // The Swing events of waitForCompleted() can run before it, e.g. while a background write action holds the lock.
+      ApplicationManager.getApplication().invokeAndWait(EmptyRunnable.getInstance(), ModalityState.any());
       assertNull(DebuggerManagerEx.getInstanceEx(myProject).getDebugProcess(getDebugProcess().getProcessHandler()));
       myDebuggerSession = null;
     }

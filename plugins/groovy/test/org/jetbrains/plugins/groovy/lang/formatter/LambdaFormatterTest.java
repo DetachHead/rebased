@@ -5,8 +5,8 @@ import org.jetbrains.plugins.groovy.util.TestUtils;
 
 public class LambdaFormatterTest extends GroovyFormatterTestCase {
   @Override
-  public final String getBasePath() {
-    return TestUtils.getTestDataPath() + "groovy/formatter/lambda/";
+  public final String getTestDataPath() {
+    return TestUtils.getAbsoluteTestDataPath() + "groovy/formatter/lambda/";
   }
 
   public void testBraceStyle1() throws Throwable { doTest(); }

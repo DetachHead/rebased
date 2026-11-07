@@ -41,10 +41,12 @@ import org.jetbrains.kotlin.psi.psiUtil.collectDescendantsOfType
 import org.jetbrains.kotlin.psi.psiUtil.getQualifiedExpressionForSelectorOrThis
 
 private const val FOR_EACH_INDEXED_FUNCTION_NAME: String = "forEachIndexed"
-private val MAP_FQ_NAMES = setOf(
+private val FUNCTION_FQ_NAMES = setOf(
     StandardKotlinNames.Collections.map,
     StandardKotlinNames.Collections.mapIndexed,
     StandardKotlinNames.Collections.mapNotNull,
+    StandardKotlinNames.Collections.onEach,
+    StandardKotlinNames.Collections.onEachIndexed,
 )
 
 internal class MapToForEachInspection : KotlinApplicableInspectionBase.Simple<KtCallExpression, MapToForEachInspection.Context>() {
@@ -76,7 +78,7 @@ internal class MapToForEachInspection : KotlinApplicableInspectionBase.Simple<Kt
         if (element.containingKtFile is KtCodeFragment) return false
 
         val calleeText = element.calleeExpression?.text ?: return false
-        if (MAP_FQ_NAMES.none { fqName ->
+        if (FUNCTION_FQ_NAMES.none { fqName ->
                 calleeText == fqName.shortName().asString() || element.containingKtFile.importDirectives.any {
                     it.importedFqName == fqName && calleeText == it.aliasName
                 }
@@ -98,12 +100,13 @@ internal class MapToForEachInspection : KotlinApplicableInspectionBase.Simple<Kt
 
         val replacementName = when (functionSymbol.importableFqName) {
             StandardKotlinNames.Collections.map,
-            StandardKotlinNames.Collections.mapNotNull -> StandardKotlinNames.For.forEachName.identifier
-            StandardKotlinNames.Collections.mapIndexed -> FOR_EACH_INDEXED_FUNCTION_NAME
+            StandardKotlinNames.Collections.mapNotNull,
+            StandardKotlinNames.Collections.onEach -> StandardKotlinNames.For.forEachName.identifier
+            StandardKotlinNames.Collections.mapIndexed,
+            StandardKotlinNames.Collections.onEachIndexed -> FOR_EACH_INDEXED_FUNCTION_NAME
             else -> return null
         }
-        if (functionSymbol.typeParameters.size != 2) return null
-        if (resolvedCall.typeArgumentsMapping.size != 2) return null
+        if (resolvedCall.typeArgumentsMapping.size != functionSymbol.typeParameters.size) return null
 
         val labeledReturnExpressions = collectReturns(element) ?: return null
         val isReturnValueNotUsed = whole.diagnostics()

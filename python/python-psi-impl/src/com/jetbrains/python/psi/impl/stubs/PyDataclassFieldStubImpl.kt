@@ -35,7 +35,7 @@ class PyDataclassFieldStubImpl(
 
   companion object {
     fun create(expression: PyTargetExpression): PyDataclassFieldStub? {
-      return PyDataclassParametersProvider.EP_NAME.extensionList.firstNotNullOfOrNull { it.buildDataclassFieldStub(expression) }
+      return PyDataclassParametersProvider.EP_NAME.computeSafeIfAny { it.buildDataclassFieldStub(expression) }
     }
 
     @Throws(IOException::class)

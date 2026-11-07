@@ -16,8 +16,8 @@ import java.util.List;
 
 public class ControlFlowTest extends LightJavaCodeInsightFixtureTestCase {
   @Override
-  public final String getBasePath() {
-    return TestUtils.getTestDataPath() + "groovy/controlFlow/";
+  public final String getTestDataPath() {
+    return TestUtils.getAbsoluteTestDataPath() + "groovy/controlFlow/";
   }
 
   public void testAssignment() { doTest(); }

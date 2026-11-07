@@ -2,12 +2,10 @@
 package com.intellij.platform.util.io.storages.intmultimaps.extendiblehashmap;
 
 import com.intellij.platform.util.io.storages.intmultimaps.extendiblehashmap.ExtendibleHashMap.HashMapSegmentLayout;
-import org.jetbrains.annotations.NotNull;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
-import java.io.IOException;
-import java.nio.ByteBuffer;
+import java.lang.foreign.MemorySegment;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -18,32 +16,16 @@ public class SegmentLayoutTest {
   public static final int SEGMENT_SIZE = 1 << 16;
 
   private HashMapSegmentLayout segmentLayout;
-  private ExtendibleHashMap.BufferSource bufferSource;
+  private MemorySegment segment;
 
   @BeforeEach
-  void setUp() throws IOException {
-    ByteBuffer buffer = ByteBuffer.allocate(SEGMENT_SIZE);
-    bufferSource = new ExtendibleHashMap.BufferSource() {
-      @Override
-      public @NotNull ByteBuffer slice(long offsetInFile, int length) throws IOException {
-        return buffer;
-      }
-
-      @Override
-      public int getInt(long offsetInFile) throws IOException {
-        //we emulate 1st segment (because first segment is header, it is special), but buffer is 0-based
-        return buffer.getInt((int)offsetInFile - SEGMENT_SIZE);
-      }
-    };
-    segmentLayout = new HashMapSegmentLayout(
-      bufferSource,
-      SEGMENT_INDEX,
-      SEGMENT_SIZE
-    );
+  void setUp() {
+    segment = MemorySegment.ofArray(new int[SEGMENT_SIZE / Integer.BYTES]);
+    segmentLayout = new HashMapSegmentLayout(SEGMENT_INDEX, SEGMENT_SIZE, segment);
   }
 
   @Test
-  void initially_thereIsNoAliveEntries() throws IOException {
+  void initially_thereIsNoAliveEntries() {
     assertEquals(
       0,
       segmentLayout.aliveEntriesCount()
@@ -131,7 +113,7 @@ public class SegmentLayoutTest {
   }
 
   @Test
-  void updated_aliveEntriesCount_MustBeReadViaBothAccessors() throws IOException {
+  void updated_aliveEntriesCount_MustBeReadViaBothAccessors() {
     for (int aliveEntriesCount : new int[]{1, 10, 42, Integer.MAX_VALUE / 2}) {
 
       segmentLayout.updateAliveEntriesCount(aliveEntriesCount);
@@ -144,7 +126,7 @@ public class SegmentLayoutTest {
 
       assertEquals(
         aliveEntriesCount,
-        HashMapSegmentLayout.aliveEntriesCount(bufferSource, 1, SEGMENT_SIZE),
+        HashMapSegmentLayout.aliveEntriesCount(segment),
         "Must be the value just updated in"
       );
     }

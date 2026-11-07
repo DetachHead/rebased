@@ -1,6 +1,10 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
 load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
+### auto-generated section `dev intellij.platform.vcs.dvcs.impl.shared` start
+content_module_jar(module = ":shared")
+### auto-generated section `dev intellij.platform.vcs.dvcs.impl.shared` end
+
 ### auto-generated section `build intellij.platform.vcs.dvcs.impl.shared` start
 jvm_library(
     name = "shared",
@@ -16,6 +20,7 @@ jvm_library(
     resource_strip_prefix = "resources",
     resources = glob(
         ["resources/**/*"],
+        exclude = ["resources/**/icon-robots.txt"],
     ),
     visibility = ["//visibility:public"],
     deps = [
@@ -37,8 +42,6 @@ jvm_library(
         "//fleet/rhizomedb",
     ],
 )
-
-content_module_jar(module = ":shared")
 
 jvm_library(
     name = "shared_test_lib",
@@ -75,7 +78,6 @@ exports_files(
     [
         "intellij.platform.vcs.dvcs.impl.shared.iml",
         "resources/intellij.platform.vcs.dvcs.impl.shared.xml",
-        "module-content.yaml",
     ],
     visibility = ["//visibility:public"],
 )

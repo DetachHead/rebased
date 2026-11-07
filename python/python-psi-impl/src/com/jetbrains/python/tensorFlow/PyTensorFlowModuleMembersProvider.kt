@@ -41,7 +41,8 @@ class PyTensorFlowModuleMembersProvider : PyModuleMembersProvider() {
   override fun getMembersByQName(module: PyFile, qName: String, context: TypeEvalContext): Collection<PyCustomMember> = emptyList()
 
   private fun isTensorFlow(module: PyFile): Boolean {
-    return QualifiedNameFinder.findShortestImportableQName(module).let { it != null && it.matches("tensorflow") }
+    val qName = QualifiedNameFinder.findShortestImportableQName(module)
+    return qName != null && qName.matches("tensorflow")
   }
 
   private fun getMembers(

@@ -12,10 +12,11 @@ import com.intellij.mcpserver.McpToolCallResult
 import com.intellij.mcpserver.McpToolCallResultContent
 import com.intellij.mcpserver.McpToolInvocationMode
 import com.intellij.mcpserver.launchOriginOf
+import com.intellij.mcpserver.mcpCallOwnerIdsOf
 import com.intellij.mcpserver.ToolCallListener
 import com.intellij.mcpserver.elicitation.McpElicitationKind
 import com.intellij.mcpserver.elicitation.McpSessionElement
-import com.intellij.mcpserver.impl.util.network.httpRequestOrNull
+import com.intellij.mcpserver.impl.util.network.HttpCallTransport
 import com.intellij.mcpserver.impl.util.projectPathParameterName
 import com.intellij.mcpserver.settings.McpToolFilterSettings
 import com.intellij.mcpserver.statistics.McpServerCounterUsagesCollector
@@ -29,7 +30,7 @@ import com.intellij.mcpserver.toolwindow.TransportType
 import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.debug
 import com.intellij.openapi.diagnostic.logger
-import com.intellij.openapi.diagnostic.rethrowControlFlowException
+import com.intellij.diagnostic.rethrowControlFlowException
 import com.intellij.openapi.diagnostic.trace
 import com.intellij.openapi.diagnostic.traceThrowable
 import com.intellij.openapi.project.Project
@@ -45,7 +46,7 @@ import io.ktor.util.toMap
 import io.modelcontextprotocol.kotlin.sdk.server.RegisteredTool
 import io.modelcontextprotocol.kotlin.sdk.server.Server
 import io.modelcontextprotocol.kotlin.sdk.server.ServerSession
-import io.modelcontextprotocol.kotlin.sdk.shared.Transport
+import io.modelcontextprotocol.kotlin.sdk.shared.currentRequestHandlerExtra
 import io.modelcontextprotocol.kotlin.sdk.types.CallToolResult
 import io.modelcontextprotocol.kotlin.sdk.types.EmptyJsonObject
 import io.modelcontextprotocol.kotlin.sdk.types.Implementation
@@ -62,7 +63,6 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.cancel
-import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -147,6 +147,7 @@ internal class McpSessionHandler(
   val mcpTools = toolsProvider.mcpTools
 
   private val sessionAwaiter = CompletableDeferred<ServerSession>()
+  private val transportAwaiter = CompletableDeferred<HttpCallTransport>()
   private val sessionRoots = AtomicReference<Set<String>?>(null)
 
   /**
@@ -221,7 +222,8 @@ internal class McpSessionHandler(
    * Creates and configures a new session with the given transport.
    * Sets up onClose handler, onInitialized handler and launches the tool updates collector.
    */
-  suspend fun createAndInitializeSession(transport: Transport): ServerSession {
+  suspend fun createAndInitializeSession(transport: HttpCallTransport): ServerSession {
+    transportAwaiter.complete(transport)
     val session = mcpServer.createSession(transport)
     sessionAwaiter.complete(session)
     val sessionId = session.sessionId
@@ -336,11 +338,11 @@ internal class McpSessionHandler(
     val tool = mcpTool.toSdkTool(stripPropertyName = if (projectKnownUpfront) projectPathParameterName else null)
     return RegisteredTool(tool) { request ->
       val session = sessionAwaiter.await()
-      val httpRequest = currentCoroutineContext().httpRequestOrNull
+      val callHeaders = transportAwaiter.await().callHeaders(currentRequestHandlerExtra()?.requestId)
 
       val projectPathFromMcpRequest = (request.arguments?.get(projectPathParameterName) as? JsonPrimitive)?.content
       val projectPathFromCallHeader =
-        httpRequest?.headers?.get(IJ_MCP_SERVER_PROJECT_PATH)
+        callHeaders?.get(IJ_MCP_SERVER_PROJECT_PATH)
         ?: (request.meta?.get(IJ_MCP_SERVER_PROJECT_PATH) as? JsonPrimitive)?.content
 
       val project = try {
@@ -372,7 +374,7 @@ internal class McpSessionHandler(
           .toSdkToolCallResult()
       }
 
-      val headersWithoutAuthToken = httpRequest?.headers?.toMap()?.let { it - IJ_MCP_AUTH_TOKEN }
+      val headersWithoutAuthToken = callHeaders?.toMap()?.let { it - IJ_MCP_AUTH_TOKEN }
 
       val clientVersion = session.clientVersion ?: Implementation("Unknown MCP client", "Unknown version")
 
@@ -401,6 +403,7 @@ internal class McpSessionHandler(
                 .put("mcp.client.name", clientVersion.name)
                 .put("mcp.client.version", clientVersion.version)
                 .put("mcp.call.id", additionalData.callId.toLong())
+                .put("mcp.tool_call.id", additionalData.toolCallId.value)
                 .put("mcp.session.id", session.sessionId)
                 .build()
             )
@@ -493,6 +496,8 @@ internal class McpSessionHandler(
               }
               finally {
                 McpServerCounterUsagesCollector.logMcpToolCall(
+                  toolCallId = additionalData.toolCallId,
+                  ownerIds = mcpCallOwnerIdsOf(sessionOptions),
                   descriptor = mcpTool.descriptor,
                   outcome = outcome,
                   durationMs = callMark.elapsedNow().inWholeMilliseconds,

@@ -1,0 +1,16 @@
+adler2
+anyhow
+appinfo
+cfg_if
+cli
+crc32fast
+distpath
+flate2
+jarpack
+memchr
+memmap2
+miniz_oxide
+quick_xml
+simd_adler32
+xxh3
+xxhash_rust

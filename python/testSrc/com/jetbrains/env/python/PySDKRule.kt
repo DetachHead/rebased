@@ -2,7 +2,10 @@
 package com.jetbrains.env.python
 
 import com.intellij.execution.target.TargetEnvironmentConfiguration
+import com.intellij.openapi.project.Project
 import com.intellij.openapi.projectRoots.Sdk
+import com.intellij.python.sdk.backend.PythonInterpreter
+import com.intellij.python.sdk.backend.getSdkAPI
 import com.intellij.python.test.env.common.SdkCreationRequest.LocalPython
 import com.intellij.python.test.env.common.SdkCreationRequest.RemotePython
 import com.intellij.python.test.env.common.createSdk
@@ -16,17 +19,24 @@ import org.junit.rules.ExternalResource
  * In case of target, it should have [com.intellij.python.test.env.common.PYTHON_PATH_ON_TARGET]
  * Locals are search automatically like in [com.jetbrains.env.PyEnvTestSettings] or using [com.jetbrains.python.sdk.flavors.PythonSdkFlavor.suggestLocalHomePaths]
  */
-class PySDKRule(private val targetConfigProducer: (() -> TargetEnvironmentConfiguration)?) : ExternalResource() {
+class PySDKRule(
+  private val project: () -> Project,
+  private val targetConfigProducer: (() -> TargetEnvironmentConfiguration)?,
+) : ExternalResource() {
 
   @Volatile
-  lateinit var sdk: Sdk
+  lateinit var interpreter: PythonInterpreter
     private set
+
+  /** The SDK of [interpreter], for a test that still calls an SDK API. */
+  @Suppress("DEPRECATION")
+  val sdk: Sdk get() = interpreter.getSdkAPI()
 
   private lateinit var autoClosable: AutoCloseable
 
   override fun before() {
-    val (sdk, autoClosable) = runBlocking { JUnit4FactoryHolder.getOrCreate().createSdk(targetConfigProducer?.let { RemotePython(it()) } ?: LocalPython) }
-    this.sdk = sdk
+    val (interpreter, autoClosable) = runBlocking { JUnit4FactoryHolder.getOrCreate().createSdk(project(), targetConfigProducer?.let { RemotePython(it()) } ?: LocalPython) }
+    this.interpreter = interpreter
     this.autoClosable = autoClosable
   }
 

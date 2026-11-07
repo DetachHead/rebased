@@ -1,5 +1,20 @@
-load("@community//platform/build-scripts/bazel-rules:dev_dist_plugin.bzl", "dev_dist_plugin")
+load("@community//platform/build-scripts/bazel-rules:ij_plugin.bzl", "ij_plugin")
+load("@jps_dynamic_deps_community//:targets.bzl", "dev_dist_plugin")
 load("@rules_jvm//:jvm.bzl", "jvm_library", "jvm_provided_library")
+
+### auto-generated section `dev intellij.restructuredtext` start
+dev_dist_plugin(
+    content_modules = ["intellij.restructuredtext.python"],
+    descriptor = "resources/META-INF/plugin.xml",
+    jars = {
+        "lib/restructuredtext.jar": ["intellij.restructuredtext"],
+    },
+    main_module = "intellij.restructuredtext",
+    mode_refused_content_modules = {
+        "frontend": ["intellij.restructuredtext.python"],
+    },
+)
+### auto-generated section `dev intellij.restructuredtext` end
 
 ### auto-generated section `build intellij.restructuredtext` start
 jvm_provided_library(
@@ -91,8 +106,6 @@ jvm_library(
         "//libraries/guava:guava_test_lib",
         "//platform/projectModel-api:projectModel_test_lib",
         "//platform/structure-view-impl:structureView_test_lib",
-        "//platform/testFramework",
-        "//platform/testFramework:testFramework_test_lib",
         "//platform/editor-ui-ex:editor-ex_test_lib",
         "//platform/platform-impl:ide-impl_test_lib",
         "//platform/util:util-ui_test_lib",
@@ -111,6 +124,13 @@ jvm_library(
         "//jps/model-api:model_test_lib",
     ],
 )
+
+ij_plugin(
+    name = "restructuredtext_plugin",
+    descriptor_module = ":restructuredtext",
+    content_modules = ["//python/python-restructuredtext:restructuredtext-python"],
+    visibility = ["//visibility:public"],
+)
 ### auto-generated section `build intellij.restructuredtext` end
 
 ### auto-generated section `iml intellij.restructuredtext` start
@@ -124,13 +144,6 @@ exports_files(
     visibility = ["//visibility:public"],
 )
 ### auto-generated section `iml intellij.restructuredtext` end
-
-### auto-generated section `dev intellij.restructuredtext` start
-dev_dist_plugin(
-    descriptor_module = ":restructuredtext",
-    prepacked_content_modules = ["//python/python-restructuredtext:restructuredtext-python_content_module_jar"],
-)
-### auto-generated section `dev intellij.restructuredtext` end
 
 ### auto-generated section `build intellij.restructuredtext.tests` start
 jvm_library(

@@ -32,10 +32,11 @@ import static com.intellij.threadDumpParser.ThreadDumpInlineMetadataKt.stripMeta
 @ApiStatus.Internal
 public final class ThreadDumpParser {
   private static final Pattern ourThreadStartPattern = Pattern.compile("^\"(.+)\".+((?:prio=\\d+ )?(?:os_prio=[^\\s]+ )?.*tid=[^\\s]+(?: nid=[^\\s]+)?|[Ii][Dd]=\\d+) ([^\\[]+)");
+  private static final Pattern ourHotSpotThreadIdPattern = Pattern.compile("^\"[^\"]*\" #(\\d+)\\b");
   private static final Pattern ourForcedThreadStartPattern = Pattern.compile("^Thread (\\d+): \\(state = (.+)\\)");
   private static final Pattern ourYourkitThreadStartPattern = Pattern.compile("(.+) \\[([A-Z_, ]*)]");
   private static final Pattern ourYourkitThreadStartPattern2 = Pattern.compile("(.+) (?:State:)? (.+) CPU usage on sample: .+");
-  private static final Pattern ourJcmdThreadStartPattern = Pattern.compile("#\\d+ \"(.*)\"(.*)");
+  private static final Pattern ourJcmdThreadStartPattern = Pattern.compile("#(\\d+) \"(.*)\"(.*)");
   private static final Pattern ourJcmdStackTraceElement = Pattern.compile("\\S+\\(.+\\)");
   private static final Pattern ourThreadStatePattern = Pattern.compile("java\\.lang\\.Thread\\.State: (.+) \\((.+)\\)");
   private static final Pattern ourThreadStatePattern2 = Pattern.compile("java\\.lang\\.Thread\\.State: (.+)");
@@ -81,7 +82,12 @@ public final class ThreadDumpParser {
     for (JsonNode container : containers.values()) {
       for (JsonNode thread : container.path("threads").values()) {
         var name = thread.path("name").asString();
-        var threadState = createThreadState(name, "unknown");
+        var javaThreadState = thread.path("state").asString();
+        if (StringUtil.isEmptyOrSpaces(javaThreadState)) {
+          javaThreadState = "unknown";
+        }
+        var threadState = createThreadState(name, javaThreadState);
+        threadState.setJavaThreadState(javaThreadState);
 
         var rawStackTrace = new StringBuilder();
         for (JsonNode ste : thread.path("stack").values()) {
@@ -197,7 +203,10 @@ public final class ThreadDumpParser {
     return threads;
   }
 
-  private static @Nullable ThreadState findLockOwner(@Nullable List<? extends ThreadState> lockOwners, List<? extends ThreadState> threadStates, String lockId, boolean ignoreWaiting) {
+  private static @Nullable ThreadState findLockOwner(@Nullable List<? extends ThreadState> lockOwners,
+                                                     Map<String, ThreadState> ownableSynchronizerOwners,
+                                                     String lockId,
+                                                     boolean ignoreWaiting) {
     if (lockOwners != null) {
       for(ThreadState lockOwner : lockOwners) {
         String trace = lockOwner.getStackTrace();
@@ -206,12 +215,7 @@ public final class ThreadDumpParser {
         }
       }
     }
-    for(ThreadState lockOwner : threadStates) {
-      if (lockOwner.getOwnableSynchronizers() != null && lockOwner.getOwnableSynchronizers().equals(lockId)) {
-        return lockOwner;
-      }
-    }
-    return null;
+    return ownableSynchronizerOwners.get(lockId);
   }
 
   @Contract(mutates = "param1")
@@ -225,10 +229,15 @@ public final class ThreadDumpParser {
    */
   public static void detectWaitingAndDeadlockedThreads(List<? extends ThreadState> threadStates) {
     Map<String, List<ThreadState>> monitorToOwners = new HashMap<>();
+    Map<String, ThreadState> ownableSynchronizerOwners = new HashMap<>();
 
     for (ThreadState threadState : threadStates) {
       for (String lockId : threadState.getOwnedMonitors()) {
-        monitorToOwners.computeIfAbsent(lockId, k -> new ArrayList<>()).add(threadState);
+        monitorToOwners.computeIfAbsent(lockId, ignored -> new ArrayList<>()).add(threadState);
+      }
+      String ownableSynchronizer = threadState.getOwnableSynchronizers();
+      if (ownableSynchronizer != null) {
+        ownableSynchronizerOwners.putIfAbsent(ownableSynchronizer, threadState);
       }
     }
 
@@ -237,9 +246,9 @@ public final class ThreadDumpParser {
       if (waitedMonitor == null) continue;
       var monitorOwners = monitorToOwners.get(waitedMonitor);
 
-      ThreadState lockOwner = findLockOwner(monitorOwners, threadStates, waitedMonitor, true);
+      ThreadState lockOwner = findLockOwner(monitorOwners, ownableSynchronizerOwners, waitedMonitor, true);
       if (lockOwner == null) {
-        lockOwner = findLockOwner(monitorOwners, threadStates, waitedMonitor, false);
+        lockOwner = findLockOwner(monitorOwners, ownableSynchronizerOwners, waitedMonitor, false);
       }
       if (lockOwner != null) {
         if (threadState.isAwaitedBy(lockOwner)) {
@@ -277,7 +286,7 @@ public final class ThreadDumpParser {
     for (ThreadState threadState : threadStates) {
       String contended = threadState.getContendedMonitor();
       if (contended != null) {
-        monitorToWaitingThreadNames.computeIfAbsent(contended, k -> new ArrayList<>()).add(threadState.getName());
+        monitorToWaitingThreadNames.computeIfAbsent(contended, ignored -> new ArrayList<>()).add(threadState.getName());
       }
       for (String monitor : threadState.getOwnedMonitors()) {
         monitorToOwnerThreadName.putIfAbsent(monitor, threadState.getName());
@@ -482,6 +491,12 @@ public final class ThreadDumpParser {
         state.setVirtual(true);
       }
       applyInlineMetadata(line, state);
+      if (state.getUniqueId() == null && !line.contains("[\"")) {
+        Matcher threadId = ourHotSpotThreadIdPattern.matcher(line);
+        if (threadId.find()) {
+          state.setUniqueId(parseLong(threadId.group(1)));
+        }
+      }
       return state;
     }
 
@@ -494,8 +509,9 @@ public final class ThreadDumpParser {
 
     m = ourJcmdThreadStartPattern.matcher(line);
     if (m.matches()) {
-      var state = createThreadState(m.group(1), "unknown");
-      var suffix = m.group(2);
+      var state = createThreadState(m.group(2), "unknown");
+      state.setUniqueId(parseLong(m.group(1)));
+      var suffix = m.group(3);
       state.setVirtual(suffix.contains(" virtual"));
       applyInlineMetadata(line, state);
       return state;

@@ -34,7 +34,7 @@ public class ConvertSimpleGetterToPropertyIntentionTest extends GrIntentionTestC
   public void testStatic() { doTest(true); }
 
   @Override
-  public final String getBasePath() {
-    return TestUtils.getTestDataPath() + "intentions/convert/getterToProperty/";
+  public final String getTestDataPath() {
+    return TestUtils.getAbsoluteTestDataPath() + "intentions/convert/getterToProperty/";
   }
 }

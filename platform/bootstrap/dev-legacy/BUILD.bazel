@@ -1,0 +1,52 @@
+load("@rules_jvm//:jvm.bzl", "jvm_library")
+
+### auto-generated section `build intellij.platform.bootstrap.dev.legacy` start
+jvm_library(
+    name = "dev-legacy",
+    srcs = glob(
+        [
+            "src/**/*.kt",
+            "src/**/*.java",
+            "src/**/*.form",
+        ],
+        allow_empty = True,
+    ),
+    module_name = "intellij.platform.bootstrap.dev.legacy",
+    visibility = ["//visibility:public"],
+    deps = [
+        # do not sort,
+        "//libraries/jetbrains/annotations",
+        "//platform/boot",
+        "//platform/build-scripts/dev-server-legacy:buildScripts-devBuildServer-legacy",
+        "//platform/util-class-loader:util-classLoader",
+    ],
+)
+
+jvm_library(
+    name = "dev-legacy_test_lib",
+    testonly = True,
+    srcs = glob(
+        [],
+        allow_empty = True,
+    ),
+    module_name = "intellij.platform.bootstrap.dev.legacy",
+    visibility = ["//visibility:public"],
+    runtime_deps = [
+        # do not sort,
+        ":dev-legacy",
+        "//libraries/jetbrains/annotations:annotations_test_lib",
+        "//platform/boot:boot_test_lib",
+        "//platform/build-scripts/dev-server-legacy:buildScripts-devBuildServer-legacy_test_lib",
+        "//platform/util-class-loader:util-classLoader_test_lib",
+    ],
+)
+### auto-generated section `build intellij.platform.bootstrap.dev.legacy` end
+
+### auto-generated section `iml intellij.platform.bootstrap.dev.legacy` start
+exports_files(
+    [
+        "intellij.platform.bootstrap.dev.legacy.iml",
+    ],
+    visibility = ["//visibility:public"],
+)
+### auto-generated section `iml intellij.platform.bootstrap.dev.legacy` end

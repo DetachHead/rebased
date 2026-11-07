@@ -142,7 +142,7 @@ class JpsProjectSerializersImpl(
     }
     return files.map {
       val fileName = it.fileName.toString()
-      val directoryUrl = virtualFileManager.getOrCreateFromUrl(factory.directoryUrl)
+      val directoryUrl = virtualFileManager.storeAndGet(factory.directoryUrl)
       val entitySource =
         bindExistingSource(fileInDirectorySourceNames, factory.entityClass, fileName, directoryUrl) ?: createFileInDirectorySource(
           directoryUrl, fileName)
@@ -189,7 +189,7 @@ class JpsProjectSerializersImpl(
 
         val factory = directorySerializerFactoriesByUrl[PathUtilRt.getParentPath(addedFileUrl)]
         val newFileSerializer = factory?.createSerializer(addedFileUrl, createFileInDirectorySource(
-          virtualFileManager.getOrCreateFromUrl(factory.directoryUrl), PathUtilRt.getFileName(addedFileUrl)), virtualFileManager)
+          virtualFileManager.storeAndGet(factory.directoryUrl), PathUtilRt.getFileName(addedFileUrl)), virtualFileManager)
         if (newFileSerializer != null) {
           newFileSerializers.add(newFileSerializer)
           serializerToDirectoryFactory[newFileSerializer] = factory
@@ -711,6 +711,8 @@ class JpsProjectSerializersImpl(
 
     val obsoleteSources = affectedSources - entitiesToSave.keys
     LOG.trace { "Obsolete sources: $obsoleteSources" }
+    // Compute before the loop, because the loop removes associations from `fileIdToFileName`
+    val fileUrlsToSave = if (obsoleteSources.isEmpty()) emptySet() else entitiesToSave.keys.mapNotNullTo(HashSet()) { getActualFileUrl(it) }
     for (source in obsoleteSources) {
       val fileUrl = getActualFileUrl(source)
       if (fileUrl != null) {
@@ -728,9 +730,12 @@ class JpsProjectSerializersImpl(
         // - Imported module had user-configured information (like custom content roots). This additional information is stored in the local
         //    `.iml` file, and the `.iml` should be removed in case all custom elements are removed.
         // - TO DO: Fill new cases if found!
-        val deleteObsoleteFile = shouldDeleteImportedFile(source, fileUrl) ||
-                                 source in internalSourceConvertedToImported ||
-                                 (affectedImportedSourceStoredExternally != null && affectedImportedSourceStoredExternally !in obsoleteSources)
+        val rewrittenInThisSave = fileUrl in fileUrlsToSave
+        val deleteObsoleteFile = !rewrittenInThisSave && (
+          shouldDeleteImportedFile(source, fileUrl) ||
+          source in internalSourceConvertedToImported ||
+          (affectedImportedSourceStoredExternally != null && affectedImportedSourceStoredExternally !in obsoleteSources)
+        )
         processObsoleteSource(fileUrl, deleteObsoleteFile, writer, affectedEntityTypeSerializers, affectedModuleListSerializers, storage)
         val actualSource = if (source is JpsImportedEntitySource && !source.storedExternally) source.internalFile else source
         if (actualSource is JpsProjectFileEntitySource.FileInDirectory) {
@@ -743,7 +748,7 @@ class JpsProjectSerializersImpl(
     entitiesToSave.forEach { (source, entities) ->
       val actualFileSource = getActualFileSource(source)
       if (actualFileSource is JpsProjectFileEntitySource.FileInDirectory) {
-        val fileNameByEntity = calculateFileNameForEntity(actualFileSource, source, storage, entities)
+        val fileNameByEntity = calculateFileNameForEntity(actualFileSource, source, entities)
         val oldFileName = fileIdToFileName.get(actualFileSource.fileNameId)
         if (oldFileName != fileNameByEntity) {
           // Don't convert to links[key] = ... because it *may* became autoboxing
@@ -813,7 +818,7 @@ class JpsProjectSerializersImpl(
                 }
               }
               val newSerializer =
-                moduleListSerializer.createSerializer(internalSource, virtualFileManager.getOrCreateFromUrl(url), moduleGroup)
+                moduleListSerializer.createSerializer(internalSource, virtualFileManager.storeAndGet(url), moduleGroup)
               fileSerializersByUrl.put(url, newSerializer)
               moduleSerializers[newSerializer] = moduleListSerializer
               affectedModuleListSerializers.add(moduleListSerializer)
@@ -886,7 +891,6 @@ class JpsProjectSerializersImpl(
   private fun calculateFileNameForEntity(
     source: JpsProjectFileEntitySource.FileInDirectory,
     originalSource: EntitySource,
-    storage: EntityStorage,
     entities: Map<Class<out WorkspaceEntity>, List<WorkspaceEntity>>,
   ): String? {
     val directoryFactory = directorySerializerFactoriesByUrl[source.directory.url]
@@ -903,7 +907,7 @@ class JpsProjectSerializersImpl(
         it.entitySourceFilter(originalSource)
       }
       if (moduleListSerializer != null) {
-        return getFileNameForModuleEntity(moduleListSerializer, storage, entities)
+        return getFileNameForModuleEntity(moduleListSerializer, entities)
       }
     }
     return null
@@ -919,7 +923,6 @@ class JpsProjectSerializersImpl(
 
   private fun getFileNameForModuleEntity(
     moduleListSerializer: JpsModuleListSerializer,
-    storage: EntityStorage,
     entities: Map<Class<out WorkspaceEntity>, List<WorkspaceEntity>>,
   ): String? {
     val entity = entities[ModuleEntity::class.java]?.singleOrNull() as? ModuleEntity
@@ -939,10 +942,9 @@ class JpsProjectSerializersImpl(
     if (module != null) {
       return moduleListSerializer.getFileName(module)
     }
-    val moduleEntity = additionalModuleRelatedEntities.mapNotNull {
-      val moduleId = (entities[it]?.firstOrNull() as? ModuleSettingsFacetBridgeEntity)?.moduleId ?: return@mapNotNull null
-      storage.resolve(moduleId)
-    }.firstOrNull() ?: return null
+    val moduleEntity = additionalModuleRelatedEntities.firstNotNullOfOrNull {
+      (entities[it]?.firstOrNull() as? ModuleSettingsFacetBridgeEntity)?.module
+    } ?: return null
     return moduleListSerializer.getFileName(moduleEntity)
   }
 
@@ -983,7 +985,7 @@ class JpsProjectSerializersImpl(
 
         val source =
           if (currentSource != null && fileIdToFileName.get(currentSource.fileNameId) == fileName) currentSource
-          else createFileInDirectorySource(virtualFileManager.getOrCreateFromUrl(factory.directoryUrl), fileName)
+          else createFileInDirectorySource(virtualFileManager.storeAndGet(factory.directoryUrl), fileName)
         factory.createSerializer("${factory.directoryUrl}/$fileName", source, virtualFileManager) to entityMap
       }
   }

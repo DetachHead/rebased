@@ -1,12 +1,8 @@
-// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.jetbrains.python.sdk.uv.impl
 
-import com.fasterxml.jackson.core.JacksonException
-import com.fasterxml.jackson.databind.DeserializationFeature
-import com.fasterxml.jackson.databind.RuntimeJsonMappingException
-import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
-import com.fasterxml.jackson.module.kotlin.readValue
-import com.intellij.platform.eel.provider.localEel
+import com.intellij.platform.eel.EelApi
+import com.intellij.platform.eel.provider.getEelDescriptor
 import com.intellij.python.community.execService.Args
 import com.intellij.python.pyproject.PyDependencyGroup
 import com.intellij.python.pyproject.PyDependencyGroupKind
@@ -34,6 +30,9 @@ import com.jetbrains.python.sdk.uv.UvScriptEnvironment
 import com.jetbrains.python.venvReader.VirtualEnvReader
 import com.jetbrains.python.venvReader.tryResolvePath
 import io.github.z4kn4fein.semver.Version
+import tools.jackson.core.JacksonException
+import tools.jackson.module.kotlin.jacksonObjectMapper
+import tools.jackson.module.kotlin.readValue
 import java.nio.file.Path
 import kotlin.io.path.name
 import kotlin.io.path.pathString
@@ -44,39 +43,42 @@ private const val SUPPORTED_SYNC_SCHEMA_VERSION = "preview"
 private val versionRegex = Regex("(\\d+\\.\\d+)\\.\\d+-.+\\s")
 
 private class UvLowLevelImpl<P : PathHolder>(
-  private val cwd: Path,
+  private val cwd: Path?,
   private val venvPath: P?,
   private val uvCli: UvCli<P>,
   private val fileSystem: FileSystem<P>,
 ) : UvLowLevel<P> {
+  override suspend fun initProject(version: Version?): PyResult<Unit> {
+    val cwd = cwd ?: return PyResult.localizedError(PyBundle.message("python.sdk.uv.failed.to.initialize.uv.environment"))
+    val initArgs = mutableListOf("init")
+    initArgs += pythonArgs(version)
+    initArgs.add("--bare")
+    val projectName = PyPackageName.normalizeProjectName(cwd.name)
+    if (projectName.isNotBlank()) {
+      initArgs.add("--name")
+      initArgs.add(projectName)
+    }
+    initArgs.add("--no-project")
+    uvCli.runUv(cwd, null, true, *initArgs.toTypedArray()).getOr { return it }
+
+    return PyExecResult.success(Unit)
+  }
+
   override suspend fun initializeEnvironment(
     init: Boolean,
     version: Version?,
     clearExisting: Boolean,
     inheritSitePackages: Boolean,
   ): PyResult<P> {
-    val addPythonArg: (MutableList<String>) -> Unit = { args ->
-      version?.let {
-        args.add("--python")
-        args.add("${version.major}.${version.minor}")
-      }
-    }
+    // Every other command only forwards the directory to uv. This one reads it, so it needs a real one.
+    val cwd = cwd ?: return PyResult.localizedError(PyBundle.message("python.sdk.uv.failed.to.initialize.uv.environment"))
 
     if (init) {
-      val initArgs = mutableListOf("init")
-      addPythonArg(initArgs)
-      initArgs.add("--bare")
-      val projectName = PyPackageName.normalizeProjectName(cwd.name)
-      if (projectName.isNotBlank()) {
-        initArgs.add("--name")
-        initArgs.add(projectName)
-      }
-      initArgs.add("--no-project")
-      uvCli.runUv(cwd, null, true, *initArgs.toTypedArray()).getOr { return it }
+      initProject(version).getOr { return it }
     }
 
     val venvArgs = mutableListOf("venv")
-    venvPath?.also { venvArgs += it.toString() }
+    venvPath?.also { venvArgs += it.toStringForExecution() }
     if (clearExisting) {
       venvArgs.add("--clear")
     }
@@ -89,7 +91,7 @@ private class UvLowLevelImpl<P : PathHolder>(
       venvArgs.add("--python-preference")
       venvArgs.add("system")
     }
-    addPythonArg(venvArgs)
+    venvArgs += pythonArgs(version)
     uvCli.runUv(cwd, null, true, *venvArgs.toTypedArray()).onFailure {
       uvCli.runUv(cwd, null, true, *venvArgs.toTypedArray(), "--force").getOr { return it }
     }.getOr { return it }
@@ -105,6 +107,10 @@ private class UvLowLevelImpl<P : PathHolder>(
 
     return PyResult.success(resolvedFallback)
   }
+
+  /** The `--python major.minor` pair for [version], or nothing when uv chooses the interpreter itself. */
+  private fun pythonArgs(version: Version?): List<String> =
+    if (version == null) emptyList() else listOf("--python", "${version.major}.${version.minor}")
 
   override suspend fun listUvPythons(): PyResult<Set<Path>> {
     var out = uvCli.runUv(cwd, venvPath, false, "python", "dir")
@@ -162,14 +168,13 @@ private class UvLowLevelImpl<P : PathHolder>(
 
     try {
       val mapper = jacksonObjectMapper()
-        .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false)
       val packages = mapper.readValue<List<OutdatedPackageInfo>>(out).map {
         PythonOutdatedPackage(it.name, it.version, it.latest_version)
       }
 
       return PyExecResult.success(packages)
     }
-    catch (e: RuntimeJsonMappingException) {
+    catch (e: JacksonException) {
       return PyResult.localizedError(e.message ?: e.localizedMessage ?: e.toString())
     }
   }
@@ -182,7 +187,9 @@ private class UvLowLevelImpl<P : PathHolder>(
   }
 
   override suspend fun listProjectStructureTree(): PyResult<String> {
-    val out = uvCli.runUv(cwd, venvPath, false, "tree", "--frozen", "--no-dedupe", "--all-groups")
+    // Deduplicated: uv prints a package's dependencies under the first parent that needs it. Asking
+    // it to expand every repeat instead does not finish on a large workspace (PY-90174).
+    val out = uvCli.runUv(cwd, venvPath, false, "tree", "--frozen", "--all-groups")
       .getOr { return it }
 
     return PyExecResult.success(out)
@@ -205,6 +212,20 @@ private class UvLowLevelImpl<P : PathHolder>(
   override suspend fun uninstallPackages(pyPackages: Array<out String>): PyResult<Unit> {
     // TODO: check if package is in dependencies and reject it
     uvCli.runUv(cwd, venvPath, true, "pip", "uninstall", *pyPackages)
+      .getOr { return it }
+
+    return PyExecResult.success(Unit)
+  }
+
+  override suspend fun installRequirements(requirementsFile: Path): PyResult<Unit> {
+    uvCli.runUv(cwd, venvPath, false, Args("pip", "install", "-r").addLocalFile(requirementsFile))
+      .getOr { return it }
+
+    return PyExecResult.success(Unit)
+  }
+
+  override suspend fun syncRequirements(requirementsFile: Path): PyResult<Unit> {
+    uvCli.runUv(cwd, venvPath, false, Args("pip", "sync").addLocalFile(requirementsFile))
       .getOr { return it }
 
     return PyExecResult.success(Unit)
@@ -241,7 +262,11 @@ private class UvLowLevelImpl<P : PathHolder>(
     return PyExecResult.success(Unit)
   }
 
-  override suspend fun removeDependencies(pyPackages: Array<out String>, workspaceMember: PyWorkspaceMember?, dependencyGroup: PyDependencyGroup?): PyResult<Unit> {
+  override suspend fun removeDependencies(
+    pyPackages: Array<out String>,
+    workspaceMember: PyWorkspaceMember?,
+    dependencyGroup: PyDependencyGroup?,
+  ): PyResult<Unit> {
     val args = mutableListOf("remove")
     if (workspaceMember != null) {
       args.add("--package")
@@ -354,7 +379,7 @@ private class UvLowLevelImpl<P : PathHolder>(
     }
 
     // uv calls this schema a preview and has already revised it, so refuse an unfamiliar one rather than guess.
-    val schemaVersion = report.path("schema").path("version").textValue()
+    val schemaVersion = report.path("schema").path("version").stringValue(null)
     if (schemaVersion != SUPPORTED_SYNC_SCHEMA_VERSION) {
       return PyResult.localizedError(
         PyBundle.message("uv.script.sync.unsupported.schema", schemaVersion ?: "", SUPPORTED_SYNC_SCHEMA_VERSION)
@@ -362,8 +387,8 @@ private class UvLowLevelImpl<P : PathHolder>(
     }
 
     val environment = report.path("sync").path("environment")
-    val environmentPath = environment.path("path").textValue()
-    val pythonPath = environment.path("python").path("path").textValue()
+    val environmentPath = environment.path("path").stringValue(null)
+    val pythonPath = environment.path("python").path("path").stringValue(null)
     if (environmentPath.isNullOrBlank() || pythonPath.isNullOrBlank()) {
       return PyResult.localizedError(PyBundle.message("uv.script.sync.no.environment", scriptPath.pathString))
     }
@@ -386,14 +411,17 @@ internal fun constructSyncArgs(inexact: Boolean): MutableList<String> {
   return args
 }
 
-internal fun createUvLowLevelLocal(cwd: Path, uvCli: UvCli<PathHolder.Eel>): UvLowLevel<PathHolder.Eel> =
-  createUvLowLevel(cwd, uvCli, EelFileSystem(localEel), null)
+/**
+ * [cwd] is the directory uv runs in. Pass `null` for a caller that only queries uv and needs no directory.
+ * [UvLowLevel.initializeEnvironment] needs a real one.
+ */
+internal fun <P : PathHolder> createUvLowLevel(cwd: Path?, uvCli: UvCli<P>, venvPath: P? = null): UvLowLevel<P> =
+  UvLowLevelImpl(cwd, venvPath, uvCli, uvCli.fileSystem)
 
-internal fun <P : PathHolder> createUvLowLevel(cwd: Path, uvCli: UvCli<P>, fileSystem: FileSystem<P>, venvPath: P?): UvLowLevel<P> =
-  UvLowLevelImpl(cwd, venvPath, uvCli, fileSystem)
-
-internal suspend fun createUvLowLevelLocal(cwd: Path): PyResult<UvLowLevel<PathHolder.Eel>> =
-  validateAndCreateUvCli(null, EelFileSystem(localEel)).mapSuccess { createUvLowLevelLocal(cwd, it) }
+internal suspend fun createUvLowLevelOnEel(eelApi: EelApi, cwd: Path? = null): PyResult<UvLowLevel<PathHolder.Eel>> {
+  check(cwd == null || cwd.getEelDescriptor() == eelApi.descriptor) { "$cwd is not on $eelApi" }
+  return validateAndCreateUvCli(null, EelFileSystem(eelApi)).mapSuccess { createUvLowLevel(cwd, it) }
+}
 
 private fun tryExtractStderr(err: PyError): String? =
   when (err) {

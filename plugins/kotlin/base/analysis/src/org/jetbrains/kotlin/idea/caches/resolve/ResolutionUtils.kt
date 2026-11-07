@@ -2,7 +2,7 @@
 @file:JvmName("ResolutionUtils")
 package org.jetbrains.kotlin.idea.caches.resolve
 
-import com.intellij.openapi.diagnostic.rethrowControlFlowException
+import com.intellij.diagnostic.rethrowControlFlowException
 import com.intellij.psi.PsiElement
 import org.jetbrains.kotlin.idea.references.mainReference
 import org.jetbrains.kotlin.psi.KtReferenceExpression

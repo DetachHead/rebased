@@ -3,6 +3,9 @@
   <dependencies>
     <plugin id="com.jetbrains.performancePlugin"/>
     <module name="intellij.java.impl"/>
+    <module name="intellij.platform.backend.workspace"/>
+    <module name="intellij.platform.buildView"/>
+    <module name="intellij.platform.concurrency"/>
     <module name="intellij.platform.core"/>
     <module name="intellij.platform.core.ui"/>
     <module name="intellij.platform.editor.ui"/>
@@ -14,7 +17,7 @@
     <module name="intellij.platform.lang"/>
     <module name="intellij.platform.lang.core"/>
     <module name="intellij.platform.projectModel"/>
-    <module name="intellij.repository.search.common"/>
+    <module name="intellij.platform.workspace.storage"/>
   </dependencies>
   <!-- endregion -->
   <extensions defaultExtensionNs="com.jetbrains">

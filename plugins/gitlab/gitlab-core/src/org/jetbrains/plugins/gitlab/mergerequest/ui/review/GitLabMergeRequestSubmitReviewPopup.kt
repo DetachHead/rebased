@@ -5,16 +5,23 @@ import com.intellij.collaboration.async.inverted
 import com.intellij.collaboration.messages.CollaborationToolsBundle
 import com.intellij.collaboration.ui.ExceptionUtil
 import com.intellij.collaboration.ui.HorizontalListPanel
+import com.intellij.collaboration.ui.VerticalListPanel
 import com.intellij.collaboration.ui.codereview.list.error.ErrorStatusPresenter
 import com.intellij.collaboration.ui.codereview.review.CodeReviewSubmitPopupHandler
 import com.intellij.collaboration.ui.util.bindDisabledIn
 import com.intellij.collaboration.ui.util.bindEnabledIn
 import com.intellij.collaboration.ui.util.bindVisibilityIn
 import com.intellij.ide.plugins.newui.InstallButton
+import com.intellij.ui.components.JBCheckBox
+import com.intellij.util.ui.JBFont
+import com.intellij.util.ui.JBUI
+import com.intellij.util.ui.UIUtil
+import git4idea.i18n.GitBundle
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.combine
 import org.jetbrains.plugins.gitlab.util.GitLabBundle
 import javax.swing.JButton
+import javax.swing.JLabel
 import javax.swing.JPanel
 
 internal object GitLabMergeRequestSubmitReviewPopup : CodeReviewSubmitPopupHandler<GitLabMergeRequestSubmitReviewViewModel>() {
@@ -53,12 +60,35 @@ internal object GitLabMergeRequestSubmitReviewPopup : CodeReviewSubmitPopupHandl
         vm.submit()
       }
     }
-    return HorizontalListPanel(ACTIONS_GAP).apply {
+    val buttonsPanel = HorizontalListPanel(ACTIONS_GAP).apply {
       add(approveButton)
       add(unApproveButton)
       add(submitButton)
     }
+    if (!vm.canDeleteWorktree) return buttonsPanel
+
+    val deleteWorktreeCheckBox = JBCheckBox(GitBundle.message("Git.WorkingTrees.delete.current.worktree.checkbox"),
+                                            vm.deleteWorktreeAfterSubmit.value).apply {
+      isOpaque = false
+      bindDisabledIn(cs, vm.isBusy)
+      addActionListener { vm.setDeleteWorktreeAfterSubmit(isSelected) }
+    }
+    val deleteWorktreeComment = JLabel(GitBundle.message("Git.WorkingTrees.delete.current.worktree.project.will.be.closed")).apply {
+      foreground = UIUtil.getContextHelpForeground()
+      font = JBFont.small()
+      border = JBUI.Borders.emptyLeft(UIUtil.getCheckBoxTextHorizontalOffset(deleteWorktreeCheckBox))
+    }
+    val deleteWorktreePanel = VerticalListPanel().apply {
+      add(deleteWorktreeCheckBox)
+      add(deleteWorktreeComment)
+    }
+    return VerticalListPanel(DELETE_WORKTREE_GAP).apply {
+      add(deleteWorktreePanel)
+      add(buttonsPanel)
+    }
   }
+
+  private const val DELETE_WORKTREE_GAP = 6
 
   override val errorPresenter: ErrorStatusPresenter<Throwable> by lazy {
     ErrorStatusPresenter.simple(

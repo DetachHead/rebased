@@ -12,6 +12,13 @@ jps_test(
 
 ### skip generation section `test intellij.platform.jewel.markdown.core.tests`
 
+### auto-generated section `dev intellij.platform.jewel.markdown.core` start
+content_module_jar(
+    libraries = ["@lib//:platform-jewel-markdown-core-org-commonmark-commonmark"],
+    module = ":core",
+)
+### auto-generated section `dev intellij.platform.jewel.markdown.core` end
+
 ### auto-generated section `build intellij.platform.jewel.markdown.core` start
 create_kotlinc_options(
     name = "custom_core",
@@ -57,11 +64,6 @@ jvm_library(
     ],
 )
 
-content_module_jar(
-    libraries = ["@lib//:platform-jewel-markdown-core-org-commonmark-commonmark"],
-    module = ":core",
-)
-
 jvm_library(
     name = "core_test_lib",
     testonly = True,
@@ -81,11 +83,7 @@ jvm_library(
         "//platform/jewel/ui:ui_test_lib",
         "//platform/jewel/foundation:foundation_test_lib",
         "//libraries/compose-foundation-desktop:compose-foundation-desktop_test_lib",
-        "//libraries/junit4",
-        "//libraries/junit4:junit4_test_lib",
         "//libraries/compose-runtime-desktop:compose-runtime-desktop_test_lib",
-        "//libraries/compose-foundation-desktop-junit",
-        "//libraries/compose-foundation-desktop-junit:compose-foundation-desktop-junit_test_lib",
         "//libraries/jsoup:jsoup_test_lib",
     ],
 )
@@ -96,7 +94,6 @@ exports_files(
     [
         "intellij.platform.jewel.markdown.core.iml",
         "src/main/resources/intellij.platform.jewel.markdown.core.xml",
-        "module-content.yaml",
     ],
     visibility = ["//visibility:public"],
 )

@@ -6,7 +6,6 @@ import com.intellij.openapi.editor.ex.DocumentSnapshot;
 import com.intellij.openapi.editor.ex.DocumentText;
 import com.intellij.openapi.editor.impl.DocumentImpl;
 import com.intellij.openapi.editor.impl.DocumentSnapshotImpl;
-import com.intellij.openapi.editor.impl.DocumentTextImpl;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 
@@ -71,15 +70,11 @@ public final class DocumentInternalUtil {
     return column;
   }
 
-  public static @NotNull DocumentText getDocumentText(@NotNull Document document) {
-    return getDocumentSnapshot(document).text();
-  }
-
   public static @NotNull DocumentSnapshot getDocumentSnapshot(@NotNull Document document) {
     if (document instanceof DocumentImpl) {
       return ((DocumentImpl)document).getCore().snapshot();
     }
-    return new DocumentSnapshotImpl(new DocumentTextImpl(document.getImmutableCharSequence()));
+    return new DocumentSnapshotImpl(DocumentText.createText(document.getImmutableCharSequence()));
   }
 
   public static boolean isInsideSurrogatePair(@NotNull DocumentText documentText, int offset) {

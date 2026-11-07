@@ -12,12 +12,13 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 public final class NameSuggesterUtil {
+  private static final Pattern NON_LETTER_PATTERN = Pattern.compile("[^a-zA-Z_]+");
+
   private NameSuggesterUtil() {
   }
 
   private static @NotNull String deleteNonLetterFromString(final @NotNull String string) {
-    Pattern pattern = Pattern.compile("[^a-zA-Z_]+");
-    Matcher matcher = pattern.matcher(string);
+    Matcher matcher = NON_LETTER_PATTERN.matcher(string);
     return matcher.replaceAll("_");
   }
 

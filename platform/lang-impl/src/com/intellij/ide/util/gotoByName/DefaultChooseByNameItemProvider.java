@@ -6,7 +6,6 @@ import com.intellij.ide.actions.searcheverywhere.FoundItemDescriptor;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.progress.ProcessCanceledException;
 import com.intellij.openapi.progress.ProgressIndicator;
-import com.intellij.openapi.progress.ProgressIndicatorProvider;
 import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.util.text.StringUtil;
@@ -198,13 +197,31 @@ public class DefaultChooseByNameItemProvider implements ChooseByNameInScopeItemP
 
     final var started = System.currentTimeMillis();
     final var comparingPattern = qualifiedNamePattern != null ? qualifiedNamePattern : namePattern;
-    namesList.sort(Comparator.comparing((MatchResult mr) -> !rawPattern.equalsIgnoreCase(mr.elementName))
-                     .thenComparing((MatchResult mr) -> !comparingPattern.equalsIgnoreCase(mr.elementName))
-                     .thenComparing(Comparator.naturalOrder()));
+    final Comparator<MatchResult> byNameEquality =
+      Comparator.comparing((MatchResult mr) -> !rawPattern.equalsIgnoreCase(mr.elementName))
+        .thenComparing((MatchResult mr) -> !comparingPattern.equalsIgnoreCase(mr.elementName))
+        .thenComparing(Comparator.naturalOrder());
+    namesList.sort(cancellable(byNameEquality));
     if (LOG.isDebugEnabled()) {
       LOG.debug("sorted:"+ (System.currentTimeMillis() - started) + ",results:" + namesList.size());
     }
     return namesList;
+  }
+
+  /**
+   * Makes a sort cancellable without paying for {@link ProgressManager#checkCanceled()} on every comparison:
+   * sorting ~100k names performs millions of comparisons, so the check is done once per {@code 1024} of them.
+   * The returned comparator is stateful and must be used for a single-threaded sort only.
+   */
+  @ApiStatus.Internal
+  protected static @NotNull <T> Comparator<T> cancellable(@NotNull Comparator<? super T> delegate) {
+    int[] counter = {0};
+    return (o1, o2) -> {
+      if ((++counter[0] & 0x3FF) == 0) {
+        ProgressManager.checkCanceled();
+      }
+      return delegate.compare(o1, o2);
+    };
   }
 
   private static @NotNull List<MatchResult> getAllNames(@NotNull ChooseByNameViewModel base,
@@ -250,7 +267,7 @@ public class DefaultChooseByNameItemProvider implements ChooseByNameInScopeItemP
       }
       final var names = allNamesProducer.get();
       final var started = System.currentTimeMillis();
-      processNamesByPattern(base, names, namePattern, indicator, collector, preferStartMatches);
+      processNamesByPattern(base, names, namePattern, collector, preferStartMatches);
       if (LOG.isDebugEnabled()) {
         LOG.debug("matched:"+ (System.currentTimeMillis() - started)+ "," + names.length);
       }
@@ -489,7 +506,7 @@ public class DefaultChooseByNameItemProvider implements ChooseByNameInScopeItemP
     if (pattern.isEmpty() && !base.canShowListForEmptyPattern()) return Collections.emptyList();
 
     final List<String> filtered = new ArrayList<>();
-    processNamesByPattern(base, names, pattern, ProgressIndicatorProvider.getGlobalProgressIndicator(), result -> {
+    processNamesByPattern(base, names, pattern, result -> {
       synchronized (filtered) {
         filtered.add(result.elementName);
       }
@@ -502,7 +519,6 @@ public class DefaultChooseByNameItemProvider implements ChooseByNameInScopeItemP
   private static void processNamesByPattern(final @NotNull ChooseByNameViewModel base,
                                             final String @NotNull [] names,
                                             final @NotNull String namePattern,
-                                            final @NotNull ProgressIndicator indicator,
                                             final @NotNull Consumer<? super MatchResult> consumer,
                                             final boolean preferStartMatches) {
     final var nameMatcher = buildPatternMatcher(namePattern, preferStartMatches);
@@ -514,7 +530,7 @@ public class DefaultChooseByNameItemProvider implements ChooseByNameInScopeItemP
       }
       return true;
     };
-    if (!JobLauncher.getInstance().invokeConcurrentlyUnderProgress(Arrays.asList(names), indicator, nameProcessor)) {
+    if (!JobLauncher.getInstance().invokeConcurrentlyUnderContextProgress(Arrays.asList(names), nameProcessor)) {
       throw new ProcessCanceledException();
     }
   }

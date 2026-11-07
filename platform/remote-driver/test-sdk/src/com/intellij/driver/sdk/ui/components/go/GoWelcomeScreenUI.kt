@@ -9,7 +9,7 @@ import com.intellij.driver.sdk.ui.ui
 import com.intellij.driver.sdk.ui.xQuery
 
 fun Finder.goWelcomeScreen(action: GoWelcomeScreenUI.() -> Unit = {}): GoWelcomeScreenUI {
-  return x(xQuery { byTitle("GoLand Home – Welcome to GoLand") }, GoWelcomeScreenUI::class.java).apply(action)
+  return x(xQuery { byTitle("GoLand Home") }, GoWelcomeScreenUI::class.java).apply(action)
 }
 
 fun Driver.goWelcomeScreen(action: GoWelcomeScreenUI.() -> Unit = {}): GoWelcomeScreenUI {
@@ -18,8 +18,8 @@ fun Driver.goWelcomeScreen(action: GoWelcomeScreenUI.() -> Unit = {}): GoWelcome
 
 class GoWelcomeScreenUI(data: ComponentData) : WelcomeScreenUI(data) {
   val newButton: UiComponent
-    get() = x(xQuery { byVisibleText("New…") })
+    get() = x(xQuery { byVisibleText("New") })
 
   val cloneButton: UiComponent
-    get() = x(xQuery { byAccessibleName("Clone Repository…") })
+    get() = x(xQuery { byAccessibleName("Clone Repository") })
 }

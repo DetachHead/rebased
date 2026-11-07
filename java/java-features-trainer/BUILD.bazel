@@ -2,6 +2,10 @@ load("@community//build:tests-options.bzl", "jps_test")
 load("@rules_jvm//:jvm.bzl", "jvm_library")
 load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
+### auto-generated section `dev intellij.java.featuresTrainer` start
+content_module_jar(module = ":featuresTrainer")
+### auto-generated section `dev intellij.java.featuresTrainer` end
+
 ### auto-generated section `build intellij.java.featuresTrainer` start
 jvm_library(
     name = "featuresTrainer",
@@ -55,8 +59,6 @@ jvm_library(
     ],
 )
 
-content_module_jar(module = ":featuresTrainer")
-
 jvm_library(
     name = "featuresTrainer_test_lib",
     testonly = True,
@@ -93,8 +95,6 @@ jvm_library(
         "//platform/lang-core:lang-core_test_lib",
         "//platform/projectModel-api:projectModel_test_lib",
         "//platform/refactoring:refactoring_test_lib",
-        "//platform/testFramework",
-        "//platform/testFramework:testFramework_test_lib",
         "//java/execution/impl:impl_test_lib",
         "//java/debugger/shared:shared_test_lib",
         "//java/java-frontback-psi-api:frontback-psi_test_lib",

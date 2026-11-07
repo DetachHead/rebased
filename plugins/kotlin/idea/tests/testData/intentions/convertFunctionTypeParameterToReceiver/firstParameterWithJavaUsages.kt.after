@@ -1,5 +1,5 @@
 open class K {
-    open fun foo(f: Int.(<caret>Boolean) -> String) {
+    open fun foo(f: I<caret>nt.(Boolean) -> String) {
 
     }
 }

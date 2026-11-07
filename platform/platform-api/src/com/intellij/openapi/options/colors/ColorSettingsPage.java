@@ -18,8 +18,31 @@ import java.util.Map;
 
 /**
  * Interface for a custom page shown in the "Colors and Fonts" settings dialog.
+ * <p>
+ * Declare a page with {@code com.intellij.colorSettings} and not with {@link #EP_NAME}.
  */
 public interface ColorSettingsPage extends ColorAndFontDescriptorsProvider {
+  /**
+   * The extension point of a colour page that the platform must create to read its id, its name and its order.
+   * <p>
+   * <b>Declare a new page with {@code com.intellij.colorSettings} instead.</b> That declaration states
+   * the id, the name and the order, so the settings tree builds the node and loads no class, and the platform
+   * creates the page when the user opens it. See
+   * {@code com.intellij.application.options.colors.ColorSettingsPageEP} for every attribute.
+   * <p>
+   * This extension point stays, for three cases:
+   * <ul>
+   *   <li>a product registers a page at run time, for example the remote development client, which builds one
+   *   page per page of its host;</li>
+   *   <li>a page cannot state its id, its name or its order in a declaration, because it computes one of them;</li>
+   *   <li>a plugin supports an older IDE with one archive. Such a plugin may carry both declarations of one class.
+   *   The new declaration answers, and the class stays unloaded. An older IDE drops the unknown declaration with no
+   *   message, and it asks for a restart on an install, because it cannot load the plugin dynamically.</li>
+   * </ul>
+   * A caller that needs every colour page reads
+   * {@link ColorSettingsPages#getRegisteredPages()}, which answers the pages of both extension points.
+   * This extension point alone answers the pages of one declaration kind.
+   */
   ExtensionPointName<ColorSettingsPage> EP_NAME = ExtensionPointName.create("com.intellij.colorSettingsPage");
 
   /**

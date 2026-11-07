@@ -9,11 +9,17 @@ import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.actionSystem.CustomShortcutSet
 import com.intellij.openapi.actionSystem.remoting.ActionRemoteBehaviorSpecification
 import com.intellij.openapi.diagnostic.thisLogger
+import com.intellij.openapi.editor.impl.EditorComponentImpl
+import com.intellij.openapi.fileEditor.impl.EditorsSplitters
 import com.intellij.openapi.project.DumbAwareAction
 import com.intellij.openapi.project.DumbAwareToggleAction
+import com.intellij.ui.ComponentUtil
 import com.intellij.ui.components.JBList
 import com.intellij.util.ui.accessibility.ScreenReader
 import org.jetbrains.annotations.ApiStatus
+import java.awt.AWTKeyStroke
+import java.awt.Component
+import java.awt.KeyboardFocusManager
 import java.awt.event.ActionEvent
 import java.awt.event.FocusEvent
 import java.awt.event.FocusListener
@@ -36,16 +42,13 @@ abstract class BaseSwitcherAction(val forward: Boolean?) : DumbAwareAction(), Ac
     templatePresentation.isRWLockRequired = false
   }
 
-  private fun isControlTab(event: KeyEvent?) = event?.run { isControlDown && keyCode == KeyEvent.VK_TAB } ?: false
-  private fun isControlTabDisabled(event: AnActionEvent) = ScreenReader.isActive() && isControlTab(event.inputEvent as? KeyEvent)
-
   override fun update(event: AnActionEvent) {
     if (shouldUseFallbackSwitcher()) {
       event.presentation.isEnabledAndVisible = false
       return
     }
 
-    event.presentation.isEnabled = event.project != null && !isControlTabDisabled(event)
+    event.presentation.isEnabled = event.project != null
     event.presentation.isVisible = forward == null
   }
 
@@ -56,11 +59,39 @@ abstract class BaseSwitcherAction(val forward: Boolean?) : DumbAwareAction(), Ac
     val switcher = Switcher.SWITCHER_KEY.get(project)
     if (switcher != null && (!switcher.recent || forward != null)) {
       switcher.go(forward ?: forward(event))
+      return
     }
-    else {
-      FeatureUsageTracker.getInstance().triggerFeatureUsed("switcher")
-      createAndShowNewSwitcher(event, project)
+    if (ScreenReader.isActive()) {
+      // Tab can insert text or navigate within a component without moving focus out of it.
+      // When Ctrl+Tab is needed to leave the component, move focus instead of opening the switcher.
+      val keyEvent = event.inputEvent as? KeyEvent
+      if (keyEvent != null && keyEvent.isControlDown && keyEvent.keyCode == KeyEvent.VK_TAB) {
+        val owner = KeyboardFocusManager.getCurrentKeyboardFocusManager().focusOwner
+        if (owner != null && shouldMoveFocus(owner, keyEvent.isShiftDown)) {
+          if (keyEvent.isShiftDown) owner.transferFocusBackward() else owner.transferFocus()
+          return
+        }
+      }
     }
+    FeatureUsageTracker.getInstance().triggerFeatureUsed("switcher")
+    createAndShowNewSwitcher(event, project)
+  }
+
+  private fun shouldMoveFocus(owner: Component, backward: Boolean): Boolean {
+    if (!owner.focusTraversalKeysEnabled) return false
+
+    if (owner is EditorComponentImpl) {
+      if (owner.editor.isOneLineMode) return false
+      return ComponentUtil.getParentOfType(EditorsSplitters::class.java, owner) == null
+    }
+
+    if (backward) {
+      val tab = AWTKeyStroke.getAWTKeyStroke(KeyEvent.VK_TAB, InputEvent.SHIFT_DOWN_MASK)
+      return tab !in owner.getFocusTraversalKeys(KeyboardFocusManager.BACKWARD_TRAVERSAL_KEYS)
+    }
+
+    val tab = AWTKeyStroke.getAWTKeyStroke(KeyEvent.VK_TAB, 0)
+    return tab !in owner.getFocusTraversalKeys(KeyboardFocusManager.FORWARD_TRAVERSAL_KEYS)
   }
 }
 

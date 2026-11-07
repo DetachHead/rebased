@@ -21,7 +21,9 @@ import com.intellij.lang.LanguageExtensionPoint;
 import com.intellij.notification.impl.NotificationGroupEP;
 import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.command.WriteCommandAction;
 import com.intellij.openapi.extensions.LoadingOrder;
+import com.intellij.openapi.fileEditor.FileDocumentManager;
 import com.intellij.openapi.module.JavaModuleType;
 import com.intellij.openapi.options.Configurable;
 import com.intellij.openapi.project.IntelliJProjectUtil;
@@ -33,6 +35,7 @@ import com.intellij.openapi.util.ThrowableComputable;
 import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.ElementDescriptionUtil;
+import com.intellij.psi.PsiDocumentManager;
 import com.intellij.psi.PsiField;
 import com.intellij.testFramework.IdeaTestUtil;
 import com.intellij.testFramework.PsiTestUtil;
@@ -168,6 +171,8 @@ public class PluginXmlFunctionalTest extends JavaCodeInsightFixtureTestCase {
     myFixture.addClass("package foo;\n\n@Deprecated(forRemoval=true) public interface MyDeprecatedForRemovalEP {}");
     myFixture.addClass("package foo;\n\npublic class MyDeprecatedForRemovalEPImpl implements MyDeprecatedForRemovalEP {}");
     myFixture.addClass("package foo;\n\npublic class MyAppStarter implements com.intellij.openapi.application.ApplicationStarter {}");
+    myFixture.addClass(
+      "package foo;\n\npublic class MyColorSettingsPage implements com.intellij.openapi.options.colors.ColorSettingsPage {}");
     myFixture.addClass("""
       package foo;
       import org.jetbrains.annotations.ApiStatus.Experimental;
@@ -266,6 +271,71 @@ public class PluginXmlFunctionalTest extends JavaCodeInsightFixtureTestCase {
     doHighlightingTest();
 
     myFixture.configureFromExistingVirtualFile(contentSubDescriptorFile);
+    doHighlightingTest();
+  }
+
+  public void testExtensionsInheritDependenciesThroughXInclude() throws IOException {
+    addPluginXml("q", """
+      <id>q</id>
+      <extensionPoints>
+        <extensionPoint name="ep" interface="java.lang.Runnable"/>
+      </extensionPoints>
+      """);
+    myTempDirFixture.createFile("main/META-INF/plugin.xml", """
+      <idea-plugin xmlns:xi="http://www.w3.org/2001/XInclude">
+        <id>main</id>
+        <depends>q</depends>
+        <xi:include href="extra.xml"/>
+      </idea-plugin>
+      """);
+    var extraFile = myTempDirFixture.createFile("main/META-INF/extra.xml", """
+      <idea-plugin>
+        <extensions defaultExtensionNs="q">
+          <ep implementation="java.lang.Thread"/>
+        </extensions>
+      </idea-plugin>
+      """);
+    ApplicationManager.getApplication().runWriteAction(
+      (Computable<SourceFolder>)() -> PsiTestUtil.addSourceContentToRoots(getModule(), myTempDirFixture.getFile("main"))
+    );
+
+    myFixture.configureFromExistingVirtualFile(extraFile);
+    doHighlightingTest();
+  }
+
+  public void testExtensionsInheritDependenciesAfterXIncludeIsAdded() throws IOException {
+    addPluginXml("q", """
+      <id>q</id>
+      <extensionPoints>
+        <extensionPoint name="ep" interface="java.lang.Runnable"/>
+      </extensionPoints>
+      """);
+    var pluginXml = myTempDirFixture.createFile("main/META-INF/plugin.xml", """
+      <idea-plugin xmlns:xi="http://www.w3.org/2001/XInclude">
+        <id>main</id>
+        <depends>q</depends>
+      </idea-plugin>
+      """);
+    var extraFile = myTempDirFixture.createFile("main/META-INF/extra.xml", """
+      <idea-plugin>
+        <extensions defaultExtensionNs="q">
+          <ep implementation="java.lang.Thread"/>
+        </extensions>
+      </idea-plugin>
+      """);
+    ApplicationManager.getApplication().runWriteAction(
+      (Computable<SourceFolder>)() -> PsiTestUtil.addSourceContentToRoots(getModule(), myTempDirFixture.getFile("main"))
+    );
+
+    myFixture.configureFromExistingVirtualFile(extraFile);
+    assertTrue(ContainerUtil.exists(myFixture.doHighlighting(), info -> "Missing dependency declaration for using extension point 'q.ep'".equals(info.getDescription())));
+
+    var document = FileDocumentManager.getInstance().getDocument(pluginXml);
+    WriteCommandAction.runWriteCommandAction(getProject(), () -> {
+      document.insertString(document.getText().indexOf("</idea-plugin>"), "  <xi:include href=\"extra.xml\"/>\n");
+      PsiDocumentManager.getInstance(getProject()).commitDocument(document);
+    });
+
     doHighlightingTest();
   }
 

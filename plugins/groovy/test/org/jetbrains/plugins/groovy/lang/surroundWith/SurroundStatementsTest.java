@@ -5,8 +5,8 @@ import org.jetbrains.plugins.groovy.util.TestUtils;
 
 public class SurroundStatementsTest extends SurroundTestCase {
   @Override
-  protected String getBasePath() {
-    return TestUtils.getTestDataPath() + "groovy/surround/statements/";
+  protected String getTestDataPath() {
+    return TestUtils.getAbsoluteTestDataPath() + "groovy/surround/statements/";
   }
 
   public void testClosure1() { doTest(new SurrounderByClosure()); }

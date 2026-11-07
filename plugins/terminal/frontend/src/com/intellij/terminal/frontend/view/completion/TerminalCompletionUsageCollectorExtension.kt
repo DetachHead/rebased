@@ -17,7 +17,7 @@ import org.jetbrains.plugins.terminal.fus.TerminalCommandUsageStatistics
 
 private val COMMAND_FIELD = EventFields.String(
   "terminal_command",
-  TerminalCommandUsageStatistics.getKnownCommandValuesList(),
+  TerminalCommandUsageStatistics.getKnownCommandValuesWithCornerCases(),
   "CLI name extracted from the first token in the currently typed command"
 )
 private val SUBCOMMAND_FIELD = EventFields.String(

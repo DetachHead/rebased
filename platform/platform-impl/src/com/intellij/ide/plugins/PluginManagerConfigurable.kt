@@ -6,6 +6,7 @@ package com.intellij.ide.plugins
 import com.intellij.ide.IdeBundle
 import com.intellij.ide.plugins.marketplace.statistics.enums.PluginManagerOpenSourceEnum
 import com.intellij.ide.plugins.newui.getPluginsViewCustomizer
+import com.intellij.idea.AppMode
 import com.intellij.openapi.actionSystem.DataKey
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.ApplicationNamesInfo
@@ -25,11 +26,13 @@ import com.intellij.openapi.util.SystemInfo
 import com.intellij.ui.JBColor
 import com.intellij.ui.RelativeFont
 import com.intellij.util.concurrency.annotations.RequiresEdt
+import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
 import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.annotations.Nls
 import java.awt.Color
 import java.awt.Component
+import java.awt.Dimension
 import java.text.SimpleDateFormat
 import java.util.function.Consumer
 import java.util.function.Function
@@ -37,8 +40,10 @@ import javax.swing.JComponent
 
 @ApiStatus.Internal
 class PluginManagerConfigurable() : SearchableConfigurable, Configurable.NoScroll, Configurable.NoMargin, Configurable.TopComponentProvider {
-  private var myPanel: PluginManagerConfigurablePanel? = null
+  private var myPanel: PluginsPageSession? = null
   private var openSource: PluginManagerOpenSourceEnum? = null
+  private var isStandaloneConfigurable = false
+  private var useWideStandaloneDefault = false
 
   /**
    * @deprecated Use {@link PluginManagerConfigurable#PluginManagerConfigurable()}
@@ -58,13 +63,13 @@ class PluginManagerConfigurable() : SearchableConfigurable, Configurable.NoScrol
     return ID
   }
 
-  @RequiresEdt
+  @RequiresEdt(generateAssertion = false /* IJPL-115548 */)
   override fun getCenterComponent(controller: Configurable.TopComponentController): JComponent {
     val panel = createPanelIfNeeded()
     return panel.getCenterComponent(controller)
   }
 
-  @get:RequiresEdt
+  @get:RequiresEdt(generateAssertion = false /* IJPL-115548 */)
   val topComponent: JComponent
     get() = getCenterComponent(Configurable.TopComponentController.EMPTY)
 
@@ -78,28 +83,38 @@ class PluginManagerConfigurable() : SearchableConfigurable, Configurable.NoScrol
       LOG.error("Error while processing configurable", e)
     }
 
-    return panel.getComponent()
+    val component = panel.getComponent()
+    if (useWideStandaloneDefault && panel is UnifiedPluginsPageSession) {
+      val preferredSize = component.preferredSize
+      component.preferredSize = Dimension(JBUI.scale(900), preferredSize.height)
+    }
+    return component
   }
 
-  @RequiresEdt
-  private fun createPanelIfNeeded(): PluginManagerConfigurablePanel {
-    return createPanelIfNeeded(null)
-  }
+  override fun getPreferredFocusedComponent(): JComponent? = myPanel?.getPreferredFocusedComponent()
 
-  @RequiresEdt
-  private fun createPanelIfNeeded(searchQuery: String?): PluginManagerConfigurablePanel {
+  @RequiresEdt(generateAssertion = false /* IJPL-115548 */)
+  private fun createPanelIfNeeded(
+    searchQuery: String? = null,
+    initialNavigation: PluginsPageInitialNavigation? = null,
+  ): PluginsPageSession {
     if (myPanel == null) {
-      myPanel = PluginManagerConfigurablePanel(searchQuery, openSource ?: PluginManagerOpenSourceEnum.OTHER)
+      myPanel = createPluginsPageSession(
+        searchQuery,
+        openSource ?: PluginManagerOpenSourceEnum.OTHER,
+        isStandaloneConfigurable,
+        initialNavigation,
+      )
     }
     return myPanel!!
   }
 
-  @RequiresEdt
+  @RequiresEdt(generateAssertion = false /* IJPL-115548 */)
   fun setOpenSource(source: PluginManagerOpenSourceEnum) {
     openSource = source
   }
 
-  @RequiresEdt
+  @RequiresEdt(generateAssertion = false /* IJPL-115548 */)
   fun setOpenSourceFromSettings() {
     if (openSource == null) {
       openSource = PluginManagerOpenSourceEnum.SETTINGS
@@ -142,12 +157,14 @@ class PluginManagerConfigurable() : SearchableConfigurable, Configurable.NoScrol
     }
   }
 
-  @RequiresEdt
+  @RequiresEdt(generateAssertion = false /* IJPL-115548 */)
+  @Deprecated("Use Settings.select with an option or a plugin navigation method.")
   override fun enableSearch(option: String?): Runnable? {
     return createPanelIfNeeded(option).enableSearch(option)
   }
 
-  @RequiresEdt
+  @RequiresEdt(generateAssertion = false /* IJPL-115548 */)
+  @Deprecated("Use Settings.select with an option or a plugin navigation method.")
   fun enableSearch(option: String?, ignoreTagMarketplaceTab: Boolean): Runnable? {
     return createPanelIfNeeded(option).enableSearch(option, ignoreTagMarketplaceTab)
   }
@@ -160,31 +177,57 @@ class PluginManagerConfigurable() : SearchableConfigurable, Configurable.NoScrol
     return myPanel != null && myPanel!!.isInstalledTabShowing()
   }
 
-  @RequiresEdt
+  @RequiresEdt(generateAssertion = false /* IJPL-115548 */)
+  fun navigateToMarketplace(query: String) {
+    createPanelIfNeeded(
+      initialNavigation = PluginsPageInitialNavigation(query, PluginsPageInitialNavigationTarget.Marketplace),
+    ).openMarketplaceTab(query)
+  }
+
+  @RequiresEdt(generateAssertion = false /* IJPL-115548 */)
+  fun navigateToInstalled(query: String) {
+    val search = openInstalledTabWithSearch(query)
+    if (search != null) {
+      ApplicationManager.getApplication().invokeLater(search)
+    }
+  }
+
+  @RequiresEdt(generateAssertion = false /* IJPL-115548 */)
+  @Deprecated("Use navigateToMarketplace(option).", ReplaceWith("navigateToMarketplace(option)"))
   fun openMarketplaceTab(option: String) {
-    createPanelIfNeeded(option).openMarketplaceTab(option)
+    createPanelIfNeeded(
+      searchQuery = option,
+      initialNavigation = PluginsPageInitialNavigation(option, PluginsPageInitialNavigationTarget.Marketplace),
+    ).openMarketplaceTab(option)
   }
 
-  /**
-   * If the plugin settings must be opened with the Installed tab selected and search applied, consider
-   * [PluginManagerConfigurableUtils.showInstalledTabWithSearch], see IJPL-254032 for details.
-   */
-  @RequiresEdt
+  @RequiresEdt(generateAssertion = false /* IJPL-115548 */)
+  @Deprecated("Use navigateToInstalled(option).", ReplaceWith("navigateToInstalled(option)"))
   fun openInstalledTab(option: String) {
-    createPanelIfNeeded(option).openInstalledTab(option)
+    createPanelIfNeeded(
+      searchQuery = option,
+      initialNavigation = PluginsPageInitialNavigation(option, PluginsPageInitialNavigationTarget.Installed),
+    ).openInstalledTab(option)
   }
 
-  @RequiresEdt
+  @RequiresEdt(generateAssertion = false /* IJPL-115548 */)
+  internal fun openInstalledTabWithSearch(option: String): Runnable? {
+    return createPanelIfNeeded(
+      initialNavigation = PluginsPageInitialNavigation(option, PluginsPageInitialNavigationTarget.Installed),
+    ).openInstalledTabWithSearch(option)
+  }
+
+  @RequiresEdt(generateAssertion = false /* IJPL-115548 */)
   private fun setInstallSource(source: FUSEventSource?) {
     createPanelIfNeeded().setInstallSource(source)
   }
 
-  @RequiresEdt
+  @RequiresEdt(generateAssertion = false /* IJPL-115548 */)
   private fun selectAndEnable(descriptors: Set<IdeaPluginDescriptor>) {
     createPanelIfNeeded().selectAndEnable(descriptors)
   }
 
-  @RequiresEdt
+  @RequiresEdt(generateAssertion = false /* IJPL-115548 */)
   private fun select(pluginIds: Collection<PluginId>) {
     createPanelIfNeeded().select(pluginIds)
   }
@@ -196,6 +239,7 @@ class PluginManagerConfigurable() : SearchableConfigurable, Configurable.NoScrol
   companion object {
     const val ID: String = "preferences.pluginManager"
     const val SELECTION_TAB_KEY: String = "PluginConfigurable.selectionTab"
+    private const val STANDALONE_DIALOG_DIMENSION_KEY: String = "UnifiedPluginsPage.StandaloneDialog"
 
     @JvmField
     val PLUGIN_INSTALL_CALLBACK_DATA_KEY: DataKey<Consumer<PluginInstallCallbackData>> =
@@ -316,7 +360,7 @@ class PluginManagerConfigurable() : SearchableConfigurable, Configurable.NoScrol
     @ApiStatus.Internal
     @JvmStatic
     fun showPluginManagerDialog(project: Project?, source: PluginManagerOpenSourceEnum, advancedInitialization: (PluginManagerConfigurable) -> Unit) {
-      val configurable = createWithOpenSource(source)
+      val configurable = createWithOpenSource(source).apply { isStandaloneConfigurable = true }
       ShowSettingsUtil.getInstance().editConfigurable(
         project,
         configurable,
@@ -328,6 +372,31 @@ class PluginManagerConfigurable() : SearchableConfigurable, Configurable.NoScrol
 
     private fun createWithOpenSource(openSource: PluginManagerOpenSourceEnum): PluginManagerConfigurable {
       return PluginManagerConfigurable().apply { setOpenSource(openSource) }
+    }
+
+    internal fun createForStandaloneEntryPoint(openSource: PluginManagerOpenSourceEnum): PluginManagerConfigurable {
+      return createWithOpenSource(openSource).apply {
+        isStandaloneConfigurable = true
+        useWideStandaloneDefault = true
+      }
+    }
+
+    @ApiStatus.Internal
+    @JvmStatic
+    fun showFromEntryPoint(project: Project?, source: PluginManagerOpenSourceEnum) {
+      if (AppMode.isRemoteDevHost() || !UnifiedPluginsPageFeature.isStandaloneDialogEnabled()) {
+        ShowSettingsUtil.getInstance().showSettingsDialog(project, PluginManagerConfigurable::class.java) {
+          it.setOpenSource(source)
+        }
+        return
+      }
+
+      ShowSettingsUtil.getInstance().editConfigurable(
+        project,
+        STANDALONE_DIALOG_DIMENSION_KEY,
+        createForStandaloneEntryPoint(source),
+        true,
+      )
     }
 
     @ApiStatus.Internal
@@ -354,7 +423,7 @@ class PluginManagerConfigurable() : SearchableConfigurable, Configurable.NoScrol
     fun showSuggestedPlugins(project: Project?, source: FUSEventSource?) {
       showPluginManagerDialog(project, PluginManagerOpenSourceEnum.NOTIFICATION, {
         it.setInstallSource(source)
-        it.openMarketplaceTab("/suggested")
+        it.navigateToMarketplace("/suggested")
       })
     }
 
@@ -369,9 +438,7 @@ class PluginManagerConfigurable() : SearchableConfigurable, Configurable.NoScrol
     @ApiStatus.Internal
     @JvmStatic
     fun showSettingsDialogFromWelcomeScreen(project: Project?) {
-      ShowSettingsUtil.getInstance().showSettingsDialog(project, PluginManagerConfigurable::class.java) {
-        it.setOpenSource(PluginManagerOpenSourceEnum.WELCOME_SCREEN)
-      }
+      showFromEntryPoint(project, PluginManagerOpenSourceEnum.WELCOME_SCREEN)
     }
 
     @ApiStatus.Internal

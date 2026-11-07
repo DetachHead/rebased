@@ -1,131 +1,207 @@
-"""One plugin's whole dev-distribution statement, in the plugin's own package.
+"""Declare one plugin through the descriptor and packing rules."""
 
-A plugin used to state itself twice. `jpsModelToBazel` wrote a `dev content` section calling `dev_dist_plugin_content`
-and a `dev descriptor` section calling `dev_dist_plugin_descriptor`, and the two restated the plugin's identity: 356
-content targets and 148 descriptor leaves named `descriptor_module`, so 504 statements answered 392 plugins. A descriptor
-leaf also restated every fact of its plugin once per layout variant. `intellij.jcef.plugin` has six variants, and its six
-leaves were identical apart from the `variant` string - 66 lines of `descriptors` where 11 say the same thing.
+load("//build:jps_target_derivation.bzl", "module_rule_label")
+load(":content_module_jar.bzl", "content_module_jar_target_name")
+load(":dev_dist_frontend_application_info.bzl", "dev_dist_frontend_application_info")
+load(":dev_dist_plugin_descriptor.bzl", "dev_dist_plugin_descriptor", "dev_dist_plugin_descriptor_target_name")
+load(":dev_plugin.bzl", "dev_dist_plugin_directory", "dev_plugin", "is_library_token")
 
-`dev_dist_plugin` is the one statement. It expands to the same two rules, with the same target names, so nothing
-downstream can tell the difference: `dev_dist_plugin_content` for the members and the libraries, and one
-`dev_dist_plugin_descriptor` per layout variant.
-
-**The two populations differ, in both directions, so both halves are optional.** 254 of the 392 plugins state content and
-no descriptor; 36 state a descriptor and no content. A plugin whose content resolves to nothing beyond its own main module
-earns no content leaf at all (`resolvePluginContent`), and a plugin whose own Bazel package holds no `META-INF/plugin.xml`
-can declare no descriptor leaf. So which leaves a call expands to follows from what it states, and a call that states
-neither fails.
-
-**The per-content-module relation stays two statements, and that was measured rather than assumed.** The content half
-names a member by the module's `jvm_library` or its `content_module_jar`; the descriptor half names the same member by its
-descriptor *file*. Neither label is derivable from the other - the resource-root directory is not in a target name, and
-the two halves spell one community package `//x` and `@community//x` - and the module name that would join them is in
-neither. Over the 102 plugins that have both halves, the two name 1 011 packages in common, 141 that only the content
-half names and 34 that only the descriptor half names, and only 55 of the 102 name the same set. A joint table keyed by
-module name would therefore add a third token to every relation and still need a two-sided remainder. That is the mistake
-`PluginContent.prepackedContentModuleLabels` already records having made once, at 2 030 relations.
-
-**The plugin's content residue is not here.** It is in `community/build/dev_dist_plugin_content_residue.txt`, which the
-converter writes and reads. This call carried it for one commit, and a measurement took it back off: the hermetic
-`bazel-targets.json` run materializes its project model from declared labels alone, no `BUILD.bazel` is among them, and
-the residue therefore reached that run by no route.
-"""
-
-load(":dev_dist_content.bzl", "dev_dist_plugin_content")
-load(":dev_dist_plugin_descriptor.bzl", "dev_dist_plugin_descriptor")
-
-# The attributes both leaf macros take. Forwarded through `**descriptor_attrs`, either one would reach the descriptor
-# leaf and leave the content leaf on its default, so one stated fact would answer half a plugin. Refused here, which is
-# the one place both halves are visible.
 _SHARED_LEAF_ATTRS = ["tags", "visibility"]
+_MAX_REPORTED_STALE_MODULES = 20
+
+# What a packed plugin component's target is called, after the main module. Public through
+# `dev_dist_plugin_component_target_name`, because the generated product map names the target.
+_DEV_PLUGIN_SUFFIX = "_dev_plugin"
+
+def dev_dist_plugin_component_target_name(main_module):
+    """The packed component's target name - `"intellij.json"` gives `"intellij.json_dev_plugin"`."""
+    return main_module + _DEV_PLUGIN_SUFFIX
+
+def _content_module_jar_label(module_label):
+    return module_label.rpartition(":")[0] + ":" + content_module_jar_target_name(module_label)
+
+def _module_labels(names, module_targets, stale):
+    result = []
+    for name in names:
+        label = module_rule_label(name, module_targets)
+        if label == None:
+            stale[name] = True
+            continue
+        result.append(label)
+    return result
+
+def _warn_stale(main_module, stale):
+    if stale:
+        names = sorted(stale)
+        remainder = len(names) - _MAX_REPORTED_STALE_MODULES
+        print("WARN: dev_dist_plugin '%s' omits missing modules: %s%s. Regenerate the dev sections." % (
+            main_module,
+            ", ".join(names[:_MAX_REPORTED_STALE_MODULES]),
+            " (and %d more)" % remainder if remainder > 0 else "",
+        ))
 
 def dev_dist_plugin(
-        descriptor_module,
-        main_module = "",
+        main_module,
+        module_targets,
+        descriptor_index = {},
         content_modules = [],
-        libraries = [],
-        prepacked_content_modules = [],
-        prepacked_jars = {},
-        prepacked_layout_jars = [],
         descriptor = "",
         variants = [],
+        frontend_application_info = "",
+        frontend_product_application_info = "",
+        jars = {},
+        module_jar_paths = {},
+        content_module_jar_labels = {},
+        classpath_jars = [],
+        files = {},
+        file_prefixes = {},
+        executable_files = [],
+        tree_files = [],
+        directory_name = "",
         **descriptor_attrs):
-    """The dev-distribution content and the patched descriptor of one plugin.
+    """Declare plugin modules and derive their build targets.
 
     Args:
-        descriptor_module: the plugin's main module target - the one whose resources carry `META-INF/plugin.xml`. Both
-            leaves take it, and it is the whole identity the content leaf needs: the rule reads the module name off the
-            target, and the macro derives the target name from the label.
-        main_module: the plugin's main JPS module. Stated because a descriptor leaf's *target name* carries it, which a
-            macro composes while Bazel loads and can therefore read from no provider. Stated only where a descriptor leaf
-            exists, so the 254 content-only plugins carry no line for it.
-        content_modules: see `dev_dist_plugin_content.content_modules`.
-        libraries: see `dev_dist_plugin_content.libraries`.
-        prepacked_content_modules: see `dev_dist_plugin_content.prepacked_content_modules`.
-        prepacked_jars: see `dev_dist_plugin_content.prepacked_jars`.
-        prepacked_layout_jars: see `dev_dist_plugin_content.prepacked_layout_jars`.
-        descriptor: the plugin's own `META-INF/plugin.xml`, as a path inside `descriptor_module`'s Bazel package. Its
-            presence is what asks for the descriptor leaves, for the reason the content attributes are what ask for the
-            content leaf: the rule makes it mandatory, and `computePluginDescriptor` emits nothing without it.
-        variants: the layout variants this plugin has, one descriptor leaf each. Empty takes the one variant that serves
-            every platform, which is 135 of the 136 single-leaf plugins.
-
-            A list and not a table of per-variant deviations. Every other attribute here is a fact about the plugin, and
-            the two plugins that have variants today state their six leaves identically apart from the variant token.
-            A variant that ever needs its own deviation must be refused by whatever writes this call, not approximated:
-            the descriptor residue is keyed by `<plugin>/<variant>`, so the writer sees both keys and one of them would
-            be silently dropped here.
-        **descriptor_attrs: every remaining `dev_dist_plugin_descriptor` attribute, forwarded to each *descriptor* leaf
-            unchanged. Forwarded rather than enumerated so that this macro has no second copy of that rule's surface to
-            keep in step; an attribute that rule does not have fails at the rule, which names it. An attribute both leaf
-            macros take is refused instead - see `_SHARED_LEAF_ATTRS`.
+        main_module: The main JPS module. It identifies every leaf.
+        module_targets: The production map from the applicable JPS bridge. Entries contain one jar output label. The
+            bridge's own `dev_dist_plugin` binds it, so a generated section states neither map.
+        descriptor_index: The conventional descriptor index from that bridge. The descriptor leaf derives a row for the
+            main module and every member it knows, unless `descriptors` states the label or the load path.
+        content_modules: The complete ordered list of plugin member JPS module names.
+        descriptor: The main descriptor label, package-relative.
+        variants: Layout variants. An empty list selects the common variant.
+        jars: The packed jars of a simple plugin, keyed by destination relative to the plugin directory and valued by
+            source tokens in merge order. A token is a JPS module name or a library container label. A content module
+            no jar merges ships its own `content_module_jar` jar as `lib/modules/<module>.jar`. Empty for a
+            plugin the plan driven chain packs. A test-only module is declared in a cross-half `dev_plugin`.
+        module_jar_paths: The destination of a reused content module jar when it is not `lib/modules/<module>.jar`,
+            keyed by module name.
+        content_module_jar_labels: The `content_module_jar` label of a reused content module whose call is not in the
+            package of the module, keyed by module name. The generator states it for a call it relocates. Any other
+            reused module takes the label the package of the module gives.
+        classpath_jars: The classpath order of every jar of a simple plugin, when the default order is not the plan's
+            order. The default order is the `jars` keys, then the reused content module jars in `content_modules` order.
+        files: The plain copies of a simple plugin, keyed by destination relative to the plugin directory and valued by
+            the label of the source: a source file, the package's `:dev_dist_resources` filegroup, another target that
+            produces regular files, or a target that produces one directory artifact. A destination `file_prefixes`
+            names copies every file of the label below the prefix to `<destination>/<relative path>`. A destination
+            `tree_files` names copies every file of the directory artifact in the same way. Any other destination copies
+            the one file the label produces. A copied file is not on the plugin classpath. Requires `jars`.
+        file_prefixes: The repository-relative prefix of each source tree copy in `files`, keyed by destination.
+        executable_files: The single-file destinations of `files` the distribution marks executable. This is the mode
+            `withResource*` gives a file.
+        tree_files: The destinations of `files` whose label produces one directory artifact. Each copied file keeps the
+            mode it has in the directory.
+        frontend_application_info: The application info template of the embedded frontend. Stated together with the other
+            `frontend_` label by the plugin that packs the JetBrains Client, and empty for every other plugin. A
+            standalone `dev_dist_embedded_product_descriptor` call declares the embedded descriptor of that plugin.
+        frontend_product_application_info: The application info of the product the frontend takes its names and version from.
+        directory_name: The plugin directory, when the layout does not take the derived one. Only the packed component
+            reads it.
+        **descriptor_attrs: Other descriptor attributes. Shared leaf attributes are refused.
     """
-
-    shared = [attr for attr in _SHARED_LEAF_ATTRS if attr in descriptor_attrs]
+    if not main_module or type(module_targets) != "dict":
+        fail("dev_dist_plugin requires a main module and a JPS target map")
+    shared = [key for key in _SHARED_LEAF_ATTRS if key in descriptor_attrs]
     if shared:
-        fail("dev_dist_plugin: %s states %s, which would reach the descriptor leaf and not the content leaf" %
-             (descriptor_module, shared))
-
-    # What a content leaf is made of, stated once. A call that states none of these declares precisely what naming the
-    # plugin's main module in the consumer's own `modules` declares, which is why `resolvePluginContent` emits no target
-    # for it - see `dev_dist_plugin_content`. One dict, so the emptiness rule, the forwarding and the failure message
-    # cannot disagree about which attributes the rule is over.
-    content = {
-        "content_modules": content_modules,
-        "libraries": libraries,
-        "prepacked_content_modules": prepacked_content_modules,
-        "prepacked_jars": prepacked_jars,
-        "prepacked_layout_jars": prepacked_layout_jars,
-    }
-    stated_content = [attr for attr, value in content.items() if value]
-    if stated_content:
-        dev_dist_plugin_content(descriptor_module = descriptor_module, **content)
+        fail("dev_dist_plugin: %s states shared leaf attributes: %s" % (main_module, shared))
+    frontend_labels = [frontend_application_info, frontend_product_application_info]
+    if any(frontend_labels) and not all(frontend_labels):
+        fail("dev_dist_plugin: %s states one of the two frontend application info labels, and a frontend states both" % main_module)
+    if jars and variants:
+        fail("dev_dist_plugin: %s states jars and layout variants, and a packed plugin has one layout" % main_module)
+    if jars and not descriptor:
+        fail("dev_dist_plugin: %s states jars and no descriptor" % main_module)
+    if (files or file_prefixes or executable_files or tree_files) and not jars:
+        fail("dev_dist_plugin: %s states copied files and no jars, and a copy belongs to a packed plugin" % main_module)
+    for destination in file_prefixes:
+        if destination not in files:
+            fail("dev_dist_plugin: %s states a file prefix for '%s', which `files` does not copy" % (main_module, destination))
+    for destination in tree_files:
+        if destination not in files or destination in file_prefixes:
+            fail("dev_dist_plugin: %s names '%s' in `tree_files`, which `files` does not copy as one directory" % (main_module, destination))
+    jar_tokens = [token for tokens in jars.values() for token in tokens]
+    for module in content_module_jar_labels:
+        if module not in content_modules or module in jar_tokens:
+            fail("dev_dist_plugin: %s states a content_module_jar label for '%s', which it does not reuse" % (main_module, module))
+    for destination in executable_files:
+        if destination not in files:
+            fail("dev_dist_plugin: %s marks '%s' executable, which `files` does not copy" % (main_module, destination))
+        if destination in file_prefixes or destination in tree_files:
+            fail("dev_dist_plugin: %s marks the directory copy '%s' executable, and only a single file has a stated mode" % (main_module, destination))
 
     if not descriptor:
-        # Everything below states a descriptor leaf, and there is none. Refused rather than ignored: a stated fact this
-        # macro drops would be a fact the plugin's own package appears to carry and no rule ever reads.
-        if main_module:
-            fail("dev_dist_plugin: '%s' states a main module and no descriptor, so it asks for no descriptor leaf" % main_module)
-        if variants:
-            fail("dev_dist_plugin: %s states layout variants and no descriptor" % descriptor_module)
-        if descriptor_attrs:
-            fail("dev_dist_plugin: %s states %s and no descriptor" % (descriptor_module, sorted(descriptor_attrs.keys())))
-        if not stated_content:
-            # A call that expands to nothing. It cannot happen from a generator - both halves emit only what they
-            # resolved - so this catches a hand edit that removed the last fact and left the call behind.
-            fail("dev_dist_plugin: %s states neither content (%s) nor a descriptor" % (descriptor_module, content.keys()))
+        if variants or descriptor_attrs:
+            fail("dev_dist_plugin: %s states descriptor attributes and no descriptor" % main_module)
+        if not content_modules:
+            fail("dev_dist_plugin: %s states neither content modules nor a descriptor" % main_module)
+
+    stale = {}
+    owner = module_rule_label(main_module, module_targets)
+    if owner == None:
+        _warn_stale(main_module, {main_module: True})
         return
 
-    if not main_module:
-        fail("dev_dist_plugin: %s states a descriptor, and a descriptor leaf's target name carries the main module" % descriptor_module)
+    # Nothing reads the labels. The resolution fills `stale`, and the `if jars and not stale` guard below reads it.
+    _module_labels(content_modules, module_targets, stale)
 
-    # One leaf per variant, and the empty variant is a variant: `dev_dist_plugin_descriptor_platforms` answers it with
-    # every platform, and `dev_dist_plugin_descriptor_target_name` leaves the name unsuffixed.
-    for variant in variants if variants else [""]:
-        dev_dist_plugin_descriptor(
+    # The packed component's inputs. A module a jar names is resolved like a content module, and a library token is
+    # passed through as the label it is. A stale name here skips the whole component below, so a plugin never ships with
+    # a jar missing.
+    packed_modules = {}
+    packed_libraries = []
+    for tokens in jars.values():
+        for token in tokens:
+            if is_library_token(token):
+                if token not in packed_libraries:
+                    packed_libraries.append(token)
+                continue
+            label = module_rule_label(token, module_targets)
+            if label == None:
+                stale[token] = True
+            elif label not in packed_modules:
+                packed_modules[label] = token
+    _warn_stale(main_module, stale)
+
+    if descriptor:
+        for variant in variants if variants else [""]:
+            dev_dist_plugin_descriptor(
+                main_module = main_module,
+                descriptor = descriptor,
+                content_modules = [main_module] + content_modules,
+                descriptor_index = descriptor_index,
+                variant = variant,
+                **descriptor_attrs
+            )
+    if jars and not stale:
+        # A content module no jar merges is reused from its own packing target. Its label follows from the module's
+        # label unless `content_module_jar_labels` states it, and a module without such a target fails when Bazel
+        # analyses the component.
+        content_module_jars = []
+        for name in content_modules:
+            label = module_rule_label(name, module_targets)
+            if label not in packed_modules and label != None:
+                content_module_jars.append(content_module_jar_labels.get(name) or _content_module_jar_label(label))
+        dev_plugin(
+            name = dev_dist_plugin_component_target_name(main_module),
             main_module = main_module,
-            descriptor_module = descriptor_module,
-            descriptor = descriptor,
-            variant = variant,
-            **descriptor_attrs
+            descriptor = ":" + dev_dist_plugin_descriptor_target_name(main_module),
+            plugin_directory = dev_dist_plugin_directory(main_module, directory_name),
+            modules = packed_modules,
+            libraries = packed_libraries,
+            content_module_jars = content_module_jars,
+            jars = jars,
+            module_jar_paths = module_jar_paths,
+            classpath_jars = classpath_jars,
+            files = files,
+            file_prefixes = file_prefixes,
+            executable_files = executable_files,
+            tree_files = tree_files,
+            visibility = ["//visibility:public"],
+        )
+    if frontend_application_info:
+        dev_dist_frontend_application_info(
+            main_module = main_module,
+            client_application_info = frontend_application_info,
+            product_application_info = frontend_product_application_info,
         )

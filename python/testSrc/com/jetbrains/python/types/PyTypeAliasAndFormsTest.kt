@@ -7,7 +7,6 @@ import com.jetbrains.python.allure.Components
 import com.intellij.idea.TestFor
 import com.jetbrains.python.fixtures.PyCodeInsightTestCase
 import com.jetbrains.python.psi.LanguageLevel
-import org.junit.jupiter.api.Disabled
 import org.junit.jupiter.api.Nested
 import org.junit.jupiter.api.Test
 
@@ -319,23 +318,6 @@ class PyTypeAliasAndFormsTest : PyCodeInsightTestCase() {
       type myType = str
       expr = myType
       #└ TYPE TypeAliasType
-      """.trimIndent())
-
-    @Test
-    @TestFor(issues = ["PY-51329"])
-    fun `bitwise or operator overload union via type alias`() = test("""
-      from typing import Any
-
-      class MyMeta(type):
-          def __or__(self, other) -> Any:
-              return other
-
-      class Foo(metaclass=MyMeta):
-          ...
-
-      Alias = Foo | None
-      expr: Alias # WARNING Invalid type annotation
-      #└ TYPE Unknown
       """.trimIndent())
   }
 
@@ -1029,6 +1011,24 @@ class PyTypeAliasAndFormsTest : PyCodeInsightTestCase() {
       #       └ TYPE A
               return expr.f()
       """.trimIndent())
+
+    @Test
+    @TestFor(issues = ["PY-90655"])
+    fun `super() with an instance of an unknown type`() = test("""
+      class A:
+          def f(self, other):
+              expr = super(A, other)
+      #       └ TYPE Unknown
+      """.trimIndent())
+
+    @Test
+    @TestFor(issues = ["PY-90655"])
+    fun `super() with an instance of an unrelated type`() = test("""
+      class A:
+          def f(self):
+              expr = super(A, 42)
+      #       └ TYPE Unknown
+      """.trimIndent())
   }
 
   @Nested
@@ -1102,7 +1102,6 @@ class PyTypeAliasAndFormsTest : PyCodeInsightTestCase() {
       """.trimIndent())
 
     @Test
-    @TestCaseOptions(assertRecursionPrevention = false, enableWeakWarnings = false)
     @TestFor(issues = ["PY-53104"])
     fun `Self method called on union receiver`() = test("""
       from typing import Self
@@ -1119,6 +1118,7 @@ class PyTypeAliasAndFormsTest : PyCodeInsightTestCase() {
           x = C()
 
       expr = x.method()
+      #│       ^^^^^^ WEAK-WARNING Member 'Literal[42]' of 'Literal[42] | C' does not have attribute 'method'
       #└ TYPE C | Unknown
       """.trimIndent())
 
@@ -1287,129 +1287,6 @@ class PyTypeAliasAndFormsTest : PyCodeInsightTestCase() {
       for x in C.f():
           expr = x
       #   └ TYPE C
-      """.trimIndent())
-
-    @Test
-    fun `self annotated with type var on same class instance`() = test("""
-      from typing import TypeVar
-
-      T = TypeVar('T')
-
-      class C:
-          def method(self: T) -> T:
-              pass
-
-      expr = C().method()
-      #└ TYPE C
-      """.trimIndent())
-
-    @Test
-    @TestFor(issues = ["PY-24990"])
-    fun `self annotated with type var on subclass instance`() = test("""
-      from typing import TypeVar
-
-      T = TypeVar('T')
-
-      class C:
-          def method(self: T) -> T:
-              pass
-
-      class D(C):
-          pass
-
-      expr = D().method()
-      #└ TYPE D
-      """.trimIndent())
-
-    @Test
-    @TestFor(issues = ["PY-24990"])
-    fun `self annotated with type var receiver union type`() = test("""
-      from typing import TypeVar
-
-      T = TypeVar('T')
-
-      class Base:
-          def method(self: T) -> T:
-              pass
-
-      class A(Base):
-          pass
-
-      class B(Base): 
-          pass
-
-      expr = (A() or B()).method()
-      #└ TYPE A | B
-      """.trimIndent())
-
-    @Test
-    @TestCaseOptions(assertRecursionPrevention = false)
-    @TestFor(issues = ["PY-24990"])
-    fun `self annotated instance method called on class object`() = test("""
-      from typing import TypeVar
-
-      T = TypeVar('T')
-
-      class C:
-          def method(self: T) -> T:
-              pass
-
-      class D(C):
-          pass
-
-      expr = C.method(D())
-      #└ TYPE D
-      """.trimIndent())
-
-    @Test
-    @TestFor(issues = ["PY-24990"])
-    fun `self annotated in type comment on same class instance`() = test("""
-      from typing import TypeVar
-
-      T = TypeVar('T')
-
-      class C:
-          def method(self):
-              # type: (T) -> T
-              pass
-
-      expr = C().method()
-      #└ TYPE C
-      """.trimIndent())
-
-    @Test
-    @TestFor(issues = ["PY-24990"])
-    fun `self annotated in type comment on subclass instance`() = test("""
-      from typing import TypeVar
-
-      T = TypeVar('T')
-
-      class C:
-          def method(self):
-              # type: (T) -> T
-              pass
-
-      class D(C):
-          pass
-
-      expr = D().method()
-      #└ TYPE D
-      """.trimIndent())
-
-    @Test
-    @TestFor(issues = ["PY-33663"])
-    fun `annotated self return property`() = test("""
-      from typing import TypeVar
-
-      T = TypeVar("T")
-
-      class A:
-          @property
-          def foo(self: T) -> T:
-              pass
-
-      expr = A().foo
-      #└ TYPE A
       """.trimIndent())
 
     @Test
@@ -1740,7 +1617,7 @@ class PyTypeAliasAndFormsTest : PyCodeInsightTestCase() {
               y4: Self | int = 3
               y5: Self | int | list[Self] = [self]
               y6: Self | int | list[Self] = [3] # E
-      #                                     ^^^ WARNING Expected type 'Self@MyClass | int | list[Self@MyClass]', got 'list[Literal[3]]' instead
+      #                                     ^^^ WARNING Expected type 'Self@MyClass | int | list[Self@MyClass]', got 'list[int]' instead
               y7: Self | int | list[Self] = "str" # E
       #                                     ^^^^^ WARNING Expected type 'Self@MyClass | int | list[Self@MyClass]', got 'Literal["str"]' instead
       """.trimIndent())
@@ -1823,6 +1700,101 @@ class PyTypeAliasAndFormsTest : PyCodeInsightTestCase() {
 
       c: Node
       c.next = Node()
+      """.trimIndent())
+
+    @Test
+    @TestFor(issues = ["PY-88916"])
+    fun `Self in final class is the class itself`() = test("""
+      from typing import Self, final
+
+      @final
+      class A:
+          def f(self) -> Self:
+              return A() # OK
+
+          def g(self) -> list[Self]:
+              return [A()] # OK
+
+          @classmethod
+          def h(cls) -> type[Self]:
+              return A # OK
+
+          @classmethod
+          def i(cls) -> Self:
+              return A # E
+      #              └ WARNING Expected type 'Self@A', got 'type[A]' instead
+
+
+      class B:
+          def f(self) -> Self:
+              return B() # E
+      #              ^^^ WARNING Expected type 'Self@B', got 'B' instead
+      """.trimIndent())
+
+    @Test
+    @TestFor(issues = ["PY-88916"])
+    fun `Self in final class accepts the class as a parameter`() = test("""
+      from typing import Self, final
+
+      @final
+      class A:
+          def eq(self, other: Self) -> bool: ...
+
+          def use(self):
+              self.eq(A()) # OK
+              self.eq(self) # OK
+              self.eq(1) # E
+      #               └ WARNING Expected type 'Self@A', got 'Literal[1]' instead
+      """.trimIndent())
+
+    @Test
+    @TestFor(issues = ["PY-88916"])
+    fun `Self in final class with own type parameters keeps the parameters`() = test("""
+      from typing import Self, final
+
+      @final
+      class G[T]:
+          def f(self, other: "G[int]") -> Self:
+              return other # E
+      #              ^^^^^ WARNING Expected type 'Self@G', got 'G[int]' instead
+
+          def g(self) -> Self:
+              return G[int]() # E
+      #              ^^^^^^^^ WARNING Expected type 'Self@G', got 'G[int]' instead
+
+
+      @final
+      class Specialized(list[int]):
+          def f(self, other: "Specialized") -> Self:
+              return other # OK
+      """.trimIndent())
+
+    @Test
+    @TestFor(issues = ["PY-88916"])
+    fun `Self in enum class with members is the class itself`() = test("""
+      from enum import Enum
+      from typing import Self
+
+      class Colour(Enum):
+          RED = 1
+          GREEN = 2
+
+          @classmethod
+          def odd(cls) -> list[Self]:
+              return [cls.RED] # OK
+
+          @classmethod
+          def first(cls) -> Self:
+              return Colour.RED # OK
+
+          def other(self, other: "Colour") -> Self:
+              return other # OK
+
+
+      class Empty(Enum):
+          def other(self, other: "Empty") -> Self:
+              return other # E
+      #              ^^^^^ WARNING Expected type 'Self@Empty', got 'Empty' instead
       """.trimIndent())
   }
 

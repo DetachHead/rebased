@@ -144,6 +144,13 @@ class GitNotificationIdsHolder : NotificationIdsHolder {
       WORKING_TREE_LOCK_FAILED,
       WORKING_TREE_UNLOCKED,
       WORKING_TREE_UNLOCK_FAILED,
+      WORKTREE_SETUP_SCRIPT_FAILED,
+      WORKTREE_CONFIG_COPY_FAILED,
+      WORKTREE_ADDITIONAL_CONFIG_COPY_FAILED,
+      WORKTREE_ADDITIONAL_SETTINGS_FAILED,
+      WORKTREE_TRUST_FAILED,
+      WORKTREE_OPEN_PROJECT_FAILED,
+      WORKTREE_INCLUDE_FILE_WRITE_FAILED,
       ADD_COMMIT_TO_REMOTE_BRANCH_CONFLICT,
       ADD_COMMIT_TO_REMOTE_BRANCH_FAILED,
       ADD_COMMIT_TO_REMOTE_BRANCH_NOTHING_TO_DO,
@@ -289,6 +296,13 @@ class GitNotificationIdsHolder : NotificationIdsHolder {
     const val WORKING_TREE_LOCK_FAILED: String = "git.working.tree.lock.failed"
     const val WORKING_TREE_UNLOCKED: String = "git.working.tree.unlocked"
     const val WORKING_TREE_UNLOCK_FAILED: String = "git.working.tree.unlock.failed"
+    const val WORKTREE_SETUP_SCRIPT_FAILED: String = "git.worktree.setup.script.failed"
+    const val WORKTREE_CONFIG_COPY_FAILED: String = "git.worktree.config.copy.failed"
+    const val WORKTREE_ADDITIONAL_CONFIG_COPY_FAILED: String = "git.worktree.additional.config.copy.failed"
+    const val WORKTREE_ADDITIONAL_SETTINGS_FAILED: String = "git.worktree.additional.settings.failed"
+    const val WORKTREE_TRUST_FAILED: String = "git.worktree.trust.failed"
+    const val WORKTREE_OPEN_PROJECT_FAILED: String = "git.worktree.open.project.failed"
+    const val WORKTREE_INCLUDE_FILE_WRITE_FAILED: String = "git.worktree.include.file.write.failed"
     const val ADD_COMMIT_TO_REMOTE_BRANCH_CONFLICT: String = "git.add.commit.to.remote.branch.conflict"
     const val ADD_COMMIT_TO_REMOTE_BRANCH_FAILED: String = "git.add.commit.to.remote.branch.failed"
     const val ADD_COMMIT_TO_REMOTE_BRANCH_NOTHING_TO_DO: String = "git.add.commit.to.remote.branch.nothing.to.do"

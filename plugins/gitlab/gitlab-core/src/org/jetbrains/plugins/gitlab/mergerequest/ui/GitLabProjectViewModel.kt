@@ -6,6 +6,7 @@ import com.intellij.collaboration.async.mapScoped
 import com.intellij.collaboration.async.mapState
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
+import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.registry.Registry
 import com.intellij.platform.util.coroutines.childScope
@@ -18,11 +19,15 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.mapNotNull
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.plugins.gitlab.GitLabProjectsManager
+import org.jetbrains.plugins.gitlab.api.GitLabProjectConnection
 import org.jetbrains.plugins.gitlab.api.GitLabProjectConnectionManager
+import org.jetbrains.plugins.gitlab.api.GitLabProjectCoordinates
 import org.jetbrains.plugins.gitlab.authentication.accounts.GitLabAccount
 import org.jetbrains.plugins.gitlab.authentication.accounts.GitLabAccountManager
 import org.jetbrains.plugins.gitlab.createSingleProjectAndAccountState
@@ -30,12 +35,14 @@ import org.jetbrains.plugins.gitlab.mergerequest.GitLabMergeRequestsPreferences
 import org.jetbrains.plugins.gitlab.mergerequest.ui.toolwindow.model.GitLabRepositoryAndAccountSelectorViewModel
 import org.jetbrains.plugins.gitlab.mergerequest.util.GitLabMergeRequestsUtil
 import org.jetbrains.plugins.gitlab.util.GitLabProjectMapping
+import kotlin.time.Duration
+import kotlin.time.Duration.Companion.minutes
 
 @ApiStatus.Internal
 @Service(Service.Level.PROJECT)
 class GitLabProjectViewModel(
   private val project: Project,
-  parentCs: CoroutineScope
+  parentCs: CoroutineScope,
 ) {
   private val cs = parentCs.childScope(javaClass.name, Dispatchers.Default)
 
@@ -51,15 +58,14 @@ class GitLabProjectViewModel(
   val connectedProjectVm: StateFlow<GitLabConnectedProjectViewModel?> =
     connectionManager.connectionState.mapScoped { connection ->
       connection?.let { vmFactory.create(project, this, accountManager, projectsManager, it, ::activate) }
-    }.stateIn(cs, SharingStarted.Companion.Eagerly, null)
+    }.stateIn(cs, SharingStarted.Eagerly, null)
 
   val selectorVm: StateFlow<GitLabRepositoryAndAccountSelectorViewModel?> = isAvailable.mapScoped {
     val preferences = project.service<GitLabMergeRequestsPreferences>()
     GitLabRepositoryAndAccountSelectorViewModel(
       project, this, projectsManager, accountManager,
       onSelected = { mapping, account ->
-        connectionManager.openConnection(mapping, account)
-        preferences.selectedUrlAndAccountId = mapping.remote.url to account.id
+        connect(mapping, account)
       }
     ).apply {
       // Make sure the first found selected repo and account will be selected
@@ -102,17 +108,59 @@ class GitLabProjectViewModel(
    */
   internal suspend fun loginIfPossible() {
     if (!Registry.`is`("vcs.gitlab.connect.silently", true)) return
+    // Skip once connected
+    if (connectionManager.connectionState.value != null) return
     selectorVm.first()?.submitSelection()
+  }
+
+  private suspend fun connect(mapping: GitLabProjectMapping, account: GitLabAccount): GitLabProjectConnection? {
+    val current = connectionManager.connectionState.value
+    if (current != null && current.repo.repository == mapping.repository && current.account == account) return current
+    val connection = connectionManager.openConnection(mapping, account)
+    project.service<GitLabMergeRequestsPreferences>().selectedUrlAndAccountId = mapping.remote.url to account.id
+    return connection
   }
 
   fun activate() {
     _activationRequests.tryEmit(Unit)
   }
 
-  internal fun activateAndAwaitProject(action: GitLabConnectedProjectViewModel.() -> Unit) {
+  /**
+   * @param preferredProjectAndAccount connects directly to this project and account.
+   * The [selectorVm] heuristics need exactly one known project and account, and a new merge request worktree can have more.
+   * [action] always runs against the view model for [preferredProjectAndAccount].
+   * When no mapping for the project appears within [mappingTimeout], [action] does not run.
+   */
+  internal fun activateAndAwaitProject(
+    preferredProjectAndAccount: Pair<GitLabProjectCoordinates, GitLabAccount>? = null,
+    mappingTimeout: Duration = PREFERRED_PROJECT_MAPPING_TIMEOUT,
+    action: GitLabConnectedProjectViewModel.() -> Unit,
+  ) {
     cs.launch {
       _activationRequests.emit(Unit)
-      connectedProjectVm.filterNotNull().first().action()
+      if (preferredProjectAndAccount == null) {
+        connectedProjectVm.filterNotNull().first().action()
+        return@launch
+      }
+
+      val (expectedProjectCoordinates, account) = preferredProjectAndAccount
+      val mapping = withTimeoutOrNull(mappingTimeout) {
+        projectsManager.knownRepositoriesState
+          .mapNotNull { mappings -> mappings.find { it.repository == expectedProjectCoordinates } }
+          .first()
+      }
+      if (mapping == null) {
+        LOG.warn("No Git remote for GitLab project $expectedProjectCoordinates appeared in $mappingTimeout, skipping the requested action")
+        return@launch
+      }
+      val connection = connect(mapping, account) ?: return@launch
+      connectedProjectVm.filterNotNull().first { it.connectionId == connection.id }.action()
     }
+  }
+
+  companion object {
+    private val LOG = logger<GitLabProjectViewModel>()
+
+    private val PREFERRED_PROJECT_MAPPING_TIMEOUT: Duration = 1.minutes
   }
 }

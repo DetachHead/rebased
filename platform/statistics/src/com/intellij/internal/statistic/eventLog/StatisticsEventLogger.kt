@@ -1,19 +1,20 @@
 // Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.internal.statistic.eventLog
 
-import com.intellij.ide.plugins.ProductLoadingStrategy
-import com.intellij.idea.AppMode
 import com.intellij.internal.statistic.StatisticsServiceScope
-import com.intellij.internal.statistic.eventLog.logger.StatisticsEventLogThrottleWriter
-import com.intellij.internal.statistic.persistence.UsageStatisticsPersistenceComponent
+import com.intellij.internal.statistic.eventLog.events.EventFieldIds
+import com.intellij.internal.statistic.eventLog.validator.IntellijSensitiveDataValidator
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.extensions.ExtensionPointName
 import com.intellij.openapi.util.Disposer
-import com.intellij.platform.runtime.product.ProductMode
-import com.intellij.util.PlatformUtils
+import com.jetbrains.fus.reporting.FeatureUsageLogWriter
+import com.jetbrains.fus.reporting.FusClient
+import com.jetbrains.fus.reporting.model.lion3.LogEvent
+import com.jetbrains.fus.reporting.model.lion3.ValidatedFusReport
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.job
+import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.annotations.ApiStatus.Internal
 import java.io.File
 import java.util.Collections
@@ -38,6 +39,8 @@ interface StatisticsEventLogger {
 
   fun cleanup()
 
+  @Deprecated("Handled internally by FUS lib now.")
+  @ApiStatus.ScheduledForRemoval
   fun rollOver()
 }
 
@@ -50,7 +53,7 @@ abstract class StatisticsEventLoggerProvider(
   val recorderId: String,
   val version: Int,
   val sendFrequencyMs: Long,
-  private val maxFileSizeInBytes: Int,
+  @get:Internal val maxFileSizeInBytes: Int,
   val sendLogsOnIdeClose: Boolean = false,
   val isCharsEscapingRequired: Boolean = true,
   val useDefaultRecorderId: Boolean = false,
@@ -160,55 +163,36 @@ abstract class StatisticsEventLoggerProvider(
    */
   @Internal
   open fun createEventsMergeStrategy(): StatisticsEventMergeStrategy {
-    return FilteredEventMergeStrategy(emptySet())
+    return FilteredEventMergeStrategy(mergeIgnoredFields)
   }
 
+  /**
+   * Event data fields excluded from merge equality (e.g. `start_time`), so successive events that differ only in
+   * these fields still merge into a single counted event.
+   */
+  @get:Internal
+  open val mergeIgnoredFields: Set<String>
+    get() = EventFieldIds.FieldsIgnoredByMerge.toSet()
+
   private fun createLogger(): StatisticsEventLogger {
-    val app = ApplicationManager.getApplication()
-    val isEap = app != null && app.isEAP
-    val isHeadless = app != null && app.isHeadlessEnvironment
-    // Use `String?` instead of boolean flag for future expansion with other IDE modes
-    val ideMode = if (AppMode.isRemoteDevHost()) "RDH" else null
-    val currentProductModeId = ProductLoadingStrategy.strategy.currentModeId
-    val productMode = when {
-      PlatformUtils.isQodana() -> null
-      currentProductModeId != ProductMode.MONOLITH.id -> currentProductModeId
-      detectClionNova() -> "nova"
-      else -> null
-    }
     val eventLogConfiguration = EventLogConfiguration.getInstance()
     val config = eventLogConfiguration.getOrCreate(
       recorderId = recorderId,
       alternativeRecorderId = if (useDefaultRecorderId) "FUS" else null,
     )
-    val writer = StatisticsEventLogFileWriter(
-      loggerProvider = this,
-      maxFileSizeInBytes = maxFileSizeInBytes,
-      isEap = isEap,
-      prefix = eventLogConfiguration.build,
-    )
 
-    val configService = EventLogConfigOptionsService.getInstance()
-    val throttledWriter = StatisticsEventLogThrottleWriter(
-      configOptionsService = configService,
-      recorderId = recorderId,
-      recorderVersion = version.toString(),
-      delegate = writer,
-      coroutineScope = coroutineScope,
-    )
+    val eventLogDir = eventLogConfiguration.getEventLogDataPath().resolve("logs").resolve(recorderId)
 
     val logger = StatisticsFileEventLogger(
       recorderId = recorderId,
       sessionId = config.sessionId,
-      headless = isHeadless,
       build = eventLogConfiguration.build,
       bucket = config.bucket.toString(),
       recorderVersion = version.toString(),
-      writer = throttledWriter,
-      systemEventIdProvider = UsageStatisticsPersistenceComponent.getInstance(),
-      mergeStrategy = createEventsMergeStrategy(),
-      ideMode = ideMode,
-      productMode = productMode,
+      // Events flow to the FusClient; the SDK dispatcher's preEventWrite injects the system fields
+      // (system_event_id, system_headless, ide_mode, product_mode, auto_license_type). See FusComponentProvider.
+      eventWriter = LazyFusClientLogWriter(recorderId),
+      eventLogDir = eventLogDir
     )
 
     coroutineScope.coroutineContext.job.invokeOnCompletion { Disposer.dispose(logger) }
@@ -228,15 +212,6 @@ abstract class StatisticsEventLoggerProvider(
     Disposer.register(ApplicationManager.getApplication(), logger)
     return logger
   }
-}
-
-/**
- * Taken from [CLionLanguagePluginKind]
- *
- * Remove once CLion Nova is deployed 100%
- */
-private fun detectClionNova(): Boolean {
-  return System.getProperty("idea.suppressed.plugins.set.selector") == "radler" && PlatformUtils.isCLion()
 }
 
 /**
@@ -307,4 +282,51 @@ object EmptyEventLogFilesProvider : EventLogFilesProvider {
   override fun getLogFiles(): List<File> = emptyList()
 
   override fun getLogFilesExceptActive(): List<File> = emptyList()
+}
+
+/**
+ * Resolves the recorder's [FusClient] on the thread that writes the first event, not on the thread that asks for
+ * the logger.
+ *
+ * Logger creation must stay cheap. `IntellijSensitiveDataValidator.getInstance` builds the whole client under a
+ * synchronized `lazy`: it reads and parses the event scheme, builds a validator per group, creates the HTTP client,
+ * and opens the queue files. The first event of a session comes from
+ * `LifecycleUsageTriggerCollector.onIdeStart()`, which IdeStarter launches on `Dispatchers.Default` before
+ * `AppLifecycleListener.appStarted()`. Building the client there delays startup and parks a worker of a
+ * limited-parallelism dispatcher, which slows every other startup coroutine.
+ *
+ * [StatisticsFileEventLogger] calls [queueEvent] on its own single-threaded executor, so the client is built there
+ * instead.
+ */
+@Internal
+class LazyFusClientLogWriter(private val recorderId: String) : FeatureUsageLogWriter<LogEvent> {
+  private val lazyClient: Lazy<FusClient<LogEvent, ValidatedFusReport>> = lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+    IntellijSensitiveDataValidator.getInstance(recorderId).fusClient
+    ?: error("FusComponents.fusClient is null for recorder '$recorderId'; logger creation requires the production FusComponents path.")
+  }
+
+  override fun queueEvent(event: LogEvent) {
+    lazyClient.value.queueEvent(event)
+  }
+
+  /**
+   * Flushes only when an event was written before. A session that logs nothing must not build the client just to
+   * flush it on dispose.
+   */
+  fun flushEventsIfInitialized() {
+    if (lazyClient.isInitialized()) {
+      lazyClient.value.flushEvents()
+    }
+  }
+
+  /**
+   * Closes only when an event was written before, for the same reason as [flushEventsIfInitialized].
+   *
+   * A close also closes the SDK event queue, so every later event is dropped. Call this after the last flush.
+   */
+  fun closeIfInitialized() {
+    if (lazyClient.isInitialized()) {
+      lazyClient.value.close()
+    }
+  }
 }

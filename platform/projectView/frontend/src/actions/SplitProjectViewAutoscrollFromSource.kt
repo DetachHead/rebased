@@ -1,14 +1,20 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.platform.projectView.frontend.actions
 
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
+import com.intellij.openapi.diagnostic.debug
+import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.editor.EditorFactory
 import com.intellij.openapi.editor.ex.EditorEventMulticasterEx
 import com.intellij.openapi.editor.ex.FocusChangeListener
 import com.intellij.openapi.fileEditor.ex.FileEditorManagerEx
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.wm.ToolWindow
+import com.intellij.openapi.wm.ToolWindowId
+import com.intellij.openapi.wm.ex.ToolWindowManagerListener
 import com.intellij.platform.projectView.actions.EditorChoice
 import com.intellij.platform.projectView.actions.ProjectViewActionSupport
 import com.intellij.platform.projectView.actions.SelectInSplitProjectView
@@ -56,37 +62,48 @@ internal class SplitProjectViewAutoscrollFromSource(
         selectionUpdates.queue(true)
       }
 
-      fun cancelAutoscroll() {
-        selectionUpdates.queue(false)
-      }
-
       launch(CoroutineName("Always select opened file on/off")) {
         optionService.getActionStateFlow().map { 
           it?.isAutoscrollFromSourceEnabled
-        }.distinctUntilChanged().collectLatest { 
-          autoscroll()
+        }.distinctUntilChanged().collectLatest { isOn ->
+          if (isOn == true) {
+            LOG.debug { "Scheduling Select Opened File because Always Select Opened File was turned on" }
+            autoscroll()
+          }
         }
       }
       launch(CoroutineName("Selected editor")) {
-        FileEditorManagerEx.getInstanceEx(project).getSelectedEditorFlow().collectLatest {
+        FileEditorManagerEx.getInstanceEx(project).selectedEditorFlow.collectLatest {
+          LOG.debug { "Scheduling Select Opened File because the selected editor has been changed" }
           autoscroll()
         }
       }
       launch(CoroutineName("Selected pane")) {
-        ProjectViewToolWindowServiceImpl.getInstance(project).currentPaneFlow.collectLatest { 
+        ProjectViewToolWindowServiceImpl.getInstance(project).currentPaneFlow.collectLatest {
+          LOG.debug { "Scheduling Select Opened File because the selected PV pane has been changed" }
           autoscroll()
         }
       }
       launch(CoroutineName("Editor focus")) {
         (EditorFactory.getInstance().eventMulticaster as? EditorEventMulticasterEx?)?.addFocusChangeListener(object : FocusChangeListener {
           override fun focusGained(editor: Editor, event: FocusEvent) {
+            LOG.debug { "Scheduling Select Opened File because the editor has been focused" }
             autoscroll()
           }
-
-          override fun focusLost(editor: Editor, event: FocusEvent) {
-            cancelAutoscroll()
-          }
         }, asDisposable())
+        awaitCancellation()
+      }
+      launch(CoroutineName("PV show/hide")) {
+        ApplicationManager.getApplication().messageBus.connect(asDisposable())
+          .subscribe(ToolWindowManagerListener.TOPIC, object : ToolWindowManagerListener {
+            override fun toolWindowShown(toolWindow: ToolWindow) {
+              if (toolWindow.id == ToolWindowId.PROJECT_VIEW) {
+                LOG.debug { "Cancelling Select Opened File because the PV has been shown" }
+                autoscroll()
+              }
+            }
+          }
+        )
         awaitCancellation()
       }
     }
@@ -95,3 +112,5 @@ internal class SplitProjectViewAutoscrollFromSource(
 
 private val ProjectViewPaneSettingsStateDTO.isAutoscrollFromSourceEnabled: Boolean
   get() = optionStates[ProjectViewPaneOptionDTO.AUTOSCROLL_FROM_SOURCE]?.isSelected == true
+
+private val LOG = logger<SplitProjectViewAutoscrollFromSource>()

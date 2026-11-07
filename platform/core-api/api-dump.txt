@@ -1787,6 +1787,7 @@ a:com.intellij.openapi.vfs.VirtualFileManager
 - sf:VFS_CHANGES_BG:com.intellij.util.messages.Topic
 - a:addAsyncFileListener(kotlinx.coroutines.CoroutineScope,com.intellij.openapi.vfs.AsyncFileListener):V
 - a:addAsyncFileListenerBackgroundable(com.intellij.openapi.vfs.AsyncFileListener,com.intellij.openapi.Disposable):V
+- a:addAsyncFileListenerBackgroundable(kotlinx.coroutines.CoroutineScope,com.intellij.openapi.vfs.AsyncFileListener):V
 - a:addVirtualFileListener(com.intellij.openapi.vfs.VirtualFileListener):V
 - f:asyncRefresh():J
 - a:asyncRefresh(java.lang.Runnable):J
@@ -1893,7 +1894,8 @@ a:com.intellij.openapi.vfs.encoding.EncodingRegistry
 - s:getInstance():com.intellij.openapi.vfs.encoding.EncodingRegistry
 com.intellij.openapi.vfs.encoding.Utf8BomOptionProvider
 - sf:EP_NAME:com.intellij.openapi.extensions.ExtensionPointName
-- a:shouldAddBOMForNewUtf8File(com.intellij.openapi.vfs.VirtualFile):Z
+- getBOMDecisionForNewUtf8File(com.intellij.openapi.vfs.VirtualFile):com.intellij.util.ThreeState
+- shouldAddBOMForNewUtf8File(com.intellij.openapi.vfs.VirtualFile):Z
 a:com.intellij.openapi.vfs.impl.ArchiveHandler
 - p:<init>(java.lang.String):V
 - clearCaches():V
@@ -2275,6 +2277,7 @@ com.intellij.psi.CommonClassNames
 - sf:JAVA_IO_PRINT_WRITER:java.lang.String
 - sf:JAVA_IO_SERIAL:java.lang.String
 - sf:JAVA_IO_SERIALIZABLE:java.lang.String
+- sf:JAVA_IO_WRITER:java.lang.String
 - sf:JAVA_LANG_ABSTRACT_STRING_BUILDER:java.lang.String
 - sf:JAVA_LANG_ANNOTATION_ANNOTATION:java.lang.String
 - sf:JAVA_LANG_ANNOTATION_INHERITED:java.lang.String
@@ -3369,6 +3372,8 @@ com.intellij.psi.util.ParameterizedCachedValue
 - a:hasUpToDateValue():Z
 com.intellij.psi.util.ParameterizedCachedValueProvider
 - a:compute(java.lang.Object):com.intellij.psi.util.CachedValueProvider$Result
+com.intellij.psi.util.PsiAwareObject
+- a:findElement(com.intellij.openapi.project.Project):com.intellij.psi.PsiElement
 f:com.intellij.psi.util.PsiCacheKey
 - com.intellij.openapi.util.Key
 - getValue(com.intellij.psi.PsiElement):java.lang.Object
@@ -3681,6 +3686,7 @@ f:com.intellij.util.concurrency.ThreadingAssertions
 - s:softAssertEventDispatchThread():V
 - s:softAssertNoReadAccess():V
 - s:softAssertReadAccess():V
+- s:softAssertWriteAccess():V
 @:com.intellij.util.concurrency.annotations.RequiresBackgroundThread
 - java.lang.annotation.Annotation
 - a:generateAssertion():Z

@@ -1,6 +1,10 @@
 // Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.restructuredtext.python.run.sphinx
 
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Dispatchers
+import com.intellij.openapi.application.EDT
+import com.jetbrains.python.packaging.utils.PyPackageCoroutine
 import com.intellij.execution.ExecutionException
 import com.intellij.execution.Executor
 import com.intellij.execution.configurations.ConfigurationFactory
@@ -12,6 +16,7 @@ import com.intellij.execution.runners.ExecutionEnvironment
 import com.intellij.openapi.fileChooser.FileChooserDescriptorFactory
 import com.intellij.openapi.options.SettingsEditor
 import com.intellij.openapi.project.Project
+import com.intellij.python.sdk.backend.findPythonInterpreter
 import com.intellij.restructuredtext.python.PythonRestBundle.message
 import com.intellij.restructuredtext.python.run.RestConfigurationEditor
 import com.intellij.restructuredtext.python.run.RestRunConfiguration
@@ -27,12 +32,15 @@ class SphinxRunConfiguration(
 ) : RestRunConfiguration(project, factory) {
   override fun createConfigurationEditor(): SettingsEditor<out RunConfiguration?> {
     val model = SphinxTasksModel()
+    // The editor opens on the EDT, so the pdf task joins the list once the interpreter is known.
     val sdk = sdk
     if (!model.contains("pdf") && sdk != null) {
-      val packageManager = PythonPackageManager.forSdk(project, sdk)
-      val isInstalled = packageManager.hasInstalledPackageSnapshot("rst2pdf")
-      if (isInstalled) {
-        model.add(13, "pdf")
+      PyPackageCoroutine.launch(project) {
+        val interpreter = project.findPythonInterpreter(sdk) ?: return@launch
+        val isInstalled = PythonPackageManager.forPythonInterpreter(project, interpreter).hasInstalledPackageSnapshot("rst2pdf")
+        if (isInstalled) {
+          withContext(Dispatchers.EDT) { if (!model.contains("pdf")) model.add(13, "pdf") }
+        }
       }
     }
 

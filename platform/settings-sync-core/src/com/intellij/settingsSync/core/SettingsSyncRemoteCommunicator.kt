@@ -32,14 +32,25 @@ interface SettingsSyncRemoteCommunicator {
   /**
    * checks the current state of the user's data in the cloud.
    */
-  @RequiresBackgroundThread
+  @RequiresBackgroundThread(generateAssertion = false /* IJPL-115548 */)
   fun checkServerState() : ServerState
 
   /**
    * Receives updates from server. Is typically called after "checkServerState()"
    */
-  @RequiresBackgroundThread
+  @RequiresBackgroundThread(generateAssertion = false /* IJPL-115548 */)
   fun receiveUpdates(): UpdateResult
+
+  /**
+   * Same as [receiveUpdates], but also returns the version of the snapshot file that was read, or null if there is no file.
+   * It covers the files that [UpdateResult] reports without a version: a deletion marker, and a file that cannot be read,
+   * which is reported as [UpdateResult.NoFileOnServer]. A push against this version replaces only the file that was read.
+   */
+  @RequiresBackgroundThread(generateAssertion = false /* IJPL-115548 */)
+  fun receiveUpdatesWithVersion(): Pair<UpdateResult, String?> {
+    val result = receiveUpdates()
+    return Pair(result, (result as? UpdateResult.Success)?.serverVersionId)
+  }
 
   /**
    * Pushes the settings snapshot to the remote cloud server only if its remote version is "expectedServerVersionId" or
@@ -47,25 +58,25 @@ interface SettingsSyncRemoteCommunicator {
    *
    */
 
-  @RequiresBackgroundThread
+  @RequiresBackgroundThread(generateAssertion = false /* IJPL-115548 */)
   fun push(snapshot: SettingsSnapshot, force: Boolean, expectedServerVersionId: String?): SettingsSyncPushResult
 
   /**
    * Creates a file with a certain content under a relative path
    */
-  @RequiresBackgroundThread
+  @RequiresBackgroundThread(generateAssertion = false /* IJPL-115548 */)
   fun createFile(filePath: String, content: String)
 
   /**
    * deletes a file under a relative path
    */
-  @RequiresBackgroundThread
+  @RequiresBackgroundThread(generateAssertion = false /* IJPL-115548 */)
   fun deleteFile(filePath: String)
 
   /**
    * checks if a file under the relative path exists
    */
-  @RequiresBackgroundThread
+  @RequiresBackgroundThread(generateAssertion = false /* IJPL-115548 */)
   fun isFileExists(filePath: String): Boolean
 }
 

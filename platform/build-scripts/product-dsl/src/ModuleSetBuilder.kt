@@ -9,7 +9,7 @@
  *
  * **Key types**:
  * - [ModuleSet] - Immutable representation of a module collection
- * - [ContentModule] - Module with optional loading mode and dependency flags
+ * - [ContentModule] - Module with optional loading mode
  * - [ModuleSetBuilder] - DSL builder for constructing module sets
  *
  * **DSL entry point**: [moduleSet] function creates a module set using builder syntax:
@@ -41,12 +41,11 @@ import com.intellij.platform.pluginGraph.PluginId
 import com.intellij.platform.pluginGraph.PluginModuleId
 import com.intellij.platform.pluginGraph.contentName
 import com.intellij.platform.pluginSystem.parser.impl.elements.ModuleLoadingRuleValue
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.coroutineScope
+import com.intellij.platform.pluginSystem.parser.impl.elements.xmlValue
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.Transient
 import org.jetbrains.intellij.build.ModuleOutputProvider
+import org.jetbrains.intellij.build.productLayout.discovery.ModuleSetSourceLabels
 import org.jetbrains.intellij.build.productLayout.discovery.discoverModuleSets
 import org.jetbrains.intellij.build.productLayout.stats.FileChangeStatus
 import org.jetbrains.intellij.build.productLayout.stats.ModuleSetFileResult
@@ -55,6 +54,7 @@ import org.jetbrains.intellij.build.productLayout.util.FileUpdateStrategy
 import org.jetbrains.intellij.build.productLayout.xml.buildModuleAliasesXml
 import org.jetbrains.intellij.build.productLayout.xml.collectAllAliases
 import org.jetbrains.intellij.build.productLayout.xml.withEditorFold
+import org.jetbrains.intellij.build.mapConcurrent
 import org.jetbrains.jps.model.java.JavaResourceRootType
 import java.nio.file.Files
 import java.nio.file.Path
@@ -64,14 +64,16 @@ import java.nio.file.Path
  *
  * @param moduleId Plugin module id (e.g., "intellij.platform.vcs.impl" in the "jetbrains" namespace)
  * @param loading Optional loading mode (e.g., ModuleLoadingRule.EMBEDDED)
+ * @param restricted If true, the module can be active only in a product or with a plugin that allows it.
+ *   A [ModuleActivation] gives this permission. The `restrictedModuleActivationValidation` rule checks it.
  */
 @Serializable
 data class ContentModule(
   @JvmField val moduleId: PluginModuleId,
   @JvmField val loading: ModuleLoadingRuleValue = ModuleLoadingRuleValue.OPTIONAL,
   @JvmField val requiredIfAvailable: PluginModuleId? = null,
-  @JvmField val includeDependencies: Boolean = false,
   @Transient @JvmField val allowedMissingPluginIds: List<PluginId> = emptyList(),
+  @Transient @JvmField val restricted: Boolean = false,
 )
 
 internal fun ContentModule.contentName(): ContentModuleName = moduleId.contentName()
@@ -102,7 +104,7 @@ data class ModuleSet(
  * DSL builder for creating ModuleSets with reduced boilerplate.
  */
 @ProductDslMarker
-class ModuleSetBuilder(private val defaultIncludeDependencies: Boolean = false) {
+class ModuleSetBuilder {
   private val modules = ArrayList<ContentModule>()
   private val nestedSets = ArrayList<ModuleSet>()
 
@@ -124,7 +126,6 @@ class ModuleSetBuilder(private val defaultIncludeDependencies: Boolean = false) 
         moduleId = PluginModuleId(name, PluginModuleId.DEFAULT_NAMESPACE),
         loading = loading,
         requiredIfAvailable = requiredIfAvailable,
-        includeDependencies = defaultIncludeDependencies,
         allowedMissingPluginIds = allowedMissingPluginIds.map { PluginId(it) },
       )
     )
@@ -138,7 +139,6 @@ class ModuleSetBuilder(private val defaultIncludeDependencies: Boolean = false) 
       ContentModule(
         moduleId = PluginModuleId(name, PluginModuleId.DEFAULT_NAMESPACE),
         loading = ModuleLoadingRuleValue.EMBEDDED,
-        includeDependencies = defaultIncludeDependencies,
         allowedMissingPluginIds = allowedMissingPluginIds.map { PluginId(it) },
       )
     )
@@ -152,8 +152,23 @@ class ModuleSetBuilder(private val defaultIncludeDependencies: Boolean = false) 
       ContentModule(
         moduleId = PluginModuleId(name, PluginModuleId.DEFAULT_NAMESPACE),
         loading = ModuleLoadingRuleValue.REQUIRED,
-        includeDependencies = defaultIncludeDependencies,
         allowedMissingPluginIds = allowedMissingPluginIds.map { PluginId(it) },
+      )
+    )
+  }
+
+  /**
+   * Add a single module with ON_DEMAND loading.
+   *
+   * @param restricted If true, the module can be active only where a [ModuleActivation] allows it.
+   */
+  fun onDemandModule(name: String, allowedMissingPluginIds: List<String> = emptyList(), restricted: Boolean = false) {
+    modules.add(
+      ContentModule(
+        moduleId = PluginModuleId(name, PluginModuleId.DEFAULT_NAMESPACE),
+        loading = ModuleLoadingRuleValue.ON_DEMAND,
+        allowedMissingPluginIds = allowedMissingPluginIds.map { PluginId(it) },
+        restricted = restricted,
       )
     )
   }
@@ -186,8 +201,8 @@ class ModuleSetBuilder(private val defaultIncludeDependencies: Boolean = false) 
  * }
  *
  * // With module alias:
- * fun xml() = moduleSet("xml", alias = "com.intellij.modules.xml") {
- *   embeddedModule("intellij.xml.dom")
+ * fun featureX() = moduleSet("feature.x", alias = "com.intellij.modules.featureX") {
+ *   module("intellij.featureX")
  *   // ...
  * }
  *
@@ -200,12 +215,6 @@ class ModuleSetBuilder(private val defaultIncludeDependencies: Boolean = false) 
  * fun corePlatform() = moduleSet("core.platform", selfContained = true, outputModule = "intellij.platform.ide.core") {
  *   // Must include all dependencies - validated in isolation
  * }
- *
- * // With includeDependencies default for all embedded modules:
- * fun corePlatform() = moduleSet("core.platform", includeDependencies = true) {
- *   embeddedModule("intellij.platform.util.ex")  // inherits includeDependencies=true
- *   embeddedModule("intellij.platform.core")     // inherits includeDependencies=true
- * }
  * ```
  */
 inline fun moduleSet(
@@ -213,10 +222,9 @@ inline fun moduleSet(
   alias: String? = null,
   outputModule: String? = null,
   selfContained: Boolean = false,
-  includeDependencies: Boolean = false,
   block: ModuleSetBuilder.() -> Unit,
 ): ModuleSet {
-  val (modules, nestedSets) = ModuleSetBuilder(defaultIncludeDependencies = includeDependencies).apply(block).build()
+  val (modules, nestedSets) = ModuleSetBuilder().apply(block).build()
   return ModuleSet(
     name = name,
     modules = modules,
@@ -232,8 +240,8 @@ inline fun moduleSet(
  */
 private fun appendModuleXml(sb: StringBuilder, module: ContentModule) {
   sb.append("    <module name=\"${module.moduleId.name}\"")
-  if (module.loading == ModuleLoadingRuleValue.EMBEDDED) {
-    sb.append(" loading=\"embedded\"")
+  if (module.loading != ModuleLoadingRuleValue.OPTIONAL) {
+    sb.append(" loading=\"${module.loading.xmlValue}\"")
   }
   sb.append("/>")
   sb.append("\n")
@@ -295,13 +303,18 @@ private fun appendModuleSetContent(
  * Builds the XML content for a module set.
  *
  * @param moduleSet The module set to build XML for
- * @param label Description label ("community" or "ultimate") for header generation
+ * @param label Discovery label ("community", "core", "libraries" or "ultimate") that names the source file in the header
  * @return ModuleSetBuildResult containing XML and direct module count
  */
 internal fun buildModuleSetXml(moduleSet: ModuleSet, label: String): ModuleSetBuildResult {
   val xml = buildString {
     // Add generated file header
-    val mainClass = if (label == "community") "CommunityModuleSets" else "UltimateModuleSets"
+    val mainClass = when (label) {
+      ModuleSetSourceLabels.COMMUNITY -> "CommunityModuleSets"
+      ModuleSetSourceLabels.CORE -> "CoreModuleSets"
+      ModuleSetSourceLabels.LIBRARIES -> "LibraryModuleSets"
+      else -> "UltimateModuleSets"
+    }
     append("<!-- DO NOT EDIT: This file is auto-generated from Kotlin code -->\n")
     append("<!-- To regenerate, run: `Generate Product Layouts` or `bazel run //platform/buildScripts:plugin-model-tool` -->\n")
     append("<!-- Source: see moduleSet(\"${moduleSet.name}\") function in ${mainClass}.kt -->\n")
@@ -414,25 +427,23 @@ private fun resolveOutputDir(moduleSet: ModuleSet, defaultOutputDir: Path, outpu
  * Automatically cleans up outdated module set XML files that no longer have corresponding
  * Kotlin module set functions.
  */
-internal suspend fun doGenerateAllModuleSetsInternal(
+internal fun doGenerateAllModuleSetsInternal(
   obj: Any,
   outputDir: Path,
   label: String,
   outputProvider: ModuleOutputProvider? = null,
   strategy: FileUpdateStrategy,
 ): ModuleSetGenerationResult {
-  return coroutineScope {
+  return run {
     Files.createDirectories(outputDir)
 
     val moduleSetsToGenerate = discoverModuleSets(obj)
 
     // Generate all module set XML files first (in parallel)
-    val fileResults = moduleSetsToGenerate.map { moduleSet ->
-      async {
-        val targetOutputDir = resolveOutputDir(moduleSet, outputDir, outputProvider)
-        generateModuleSetXml(moduleSet = moduleSet, outputDir = targetOutputDir, label = label, strategy = strategy)
-      }
-    }.awaitAll()
+    val fileResults = moduleSetsToGenerate.mapConcurrent { moduleSet ->
+      val targetOutputDir = resolveOutputDir(moduleSet, outputDir, outputProvider)
+      generateModuleSetXml(moduleSet = moduleSet, outputDir = targetOutputDir, label = label, strategy = strategy)
+    }
 
     // Build map of output directory -> generated file names (for cleanup aggregation)
     val outputDirToGeneratedFiles = HashMap<Path, MutableSet<String>>()

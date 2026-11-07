@@ -25,22 +25,23 @@
     <orderEntry type="sourceFolder" forTests="false" />
     <orderEntry type="module-library" exported="">
       <library name="kotlinc.kotlin-compiler-fir" type="repository">
-        <properties include-transitive-deps="false" maven-id="org.jetbrains.kotlin:kotlin-compiler-fir-for-ide:2.5.0-dev-6438">
+        <properties include-transitive-deps="false" maven-id="org.jetbrains.kotlin:kotlin-compiler-fir-for-ide:2.5.0-dev-9507">
           <verification>
-            <artifact url="file://$MAVEN_REPOSITORY$/org/jetbrains/kotlin/kotlin-compiler-fir-for-ide/2.5.0-dev-6438/kotlin-compiler-fir-for-ide-2.5.0-dev-6438.jar">
-              <sha256sum>b313db599f21785933a2b1977e6fb5747c93a037d298e504c1bf33c5b093e667</sha256sum>
+            <artifact url="file://$MAVEN_REPOSITORY$/org/jetbrains/kotlin/kotlin-compiler-fir-for-ide/2.5.0-dev-9507/kotlin-compiler-fir-for-ide-2.5.0-dev-9507.jar">
+              <sha256sum>da94b7460f5a53909e1b490603944772551353e3636e124c57084a7c8a932632</sha256sum>
             </artifact>
           </verification>
         </properties>
         <CLASSES>
-          <root url="jar://$MAVEN_REPOSITORY$/org/jetbrains/kotlin/kotlin-compiler-fir-for-ide/2.5.0-dev-6438/kotlin-compiler-fir-for-ide-2.5.0-dev-6438.jar!/" />
+          <root url="jar://$MAVEN_REPOSITORY$/org/jetbrains/kotlin/kotlin-compiler-fir-for-ide/2.5.0-dev-9507/kotlin-compiler-fir-for-ide-2.5.0-dev-9507.jar!/" />
         </CLASSES>
         <JAVADOC />
         <SOURCES>
-          <root url="jar://$MAVEN_REPOSITORY$/org/jetbrains/kotlin/kotlin-compiler-fir-for-ide/2.5.0-dev-6438/kotlin-compiler-fir-for-ide-2.5.0-dev-6438-sources.jar!/" />
+          <root url="jar://$MAVEN_REPOSITORY$/org/jetbrains/kotlin/kotlin-compiler-fir-for-ide/2.5.0-dev-9507/kotlin-compiler-fir-for-ide-2.5.0-dev-9507-sources.jar!/" />
         </SOURCES>
       </library>
     </orderEntry>
     <orderEntry type="module" module-name="intellij.libraries.kotlinc.kotlin.compiler.common" scope="RUNTIME" />
+    <orderEntry type="module" module-name="intellij.libraries.kotlinc.kotlin.compiler.ir" scope="RUNTIME" />
   </component>
 </module>

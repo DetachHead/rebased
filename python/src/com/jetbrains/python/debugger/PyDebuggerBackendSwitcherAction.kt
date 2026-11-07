@@ -13,7 +13,6 @@ import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.actionSystem.DataContext
 import com.intellij.openapi.actionSystem.DefaultActionGroup
-import com.intellij.openapi.actionSystem.LangDataKeys
 import com.intellij.openapi.actionSystem.ex.ActionUtil
 import com.intellij.openapi.actionSystem.ex.ComboBoxAction
 import com.intellij.openapi.components.service
@@ -28,6 +27,7 @@ import com.intellij.toolWindow.InternalDecoratorImpl
 import com.intellij.execution.ProgramRunnerUtil
 import com.intellij.execution.RunManager
 import com.intellij.execution.executors.DefaultDebugExecutor
+import com.intellij.openapi.actionSystem.ExecutionDataKeys
 import com.intellij.openapi.actionSystem.PlatformCoreDataKeys
 import com.intellij.openapi.actionSystem.Presentation
 import com.intellij.openapi.application.ApplicationManager
@@ -49,6 +49,7 @@ import com.jetbrains.python.sdk.findPythonSdk
 import kotlinx.coroutines.launch
 import com.intellij.openapi.projectRoots.Sdk
 import com.intellij.platform.debugger.impl.ui.XDebuggerEntityConverter
+import com.intellij.platform.ide.productMode.IdeProductMode
 import com.intellij.xdebugger.XDebugSession
 import com.intellij.xdebugger.XDebugSessionListener
 import com.intellij.xdebugger.XDebuggerManager
@@ -118,7 +119,9 @@ internal class PyDebuggerBackendSwitcherAction : ComboBoxAction(), DumbAware {
     e.presentation.isEnabledAndVisible = true
 
     val storedBackend = PyDebuggerOptionsProvider.getInstance(project).selectedBackend
-    val effectiveBackend = resolveEffectiveBackend(storedBackend, isDebugpyAvailableInProject(project))
+    val availableBackends = getAvailableBackends(e)
+    val effectiveBackend = if (availableBackends != null) resolveEffectiveBackend(storedBackend, availableBackends)
+    else resolveEffectiveBackend(storedBackend, isDebugpyAvailableInProject(project))
 
     e.presentation.setText(
       buildModeText(PyBundle.message("debugger.backend.switcher.label"),
@@ -161,22 +164,33 @@ internal class PyDebuggerBackendSwitcherAction : ComboBoxAction(), DumbAware {
     override fun update(e: AnActionEvent) {
       val project = e.project ?: return
       val storedBackend = PyDebuggerOptionsProvider.getInstance(project).selectedBackend
-      val effectiveBackend = resolveEffectiveBackend(storedBackend, isDebugpyAvailableInProject(project))
-      e.presentation.isEnabled = true
+      val availableBackends = getAvailableBackends(e)
+      val pydevdAvailable = availableBackends?.contains(PyDebuggerBackend.PYDEVD) != false
+      val debugpyAvailable = availableBackends?.contains(PyDebuggerBackend.DEBUGPY) ?: isDebugpyAvailableInProject(project)
+      val effectiveBackend = if (availableBackends != null) resolveEffectiveBackend(storedBackend, availableBackends)
+      else resolveEffectiveBackend(storedBackend, debugpyAvailable)
+      e.presentation.isEnabled = when (backend) {
+        PyDebuggerBackend.PYDEVD -> pydevdAvailable
+        PyDebuggerBackend.DEBUGPY -> debugpyAvailable
+      }
+      val disabledMsg = when {
+        backend == PyDebuggerBackend.PYDEVD && !pydevdAvailable ->
+          PyBundle.message("debugger.backend.pydevd.disabled.remote.notebook.tooltip")
+        backend == PyDebuggerBackend.DEBUGPY && !debugpyAvailable -> debugpyDisabledMessage(project)
+        else -> null
+      }
+      e.presentation.description = disabledMsg
       e.presentation.putClientProperty(
         ActionUtil.TOOLTIP_TEXT,
-        PyBundle.message(if (backend == PyDebuggerBackend.DEBUGPY) "debugger.backend.debugpy.description" else "debugger.backend.pydevd.description")
+        disabledMsg ?: PyBundle.message(
+          if (backend == PyDebuggerBackend.DEBUGPY) "debugger.backend.debugpy.description" else "debugger.backend.pydevd.description")
       )
-      if (backend == PyDebuggerBackend.DEBUGPY && !isDebugpyAvailableInProject(project)) {
-        e.presentation.isEnabled = false
-        val disabledMsg = debugpyDisabledMessage(project)
-        e.presentation.description = disabledMsg
-        e.presentation.putClientProperty(ActionUtil.TOOLTIP_TEXT, disabledMsg)
-      }
       e.presentation.icon = if (effectiveBackend == backend) AllIcons.Actions.Checked else null
     }
 
     override fun actionPerformed(e: AnActionEvent) {
+      val availableBackends = getAvailableBackends(e)
+      if (availableBackends != null && (backend !in availableBackends || availableBackends.size == 1)) return
       if (backend == PyDebuggerBackend.DEBUGPY && !isPythonDapPluginInstalledAndEnabled()) return
       e.project?.let { switchBackend(it, backend) }
     }
@@ -245,6 +259,27 @@ internal class PyDebuggerBackendSwitcherAction : ComboBoxAction(), DumbAware {
 
 }
 
+private fun getAvailableBackends(e: AnActionEvent): Set<PyDebuggerBackend>? =
+  PyDebuggerBackendSwitchHandler.EP_NAME.computeSafeIfAny { it.getAvailableBackends(e) }
+
+private fun resolveEffectiveBackend(storedBackend: PyDebuggerBackend, availableBackends: Set<PyDebuggerBackend>): PyDebuggerBackend =
+  storedBackend.takeIf { it in availableBackends } ?: availableBackends.first()
+
+/**
+ * Whether this IDE process can host the backend switcher at all.
+ *
+ * The frontend loads its own copy of this module, and everything the switcher needs stays on the backend:
+ * the project SDKs, the [PyDebuggerBackendSwitchHandler] extensions of the PythonDAP plugin, and the
+ * [PyDebuggerOptionsProvider] copy that decides which backend starts a session. A frontend that answered
+ * from its own state showed pydevd whatever the session ran, and a switch there never reached the process
+ * that starts the debuggee (PY-88602).
+ *
+ * The switcher is therefore hidden in the frontend, and Settings | Build, Execution, Deployment |
+ * Python Debugger | Mode stays the way to choose the backend there. That page is served by the backend, so
+ * it reads and writes the copy the session uses.
+ */
+internal fun isPyDebuggerBackendSwitcherSupported(): Boolean = !IdeProductMode.isFrontend
+
 /**
  * Whether the backend switcher belongs on the Debug tool window tab the [e] context points at.
  *
@@ -253,6 +288,9 @@ internal class PyDebuggerBackendSwitcherAction : ComboBoxAction(), DumbAware {
  * JavaScript session must not be told which Python debugger backend it runs on (CPP-51572).
  */
 internal fun isPyDebuggerBackendSwitcherVisible(project: Project, e: AnActionEvent): Boolean {
+  // Checked before the pin, so the promotion cannot bring the switcher back on the frontend.
+  if (!isPyDebuggerBackendSwitcherSupported()) return false
+
   if (PyDebuggerBackendSwitcherVisibilityPin.isPinned(project)) return true
 
   // A handler that recognizes the tab decides for it.
@@ -269,7 +307,7 @@ private fun isPythonDebugTab(e: AnActionEvent): Boolean {
   // The header toolbar takes its data context from the selected tab, but a tab only publishes a run
   // profile when it was started from an execution environment, which a Jupyter or console session
   // was not. Those are recognized through the session instead: they run a pydevd-backed process.
-  if (e.getData(LangDataKeys.RUN_PROFILE) is AbstractPythonRunConfiguration<*>) return true
+  if (e.getData(ExecutionDataKeys.RUN_PROFILE) is AbstractPythonRunConfiguration<*>) return true
   val sessionProxy = DebuggerUIUtil.getSessionProxy(e) ?: return false
   val session = XDebuggerEntityConverter.getSession(sessionProxy) ?: return false
   return session.runProfile is AbstractPythonRunConfiguration<*> || session.debugProcess is PyDebugProcess

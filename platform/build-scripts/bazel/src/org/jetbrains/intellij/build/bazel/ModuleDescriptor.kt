@@ -43,26 +43,19 @@ internal data class ModuleDescriptor(
     require(imlFile.isRegularFile()) {
       "imlFile must be a regular file: $imlFile"
     }
+
+    // see https://youtrack.jetbrains.com/issue/MRI-3451#focus=Comments-27-13512542.0-0
+    require(module.name == "intellij.platform.buildScripts.bazel" ||
+            (sources.isEmpty() && resources.isEmpty()) ||
+            (testSources.isEmpty() && testResources.isEmpty())) {
+      "module must not have both production and test source roots, please keep them in separate modules: $imlFile"
+    }
   }
+
+  val bazelBuildFile: Path
+    get() = bazelBuildFileDir.resolve("BUILD.bazel")
 
   val targetAsLabel = BazelLabel(targetName, this)
-
-  /**
-   * The `module-content.yaml` recipe beside this module's first content root - which is where the content-report
-   * writer puts it (`contentChecker.kt` resolves `module.contentRootsList.urls.first()`), and not always the directory
-   * holding the `.iml`. Existence and parse are cached separately because they answer different questions:
-   * `ModuleList.contentModuleNames` needs only existence, while a recipe that exists but holds several entries still
-   * parses to a `null` [contentModuleRecipe].
-   */
-  val contentModuleRecipeFile: Path? by lazy(LazyThreadSafetyMode.NONE) {
-    contentRoots.firstOrNull()?.resolve(CONTENT_MODULE_RECIPE_FILE_NAME)?.takeIf { it.isRegularFile() }
-  }
-
-  /**
-   * [contentModuleRecipeFile], parsed at most once per module. Cached here because the plugin-content pass asks per
-   * (plugin, member) relation, so an uncached read would re-parse the same file once per plugin shipping the module.
-   */
-  val contentModuleRecipe: RecipeEntry? by lazy(LazyThreadSafetyMode.NONE) { parseContentModuleRecipe(contentModuleRecipeFile) }
 }
 
 internal data class ResourceDescriptor(
@@ -71,6 +64,7 @@ internal data class ResourceDescriptor(
   @JvmField val relativeOutputPath: String,
   @JvmField val root: Path,
   @JvmField val excludes: List<String>,
+  @JvmField val allowEmpty: Boolean,
 )
 
 internal data class SourceDirDescriptor(

@@ -77,9 +77,11 @@ private class TestFileEditorManager(
     override fun getPolicy(): FileEditorPolicy = FileEditorPolicy.NONE
   }
 
-  override fun getSelectedFiles(): Array<VirtualFile> = arrayOf(file)
+  override val selectedFiles: Array<VirtualFile>
+    get() = arrayOf(file)
 
-  override fun getSelectedEditors(): Array<FileEditor> = arrayOf(editor)
+  override val selectedEditors: Array<FileEditor>
+    get() = arrayOf(editor)
 
   override fun getSelectedEditorWithProvider(file: VirtualFile): FileEditorWithProvider? {
     return FileEditorWithProvider(editor, provider).takeIf { file == this.file }

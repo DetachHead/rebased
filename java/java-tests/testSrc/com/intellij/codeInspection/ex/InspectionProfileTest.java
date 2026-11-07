@@ -118,7 +118,7 @@ public class InspectionProfileTest extends LightIdeaTestCase {
     InspectionProfileImpl profile = createProfile();
     assertNotEmpty(profile.getAllTools());
     assertTrue(profile.wasInitialized());
-    profile.modifyProfile(m -> {});
+    profile.modifyProfile(_ -> {});
     assertTrue(profile.wasInitialized());
     assertNotEmpty(profile.getAllTools());
   }
@@ -1065,6 +1065,32 @@ public class InspectionProfileTest extends LightIdeaTestCase {
     assertEquals(0, countInitializedTools(model));
   }
 
+  public void testMissingDisplayNameIsComputedLazily() {
+    String shortName = "ijpl257488LazyDisplayName";
+    LocalInspectionEP ep = new LocalInspectionEP();
+    ep.shortName = shortName;
+    ep.level = "ERROR";
+    ep.enabledByDefault = true;
+    ep.implementationClass = LazyDisplayNameTool.class.getName();
+    ep.setPluginDescriptor(PluginManagerCore.getPlugin(PluginManagerCore.CORE_ID));
+    LocalInspectionToolWrapper wrapper = new LocalInspectionToolWrapper(ep);
+    InspectionToolsSupplier.Simple toolSupplier = new InspectionToolsSupplier.Simple(List.of(wrapper));
+    Disposer.register(getTestRootDisposable(), toolSupplier);
+
+    try {
+      createProfile(toolSupplier).initInspectionTools(getProject());
+      assertFalse(wrapper.isInitialized());
+
+      HighlightDisplayKey key = HighlightDisplayKey.find(shortName);
+      assertNotNull(key);
+      assertEquals("Lazy display name", HighlightDisplayKey.getDisplayNameByKey(key));
+      assertTrue(wrapper.isInitialized());
+    }
+    finally {
+      HighlightDisplayKey.unregister(shortName);
+    }
+  }
+
   public void testDoNotInstantiateOnSave() {
     InspectionProfileImpl profile = new InspectionProfileImpl("profile", InspectionToolRegistrar.getInstance(), (InspectionProfileImpl)null);
     assertEquals(0, countInitializedTools(profile));
@@ -1081,17 +1107,73 @@ public class InspectionProfileTest extends LightIdeaTestCase {
   }
 
   public void testInspectionInitializationForSerialization() throws Exception {
-    InspectionProfileImpl foo = new InspectionProfileImpl("foo");
-    foo.readExternal(JDOMUtil.load("""
-                                     <profile version="1.0">
-                                         <option name="myName" value="idea.default" />
-                                         <inspection_tool class="AbstractMethodCallInConstructor" enabled="true" level="WARNING" enabled_by_default="true" />
-                                         <inspection_tool class="AssignmentToForLoopParameter" enabled="true" level="WARNING" enabled_by_default="true">
-                                           <option name="m_checkForeachParameters" value="false" />
-                                         </inspection_tool>
-                                     </profile>"""));
-    foo.initInspectionTools(getProject());
-    assertEquals(1, countInitializedTools(foo));
+    String shortName = "ijpl257488LazyDefaultSettings";
+    InspectionToolsSupplier toolSupplier = createLazySettingsToolSupplier(shortName);
+    InspectionProfileImpl base = new InspectionProfileImpl("base", toolSupplier, (InspectionProfileImpl)null);
+    InspectionProfileImpl profile = new InspectionProfileImpl("foo", toolSupplier, base);
+    Element settings = JDOMUtil.load("""
+                                        <profile version="1.0">
+                                          <option name="myName" value="foo" />
+                                          <inspection_tool class="ijpl257488LazyDefaultSettings" enabled="true" level="ERROR" enabled_by_default="true">
+                                            <option name="option" value="false" />
+                                          </inspection_tool>
+                                        </profile>""");
+    try {
+      profile.readExternal(settings);
+      profile.initInspectionTools(getProject());
+      assertEquals(0, countInitializedTools(profile));
+
+      InspectionToolWrapper<?, ?> wrapper = profile.getInspectionTool(shortName, getProject());
+      assertNotNull(wrapper);
+      assertFalse(wrapper.isInitialized());
+      assertThat(profile.writeScheme()).isEqualTo(settings);
+
+      LazySettingsTool tool = (LazySettingsTool)wrapper.getTool();
+      assertFalse(tool.option);
+      assertEquals(1, countInitializedTools(profile));
+      assertThat(profile.writeScheme()).isEqualTo(settings);
+    }
+    finally {
+      HighlightDisplayKey.unregister(shortName);
+    }
+  }
+
+  public void testScopeSettingsAreReadLazily() throws Exception {
+    String shortName = "ijpl257488LazyScopeSettings";
+    InspectionToolsSupplier toolSupplier = createLazySettingsToolSupplier(shortName);
+    InspectionProfileImpl base = new InspectionProfileImpl("base", toolSupplier, (InspectionProfileImpl)null);
+    InspectionProfileImpl profile = new InspectionProfileImpl("foo", toolSupplier, base);
+    Element settings = JDOMUtil.load("""
+                                        <profile version="1.0">
+                                          <option name="myName" value="foo" />
+                                          <inspection_tool class="ijpl257488LazyScopeSettings" enabled="true" level="ERROR" enabled_by_default="true">
+                                            <scope name="Production" level="ERROR" enabled="true">
+                                              <option name="option" value="false" />
+                                            </scope>
+                                          </inspection_tool>
+                                        </profile>""");
+    try {
+      profile.readExternal(settings);
+      profile.initInspectionTools(getProject());
+
+      ToolsImpl tools = profile.getToolsOrNull(shortName, getProject());
+      assertNotNull(tools);
+      List<ScopeToolState> scopeStates = tools.getNonDefaultTools();
+      assertNotNull(scopeStates);
+      assertSize(1, scopeStates);
+      InspectionToolWrapper<?, ?> scopeWrapper = scopeStates.getFirst().getTool();
+      assertFalse(scopeWrapper.isInitialized());
+      assertEquals(0, countInitializedTools(profile));
+      assertThat(profile.writeScheme()).isEqualTo(settings);
+
+      LazySettingsTool tool = (LazySettingsTool)scopeWrapper.getTool();
+      assertFalse(tool.option);
+      assertEquals(1, countInitializedTools(profile));
+      assertThat(profile.writeScheme()).isEqualTo(settings);
+    }
+    finally {
+      HighlightDisplayKey.unregister(shortName);
+    }
   }
 
   /**
@@ -1140,6 +1222,23 @@ public class InspectionProfileTest extends LightIdeaTestCase {
     return foo.getAllTools().stream().map(ScopeToolState::getTool).filter(InspectionToolWrapper::isInitialized).toList();
   }
 
+  private InspectionToolsSupplier createLazySettingsToolSupplier(String shortName) {
+    InspectionToolsSupplier supplier = new InspectionToolsSupplier() {
+      @Override
+      public @NotNull List<InspectionToolWrapper<?, ?>> createTools() {
+        LocalInspectionEP ep = new LocalInspectionEP();
+        ep.shortName = ep.displayName = ep.groupDisplayName = shortName;
+        ep.level = "ERROR";
+        ep.enabledByDefault = true;
+        ep.implementationClass = LazySettingsTool.class.getName();
+        ep.setPluginDescriptor(PluginManagerCore.getPlugin(PluginManagerCore.CORE_ID));
+        return List.of(new LocalInspectionToolWrapper(ep));
+      }
+    };
+    Disposer.register(getTestRootDisposable(), supplier);
+    return supplier;
+  }
+
   private static LocalInspectionToolWrapper createTool(String name, boolean enabled) {
     LocalInspectionEP ep = new LocalInspectionEP();
     ep.shortName = ep.displayName = ep.groupDisplayName = name;
@@ -1150,5 +1249,17 @@ public class InspectionProfileTest extends LightIdeaTestCase {
     return new LocalInspectionToolWrapper(ep);
   }
 
+  @SuppressWarnings("WeakerAccess")
   public static final class TestTool extends LocalInspectionTool { }
+
+  public static final class LazyDisplayNameTool extends LocalInspectionTool {
+    @Override
+    public @NotNull String getDisplayName() {
+      return "Lazy display name";
+    }
+  }
+
+  public static final class LazySettingsTool extends LocalInspectionTool {
+    public boolean option = true;
+  }
 }

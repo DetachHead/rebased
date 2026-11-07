@@ -26,11 +26,13 @@ import java.beans.PropertyChangeListener;
 import java.util.Arrays;
 import java.util.List;
 
-@State(name = "TodoConfiguration", storages = @Storage("editor.xml"), category = SettingsCategory.CODE)
+@State(name = "TodoConfiguration", storages = {
+  @Storage("editor.xml"),
+  // Rider kept TodoConfiguration in the non-roamable other.xml before 2016. Read-only migration.
+  // Could as well be removed, but I keep it for total backwards-compatibility
+  @Storage(value = "other.xml", deprecated = true),
+}, category = SettingsCategory.CODE)
 public class TodoConfiguration implements PersistentStateComponent<Element> {
-
-  @Topic.ProjectLevel
-  public static final Topic<PropertyChangeListener> PROPERTY_CHANGE = new Topic<>("TodoConfiguration changes", PropertyChangeListener.class);
 
   public static TodoConfiguration getInstance() {
     return ApplicationManager.getApplication().getService(TodoConfiguration.class);
@@ -68,10 +70,7 @@ public class TodoConfiguration implements PersistentStateComponent<Element> {
    * Returns the list of default TO_DO patterns. Can be customized in other IDEs (and is customized in Rider).
    */
   protected TodoPattern @NotNull [] getDefaultPatterns() {
-    return new TodoPattern[]{
-      new TodoPattern("\\btodo\\b.*", TodoAttributesUtil.createDefault(), false),
-      new TodoPattern("\\bfixme\\b.*", TodoAttributesUtil.createDefault(), false),
-    };
+    return TodoDefaultPatternProvider.getInstance().getDefaultPatterns();
   }
 
   private void buildIndexPatterns() {
@@ -108,11 +107,11 @@ public class TodoConfiguration implements PersistentStateComponent<Element> {
 
     // only trigger gui and code daemon refresh when either the index patterns or presentation attributes have changed
     if (!Arrays.deepEquals(myTodoPatterns, oldTodoPatterns)) {
-      getPublisher(PROPERTY_CHANGE).propertyChange(new PropertyChangeEvent(this, PROP_TODO_PATTERNS, oldTodoPatterns, todoPatterns));
+      getPublisher(TodoConfigurationPropertyChangeListener.TOPIC).propertyChange(new PropertyChangeEvent(this, PROP_TODO_PATTERNS, oldTodoPatterns, todoPatterns));
     }
   }
 
-  private static @NotNull PropertyChangeListener getPublisher(@NotNull Topic<PropertyChangeListener> topic) {
+  private static @NotNull PropertyChangeListener getPublisher(@NotNull Topic<? extends PropertyChangeListener> topic) {
     return ApplicationManager.getApplication().getMessageBus().syncPublisher(topic);
   }
 
@@ -143,14 +142,14 @@ public class TodoConfiguration implements PersistentStateComponent<Element> {
   public void setMultiLine(boolean multiLine) {
     if (multiLine != myMultiLine) {
       myMultiLine = multiLine;
-      getPublisher(PROPERTY_CHANGE).propertyChange(new PropertyChangeEvent(this, PROP_MULTILINE, !multiLine, multiLine));
+      getPublisher(TodoConfigurationPropertyChangeListener.TOPIC).propertyChange(new PropertyChangeEvent(this, PROP_MULTILINE, !multiLine, multiLine));
     }
   }
 
   public void setTodoFilters(TodoFilter @NotNull [] filters) {
     TodoFilter[] oldFilters = myTodoFilters;
     myTodoFilters = filters;
-    getPublisher(PROPERTY_CHANGE).propertyChange(new PropertyChangeEvent(this, PROP_TODO_FILTERS, oldFilters, filters));
+    getPublisher(TodoConfigurationPropertyChangeListener.TOPIC).propertyChange(new PropertyChangeEvent(this, PROP_TODO_FILTERS, oldFilters, filters));
   }
 
   @Override

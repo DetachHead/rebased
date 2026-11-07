@@ -1,0 +1,14 @@
+anyhow
+appinfo
+cli
+equivalent
+foldhash
+hashbrown
+indexmap
+itoa
+memchr
+quick_xml
+serde
+serde_core
+serde_json
+zmij

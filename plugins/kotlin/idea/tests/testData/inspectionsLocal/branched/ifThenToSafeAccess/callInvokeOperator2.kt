@@ -1,6 +1,5 @@
-// HIGHLIGHT: WARNING
+// HIGHLIGHT: INFORMATION
 // FIX: Replace 'if' expression with safe access expression
-// FIR_COMPARISON
 class Foo(val bar: Bar)
 
 class Bar {

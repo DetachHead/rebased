@@ -36,8 +36,8 @@ import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.util.Ref
 import com.intellij.openapi.util.io.FileUtil
 import com.intellij.openapi.util.text.Strings
-import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.openapi.vfs.VirtualFile
+import com.intellij.openapi.vfs.VirtualFileManager
 import com.intellij.openapi.vfs.newvfs.impl.VfsRootAccess
 import com.intellij.platform.eel.EelDescriptor
 import com.intellij.platform.eel.provider.getEelDescriptor
@@ -150,7 +150,7 @@ abstract class GradleImportingTestCase : JavaExternalSystemImportingTestCase() {
 
   @Throws(Exception::class)
   override fun setUp() {
-    Assume.assumeThat(gradleVersion, versionMatcherRule.matcher)
+    assumeGradleVersion()
 
     myProjectSettings = GradleProjectSettings().withQualifiedModuleNames()
 
@@ -170,6 +170,14 @@ abstract class GradleImportingTestCase : JavaExternalSystemImportingTestCase() {
     installExecutionDeprecationChecker()
     originalGradleUserHome = this.gradleUserHome
     ignoreGradleLongRunningThreads()
+  }
+
+  /**
+   * Consider overriding this function when overriding the Gradle version parameter provider
+   * ([org.jetbrains.plugins.gradle.importing.GradleImportingTestCase.Companion.data]).
+   */
+  open fun assumeGradleVersion() {
+    Assume.assumeThat(gradleVersion, versionMatcherRule.matcher)
   }
 
   private fun ignoreGradleLongRunningThreads() {
@@ -489,7 +497,7 @@ abstract class GradleImportingTestCase : JavaExternalSystemImportingTestCase() {
   }
 
   private fun createJdkFromJavaHome(): Sdk {
-    val jdkHomeDir = LocalFileSystem.getInstance().refreshAndFindFileByNioFile(Path.of(gradleJdkHome!!))
+    val jdkHomeDir = VirtualFileManager.getInstance().refreshAndFindFileByNioPath(Path.of(gradleJdkHome!!))
     val javaSdk = JavaSdk.getInstance()
     val javaSdkType: SdkType = javaSdk ?: SimpleJavaSdkType.getInstance()
     val jdk = SdkConfigurationUtil.setupSdk(arrayOfNulls<Sdk>(0), jdkHomeDir!!, javaSdkType, true, null, GRADLE_JDK_NAME)
@@ -531,6 +539,10 @@ abstract class GradleImportingTestCase : JavaExternalSystemImportingTestCase() {
       return GradleJvmResolver.resolveGradleJvmHomePath(gradleVersion, javaVersionRestriction)
     }
 
+    /**
+     * Consider overriding [org.jetbrains.plugins.gradle.importing.GradleImportingTestCase.assumeGradleVersion]
+     * when overriding this function.
+     */
     @JvmStatic
     @Parameterized.Parameters(name = "{index}: with Gradle-{0}")
     open fun data(): Iterable<*> {

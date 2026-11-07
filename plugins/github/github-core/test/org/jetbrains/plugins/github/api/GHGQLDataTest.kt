@@ -38,12 +38,6 @@ import com.apollographql.apollo.ast.Issue
 import com.apollographql.apollo.ast.fieldDefinitions
 import com.apollographql.apollo.ast.parseAsGQLDocument
 import com.apollographql.apollo.ast.validateAsExecutable
-import com.fasterxml.jackson.databind.JavaType
-import com.fasterxml.jackson.databind.exc.InvalidNullException
-import com.fasterxml.jackson.databind.introspect.AnnotatedClass
-import com.fasterxml.jackson.databind.introspect.BeanPropertyDefinition
-import com.fasterxml.jackson.databind.type.ArrayType
-import com.fasterxml.jackson.databind.type.CollectionLikeType
 import com.intellij.collaboration.api.data.GraphQLRequestPagination
 import com.intellij.diff.util.Side
 import com.intellij.idea.IJIgnore
@@ -59,6 +53,13 @@ import org.junit.jupiter.api.assertNull
 import org.junit.jupiter.api.assertThrows
 import org.junit.runner.RunWith
 import org.junit.runners.Parameterized
+import tools.jackson.databind.BeanDescription
+import tools.jackson.databind.JavaType
+import tools.jackson.databind.exc.InvalidNullException
+import tools.jackson.databind.introspect.AnnotatedClass
+import tools.jackson.databind.introspect.BeanPropertyDefinition
+import tools.jackson.databind.type.ArrayType
+import tools.jackson.databind.type.CollectionLikeType
 import java.util.Date
 import kotlin.reflect.full.primaryConstructor
 
@@ -312,11 +313,11 @@ class GHGQLDTOTest(val testCase: TestCase) {
 
   private fun verifyDtoClass(gqlTypedef: GQLTypeDefinition, gqlFields: List<GQLSelection>, baseJavaType: JavaType) {
     val fragmentFields = listAllFragmentFields(gqlTypedef, gqlFields).associateBy { it.field.alias ?: it.field.name }
-    val baseBeanDescription = mapper.serializationConfig.introspect(baseJavaType)
+    val baseBeanDescription = introspect(baseJavaType)
 
     val allSubtypes = getAllSubtypes(baseJavaType, baseBeanDescription.classInfo)
     for (javaType in allSubtypes) {
-      val beanDescription = mapper.serializationConfig.introspect(javaType)
+      val beanDescription = introspect(javaType)
 
       for (field in beanDescription.findProperties()) {
         if (field.name in ALWAYS_VALID_FIELD_NAMES) continue
@@ -343,11 +344,16 @@ class GHGQLDTOTest(val testCase: TestCase) {
     }
   }
 
+  private fun introspect(type: JavaType): BeanDescription {
+    val introspector = mapper.serializationConfig().classIntrospectorInstance()
+    return introspector.introspectForSerialization(type, introspector.introspectClassAnnotations(type))
+  }
+
   /**
    * Find all possible subtypes (e.g., @JsonSubTypes) to make sure that they also will be resolved correctly
    */
   private fun getAllSubtypes(javaType: JavaType, annotatedClass: AnnotatedClass): List<JavaType> {
-    val config = mapper.serializationConfig
+    val config = mapper.serializationConfig()
     val namedSubtypes = config.subtypeResolver.collectAndResolveSubtypesByTypeId(config, annotatedClass)
 
     val subtypeJavaTypes = namedSubtypes
@@ -572,6 +578,7 @@ private object TestCases {
       GHGQLRequests.PullRequest.mergeabilityData(DUMMY_REPO_COORDINATES, DUMMY_NUMBER),
       GHGQLRequests.PullRequest.search(DUMMY_SERVER_PATH, DUMMY_TEXT, DUMMY_PAGINATION),
       GHGQLRequests.PullRequest.search(DUMMY_SERVER_PATH, DUMMY_TEXT, null),
+      GHGQLRequests.PullRequest.searchByHeadBranches(DUMMY_REPO_COORDINATES, listOf(DUMMY_TEXT)),
       GHGQLRequests.PullRequest.metrics(DUMMY_REPO_COORDINATES),
       GHGQLRequests.PullRequest.reviewThreads(DUMMY_REPO_COORDINATES, DUMMY_NUMBER, DUMMY_PAGINATION),
       GHGQLRequests.PullRequest.reviewThreads(DUMMY_REPO_COORDINATES, DUMMY_NUMBER, null),
@@ -607,12 +614,23 @@ private object TestCases {
     QUERIES.groupBy { it.queryName }
   }
 
+  // Queries that use a schema feature missing from some vendored GitHub Enterprise schemas.
+  // Query name -> display names of the schemas that lack the feature.
+  private val SCHEMA_INCOMPATIBLE_COMBINATIONS: Map<String, Set<String>> = mapOf(
+    // GHE Server 3.10-3.15 and our vendored cloud-latest schema don't have SearchType.ISSUE_ADVANCED yet,
+    // added to github.com in March 2025. https://youtrack.jetbrains.com/issue/IJPL-255868 will fix this
+    // by updating the vendored schemas.
+    "findPullRequestsByHeadBranch.graphql" to setOf("3.10", "3.11", "3.12", "3.13", "3.14", "3.15", "cloud-latest"),
+  )
+
   fun <TestCase> constructTestCases(f: (queryName: String, pluginQueries: List<PluginQuery<*>>, GraphQLSchemaAndQueryLoaderHolder) -> List<TestCase>): List<TestCase> {
     val schemas = GHGQLTestSchemas.all
     val queryNames = GHGQLQueryTestData.queryNames
 
     return schemas.flatMap { schema ->
       queryNames.flatMap { queryName ->
+        if (schema.displayName in SCHEMA_INCOMPATIBLE_COMBINATIONS[queryName].orEmpty()) return@flatMap emptyList()
+
         val queryPath = GHGQLQueryTestData.toPath(queryName)
         val queries = QUERIES_BY_PATH[queryPath] ?: error("""
           Missing query object for ${queryPath}.
@@ -658,6 +676,10 @@ class GHGQLDeserializationAssumptionsTest {
 
   data class StringHolderWithNullable(
     val s: String?,
+  )
+
+  data class BooleanHolder(
+    val b: Boolean,
   )
 
   @Test
@@ -746,6 +768,20 @@ class GHGQLDeserializationAssumptionsTest {
   fun `deserializing an absent field to nullable string`() {
     val result = assertDoesNotThrow { mapper.readValue("""{}""", StringHolderWithNullable::class.java) }
     assertNull(result.s)
+  }
+
+  // Jackson 3 enables FAIL_ON_NULL_FOR_PRIMITIVES by default, which would make an absent primitive a required creator property.
+  // The GitHub mapper keeps the Jackson 2 behavior, see IJPL-256217.
+  @Test
+  fun `deserializing an absent field to a primitive boolean yields false`() {
+    val result = assertDoesNotThrow { mapper.readValue("""{}""", BooleanHolder::class.java) }
+    assertThat(result.b).isFalse()
+  }
+
+  @Test
+  fun `deserializing a null to a primitive boolean yields false`() {
+    val result = assertDoesNotThrow { mapper.readValue("""{"b":null}""", BooleanHolder::class.java) }
+    assertThat(result.b).isFalse()
   }
 }
 

@@ -1078,4 +1078,25 @@ public class Py3CompletionTest extends PyTestCase {
   protected String getTestDataPath() {
     return super.getTestDataPath() + "/completion";
   }
+
+  public void testDataclassConstructorKeywordArgumentCompletion() {
+    doTestByText("""
+      from dataclasses import dataclass
+
+      @dataclass
+      class Test:
+          param: int
+
+      Test(par<caret>)
+      """);
+    myFixture.checkResult("""
+      from dataclasses import dataclass
+
+      @dataclass
+      class Test:
+          param: int
+
+      Test(param=)
+      """);
+  }
 }

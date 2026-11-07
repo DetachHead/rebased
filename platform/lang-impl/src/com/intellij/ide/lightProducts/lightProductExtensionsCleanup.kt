@@ -1,6 +1,7 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.ide.lightProducts
 
+import com.intellij.application.options.editor.EditorOptionsProviderEP
 import com.intellij.codeInsight.daemon.impl.GutterIntentionMenuContributor
 import com.intellij.codeInsight.daemon.impl.IntentionMenuContributor
 import com.intellij.ide.GeneralSettings
@@ -13,16 +14,12 @@ import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.extensions.ExtensionPoint
 import com.intellij.openapi.extensions.ExtensionPointName
 import com.intellij.openapi.extensions.impl.unregisterEverything
-import com.intellij.openapi.extensions.impl.unregisterEverythingExcept
 import com.intellij.openapi.extensions.impl.unregisterExtensions
 import com.intellij.openapi.extensions.impl.unregisterExtensionsById
 import com.intellij.openapi.extensions.impl.unregisterExtensionsMatching
 import com.intellij.openapi.options.Configurable
 import com.intellij.openapi.wm.StatusBarWidgetFactory
-import com.intellij.psi.search.FileTypeIndexImpl
 import com.intellij.psi.stubs.StubIndexExtension
-import com.intellij.usages.impl.UsageGroupingRuleProviderImpl
-import com.intellij.usages.rules.UsageGroupingRuleProvider
 import com.intellij.util.application
 import com.intellij.util.indexing.FileBasedIndexExtension
 import com.intellij.util.indexing.IndexableSetContributor
@@ -39,65 +36,85 @@ private val logger = Logger.getInstance("#com.intellij.ide.lightProducts.LightPr
  * and `com.intellij.idea.ultimate.light.customization.IjLightAppExtensionsConfigurator`.
  */
 @ApiStatus.Internal
-fun unregisterExtensionsForLightProduct() {
-  UsageGroupingRuleProvider.EP_NAME.appPoint
-    .unregisterExtensions(
-      UsageGroupingRuleProviderImpl::class
-    )
-
+fun unregisterExtensionsForLightProduct(checkNotInstantiated: Boolean = false) {
   SearchEverywhereContributor.EP_NAME.appPoint
     .unregisterExtensions(
       FileSearchEverywhereContributorFactory::class,
+      checkNotInstantiated = checkNotInstantiated,
     )
 
-  ChooseByNameContributor.FILE_EP_NAME.appPoint.unregisterEverything()
+  ChooseByNameContributor.FILE_EP_NAME.appPoint.unregisterEverything(checkNotInstantiated)
 
   IntentionMenuContributor.EP_NAME.appPoint
     .unregisterExtensions(
-      GutterIntentionMenuContributor::class
+      GutterIntentionMenuContributor::class,
+      checkNotInstantiated = checkNotInstantiated,
     )
 
-  FileBasedIndexExtension.EXTENSION_POINT_NAME.appPoint
-    .unregisterEverythingExcept(
-      // Unregistering of this extension leads to "Index is not created for `filetypes`" errors
-      FileTypeIndexImpl::class
-    )
-
-  IndexableSetContributor.EP_NAME.appPoint.unregisterEverything()
-  StubIndexExtension.EP_NAME.appPoint.unregisterEverything()
+  unregisterIndexExtensions(checkNotInstantiated)
 
   UsageCollectors.PROJECT_EP_NAME.appPoint
-    .unregisterExtensionsMatching { _, adapter ->
+    .unregisterExtensionsMatching(checkNotInstantiated) { _, adapter ->
       val bean = adapter.createInstance<UsageCollectorBean>(application)
       bean?.implementationClass != "com.intellij.internal.statistic.collectors.fus.fileTypes.FileTypeUsagesCollector"
     }.also { reports ->
       if (reports.none { !it.wasUnregistered }) logger.warn("Can't keep FileTypeUsagesCollector - Not Found")
     }
 
+  // The project-level settings pages are removed in `openProjectForLightProduct`.
   Configurable.APPLICATION_CONFIGURABLE.appPoint
     .unregisterExtensionsById(
       "ide.date.format",
       "editing.templates",
       "trusted.hosts",
       "diff.base",
+      "editor.breadcrumbs",
+      "editor.stickyLines",
+      checkNotInstantiated = checkNotInstantiated,
+    )
+
+  EditorOptionsProviderEP.EP_NAME.appPoint
+    .unregisterExtensionsById(
+      "editor.preferences.smartKeys",
+      "editor.preferences.completion",
+      "reference.settingsdialog.IDE.editor.postfix.templates",
+      checkNotInstantiated = checkNotInstantiated,
     )
 
   StatusBarWidgetFactory.EP_NAME.appPoint
     .unregisterExtensionsById(
       "VfsRefresh",
-      "LanguageServiceStatusBarWidget",
       "LineSeparator",
       "Encoding",
       "PowerSaveMode",
       "largeFileEncodingWidget",
       "CodeStyleStatusBarWidget",
       "ReadOnlyAttribute",
-      "inspectionProfileWidget",
       "SmartModeIndicator",
       "IndexesAndVfsFlushIndicator",
+      checkNotInstantiated = checkNotInstantiated,
     )
 
   GeneralSettings.getInstance().isShowTipsOnStartup = false
+}
+
+/**
+ * The application-level index extension points that [unregisterExtensionsForLightProduct] clears.
+ *
+ * A light product can restore these points at run time, see the `IjLight.EnableIndexes` action.
+ * The removal and the restoration must use this one list.
+ */
+@ApiStatus.Internal
+val LIGHT_PRODUCT_INDEX_EXTENSION_POINTS: List<String> = listOf(
+  FileBasedIndexExtension.EXTENSION_POINT_NAME.name,
+  StubIndexExtension.EP_NAME.name,
+  IndexableSetContributor.EP_NAME.name,
+)
+
+private fun unregisterIndexExtensions(checkNotInstantiated: Boolean) {
+  for (pointName in LIGHT_PRODUCT_INDEX_EXTENSION_POINTS) {
+    application.extensionArea.getExtensionPoint<Any>(pointName).unregisterEverything(checkNotInstantiated)
+  }
 }
 
 private val <T : Any> ExtensionPointName<T>.appPoint: ExtensionPoint<T> get() = application.extensionArea.getExtensionPoint(this)

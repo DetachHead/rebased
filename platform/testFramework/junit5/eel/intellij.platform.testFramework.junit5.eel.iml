@@ -7,13 +7,11 @@
     </content>
     <orderEntry type="inheritedJdk" />
     <orderEntry type="sourceFolder" forTests="false" />
-    <orderEntry type="module" module-name="intellij.libraries.junit5.jupiter" />
+    <orderEntry type="module" module-name="intellij.libraries.junit6.jupiter" />
     <orderEntry type="module" module-name="intellij.libraries.jetbrains.annotations" />
     <orderEntry type="library" name="kotlin-stdlib" level="project" />
     <orderEntry type="module" module-name="intellij.libraries.kotlinx.coroutines.core" />
-    <orderEntry type="module" module-name="intellij.libraries.junit5.params" scope="TEST" />
-    <orderEntry type="module" module-name="intellij.libraries.junit5" />
-    <orderEntry type="module" module-name="intellij.libraries.junit5.pioneer" scope="TEST" />
+    <orderEntry type="module" module-name="intellij.libraries.junit6" />
     <orderEntry type="module" module-name="intellij.platform.core" />
     <orderEntry type="module" module-name="intellij.platform.core.nio.fs" />
     <orderEntry type="module" module-name="intellij.platform.eel.impl" />
@@ -25,9 +23,9 @@
     <orderEntry type="module" module-name="intellij.platform.util" />
     <orderEntry type="module" module-name="intellij.platform.util.coroutines" />
     <orderEntry type="module" module-name="intellij.platform.util.ex" />
-    <orderEntry type="module" module-name="intellij.platform.execution" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.projectModel" />
     <orderEntry type="module" module-name="intellij.platform.eel.nioFs.impl" />
     <orderEntry type="module" module-name="intellij.platform.eel.impl.base" />
+    <orderEntry type="module" module-name="intellij.platform.util.annotations" />
   </component>
 </module>

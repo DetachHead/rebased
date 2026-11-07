@@ -4,11 +4,14 @@
     <module name="intellij.libraries.hash4j"/>
     <module name="intellij.libraries.jetbrains.annotations"/>
     <module name="intellij.libraries.kotlinx.coroutines.core"/>
-    <module name="intellij.libraries.pty4j"/>
     <module name="intellij.platform.core"/>
     <module name="intellij.platform.core.impl"/>
+    <module name="intellij.platform.eel.impl.base"/>
+    <module name="intellij.platform.eel.provider"/>
     <module name="intellij.platform.ide.core"/>
+    <module name="intellij.platform.util.annotations"/>
     <module name="intellij.platform.util.coroutines"/>
+    <module name="intellij.platform.util.ex"/>
   </dependencies>
   <!-- endregion -->
   <extensionPoints>

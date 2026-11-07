@@ -5,8 +5,8 @@ data class Example(private val str: String) {
     fun doWithExample(block : (Example) -> Unit) = block(Example("hello"))
 
     fun runExample() {
-        doWithExample { (str1) ->
-            foo(str1)
+        doWithExample { (str) ->
+            foo(str)
         }
     }
 }

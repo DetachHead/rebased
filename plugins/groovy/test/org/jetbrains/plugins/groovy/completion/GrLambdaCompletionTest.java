@@ -13,7 +13,7 @@ public class GrLambdaCompletionTest extends GrFunctionalExpressionCompletionTest
   }
 
   @Override
-  public final @NotNull String getBasePath() {
-    return TestUtils.getTestDataPath() + "groovy/completion/lambda";
+  public final @NotNull String getTestDataPath() {
+    return TestUtils.getAbsoluteTestDataPath() + "groovy/completion/lambda";
   }
 }

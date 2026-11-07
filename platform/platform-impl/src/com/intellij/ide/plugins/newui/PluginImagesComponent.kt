@@ -20,6 +20,7 @@ import com.intellij.openapi.util.text.StringUtil
 import com.intellij.ui.Gray
 import com.intellij.ui.JBColor
 import com.intellij.ui.components.panels.Wrapper
+import com.intellij.ui.paint.useCopy
 import com.intellij.util.concurrency.ThreadingAssertions
 import com.intellij.util.io.IOUtil
 import com.intellij.util.ui.ImageUtil
@@ -43,6 +44,7 @@ import java.awt.Graphics
 import java.awt.Graphics2D
 import java.awt.GraphicsDevice
 import java.awt.Image
+import java.awt.Insets
 import java.awt.Point
 import java.awt.Rectangle
 import java.awt.RenderingHints
@@ -258,7 +260,7 @@ class PluginImagesComponent : JPanel {
       val parent = getParent()
       val myParent = myParent
       if (parent != null && myParent != null) {
-        return myParent.getWidth() - parent.insets.left
+        return calculatePluginImagesFullWidth(myParent.width, parent.insets)
       }
       return getWidth()
     }
@@ -423,18 +425,13 @@ class PluginImagesComponent : JPanel {
 
   override fun paint(g: Graphics) {
     if (myShowFullContent) {
-      val g2d = g.create() as Graphics2D
-
-      try {
+      g.useCopy { g2d ->
         g2d.background = Gray.get(158, 158)
         g2d.clearRect(0, 0, getWidth(), getHeight())
         g2d.composite = AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.95f)
 
         paintComponent(g)
         return
-      }
-      finally {
-        g2d.dispose()
       }
     }
     super.paint(g)
@@ -466,9 +463,7 @@ class PluginImagesComponent : JPanel {
     val paintHeight = height - offset
     paintImage(g, image, imageX, imageY, paintWidth, paintHeight)
 
-    val g2 = g.create() as Graphics2D
-
-    try {
+    g.useCopy { g2 ->
       g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
       g2.setRenderingHint(RenderingHints.KEY_STROKE_CONTROL, RenderingHints.VALUE_STROKE_NORMALIZE)
 
@@ -503,9 +498,6 @@ class PluginImagesComponent : JPanel {
         paintAction(g2, x, y, width, height, offset, true)
         paintAction(g2, x, y, width, height, offset, false)
       }
-    }
-    finally {
-      g2.dispose()
     }
   }
 
@@ -581,6 +573,10 @@ class PluginImagesComponent : JPanel {
     private const val PREV_IMAGE = -3
     private const val FULL_SCREEN = -4
   }
+}
+
+internal fun calculatePluginImagesFullWidth(viewportWidth: Int, parentInsets: Insets): Int {
+  return (viewportWidth - parentInsets.left - parentInsets.right).coerceAtLeast(0)
 }
 
 private class ReferencedImages(private val images: List<ReferencedImage>) {

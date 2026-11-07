@@ -118,6 +118,7 @@ import java.util.Set;
 import java.util.function.Function;
 
 import static com.intellij.execution.util.EnvFilesUtilKt.configureEnvsFromFiles;
+import static com.jetbrains.python.PyEnvConstKt.PYTHONIOENCODING;
 import static com.jetbrains.python.run.PythonScriptCommandLineState.getExpandedWorkingDir;
 import static com.jetbrains.python.run.features.PyRunToolExtKt.useRunTool;
 import static com.jetbrains.python.run.features.PyRunToolProviderKt.getEnableRunTool;
@@ -864,7 +865,7 @@ public abstract class PythonCommandLineState extends CommandLineState {
    * @see PythonEnvUtil#setupEncodingEnvs(Map, Charset)
    */
   private static void setupEncodingEnvs(@NotNull PythonExecution pythonExecution, @NotNull Charset charset) {
-    pythonExecution.addEnvironmentVariable(PythonEnvUtil.PYTHONIOENCODING, charset.name());
+    pythonExecution.addEnvironmentVariable(PYTHONIOENCODING, charset.name());
   }
 
   /**
@@ -960,13 +961,21 @@ public abstract class PythonCommandLineState extends CommandLineState {
   }
 
   public static @NotNull List<String> getAddedPaths(@NotNull Sdk pythonSdk) {
-    List<String> pathList = new ArrayList<>();
     final SdkAdditionalData sdkAdditionalData = pythonSdk.getSdkAdditionalData();
     if (sdkAdditionalData instanceof PythonSdkAdditionalData) {
-      final Set<VirtualFile> addedPaths = ((PythonSdkAdditionalData)sdkAdditionalData).getAddedPathFiles();
-      for (VirtualFile file : addedPaths) {
-        addToPythonPath(file, pathList);
-      }
+      return getAddedPaths(((PythonSdkAdditionalData)sdkAdditionalData).getAddedPathFiles());
+    }
+    return new ArrayList<>();
+  }
+
+  /**
+   * The paths of {@code addedPaths} to put on the {@code PYTHONPATH}.
+   */
+  @ApiStatus.Internal
+  public static @NotNull List<String> getAddedPaths(@NotNull Collection<VirtualFile> addedPaths) {
+    List<String> pathList = new ArrayList<>();
+    for (VirtualFile file : addedPaths) {
+      addToPythonPath(file, pathList);
     }
     return pathList;
   }

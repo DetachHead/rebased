@@ -2,6 +2,7 @@
   <!-- region Generated dependencies - run `Generate Product Layouts` to regenerate -->
   <dependencies>
     <module name="intellij.libraries.jcef"/>
+    <module name="intellij.platform.concurrency"/>
     <module name="intellij.platform.core"/>
     <module name="intellij.platform.core.impl"/>
     <module name="intellij.platform.core.ui"/>
@@ -19,6 +20,6 @@
   </extensions>
 
   <actions resource-bundle="messages.ActionsBundle">
-    <action id="WebBrowser" class="com.intellij.jcef.frontend.internal.jcef.JBCefBrowserDemo"/>
+    <action id="WebBrowser" internal="true" class="com.intellij.jcef.frontend.internal.jcef.JBCefBrowserDemo"/>
   </actions>
 </idea-plugin>

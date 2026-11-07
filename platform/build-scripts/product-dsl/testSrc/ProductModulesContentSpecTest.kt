@@ -392,7 +392,7 @@ class ProductModulesContentSpecTest {
     val testFrameworkSet = ModuleSet(
       name = "testFrameworks",
       modules = listOf(
-        ContentModule(PluginModuleId("intellij.libraries.junit5", namespace = "jetbrains")),
+        ContentModule(PluginModuleId("intellij.libraries.junit6", namespace = "jetbrains")),
         ContentModule(PluginModuleId("intellij.libraries.testcontainers", namespace = "jetbrains"))
       )
     )
@@ -414,7 +414,7 @@ class ProductModulesContentSpecTest {
     )
 
     // Verify module set modules are present
-    assertThat(result.xml).contains("<module name=\"intellij.libraries.junit5\"/>")
+    assertThat(result.xml).contains("<module name=\"intellij.libraries.junit6\"/>")
     assertThat(result.xml).contains("<module name=\"intellij.libraries.testcontainers\"/>")
     // Verify additional module is present
     assertThat(result.xml).contains("<module name=\"intellij.additional.module\"/>")
@@ -475,11 +475,11 @@ private class MockModuleOutputProvider : ModuleOutputProvider {
     throw UnsupportedOperationException("Not available in mock")
   }
 
-  override fun findLibraryRoots(libraryName: String, moduleLibraryModuleName: String?): List<Path> {
+  override fun findFileInModuleSources(module: JpsModule, relativePath: String, onlyProductionSources: Boolean): Path? {
     throw UnsupportedOperationException("Not available in mock")
   }
 
-  override fun getProjectLibraryToModuleMap(): Map<String, String> {
+  override fun findLibraryRoots(libraryName: String, moduleLibraryModuleName: String?): List<Path> {
     throw UnsupportedOperationException("Not available in mock")
   }
 

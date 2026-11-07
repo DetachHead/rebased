@@ -1,6 +1,5 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library", "jvm_provided_library")
 load("//build:compiler-options.bzl", "create_kotlinc_options")
-load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.compose.ide.plugin.gradleTooling.rt` start
 create_kotlinc_options(
@@ -38,8 +37,6 @@ jvm_library(
         ":libraries_gradle_provided",
     ],
 )
-
-content_module_jar(module = ":ide-plugin-gradleTooling-rt")
 
 jvm_library(
     name = "ide-plugin-gradleTooling-rt_test_lib",

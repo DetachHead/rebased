@@ -1,0 +1,366 @@
+"""Checks the one packing action of a content module jar: its flag file, its outputs and its provider."""
+
+load("@bazel_skylib//lib:unittest.bzl", "analysistest", "asserts")
+load("@rules_java//java:defs.bzl", "JavaInfo", "java_common")
+load("@rules_kotlin//kotlin/internal:defs.bzl", _KtJvmInfo = "KtJvmInfo")
+load("//build:dev_launch_dependencies.bzl", "HOST_PLATFORMS")
+load(
+    ":content_module_jar.bzl",
+    "ContentModuleJarInfo",
+    "DevDistPlatformJarInfo",
+    "content_module_jar",
+    "content_module_jar_target_name",
+    "dev_dist_platform_jar",
+)
+
+_TRACE_SPANS = str(Label("//platform/build-scripts/bazel-rules:trace_spans"))
+_EMPTY_JAR = "PK\005\006" + ("\000" * 18)
+
+def _fixture_module_impl(ctx):
+    jar = ctx.outputs.jar
+    ctx.actions.write(jar, _EMPTY_JAR)
+    return [
+        DefaultInfo(files = depset([jar])),
+        _KtJvmInfo(all_output_jars = [jar], module_name = ctx.attr.module_name),
+    ]
+
+_fixture_module = rule(
+    implementation = _fixture_module_impl,
+    attrs = {"module_name": attr.string(mandatory = True)},
+    outputs = {"jar": "%{name}.jar"},
+)
+
+def _fixture_library_impl(ctx):
+    jars = ctx.files.jars
+    return [
+        DefaultInfo(files = depset(jars)),
+        java_common.merge([JavaInfo(output_jar = jar, compile_jar = jar) for jar in jars]),
+    ]
+
+_fixture_library = rule(
+    implementation = _fixture_library_impl,
+    attrs = {"jars": attr.label_list(allow_files = [".jar"])},
+)
+
+def _packing_test_impl(ctx):
+    env = analysistest.begin(ctx)
+    target = analysistest.target_under_test(env)
+    info = target[ContentModuleJarInfo]
+    groups = target[OutputGroupInfo]
+    actions = [action for action in analysistest.target_actions(env) if action.mnemonic == "PackContentModuleJar"]
+    asserts.equals(env, 1, len(actions))
+    action = actions[0]
+
+    # One action writes the shipped jar. DefaultInfo, the provider and the metadata group name its outputs. The file is
+    # `<target>/<module>.jar`, so its name is the destination and a `Boot-Class-Path` can name it.
+    asserts.equals(env, [info.jar], target[DefaultInfo].files.to_list())
+    asserts.equals(env, [info.metadata], groups.file_metadata.to_list())
+    asserts.true(env, info.jar.path.endswith("/" + target.label.name + "/" + info.module_name + ".jar"), info.jar.path)
+    asserts.true(env, info.metadata.path.endswith("/" + target.label.name + "/" + info.module_name + ".metadata.json"), info.metadata.path)
+    asserts.equals(env, info.module_name + ".jar", info.relative_path)
+    asserts.equals(env, ctx.attr.member_modules, list(info.member_modules))
+    asserts.equals(env, [module[_KtJvmInfo].all_output_jars[0].short_path for module in ctx.attr.modules], [jar.short_path for jar in info.member_jars])
+    asserts.equals(env, [str(library.label) for library in ctx.attr.libraries], [entry.label for entry in info.library_jars])
+    for library, entry in zip(ctx.attr.libraries, info.library_jars):
+        asserts.equals(env, [jar.short_path for jar in library[JavaInfo].transitive_runtime_jars.to_list()], [jar.short_path for jar in entry.jars])
+    library_jars_by_path = {jar.short_path: jar for entry in info.library_jars for jar in entry.jars}
+    spans = groups.trace_spans.to_list()
+
+    # The flag file in grammar order: the output, its metadata, the optional trace file, the flags of the jar, then the
+    # module outputs and then the libraries.
+    expected = ["output=" + info.jar.path, "metadata-file=" + info.metadata.path]
+    expected += ["trace-file=" + file.path for file in spans]
+    if ctx.attr.keep_manifest:
+        expected.append("keep-manifest=true")
+    expected.append("merge-entities=true")
+    expected += ["module=" + jar.path for jar in info.member_jars]
+    expected += ["library=" + library_jars_by_path[jar.short_path].path for jar in ctx.files.library_jars]
+    asserts.equals(env, expected, action.argv[1:])
+    asserts.equals(env, [info.jar, info.metadata] + spans, action.outputs.to_list())
+    asserts.equals(env, 1 if ctx.attr.spans else 0, len(spans))
+    if spans:
+        asserts.equals(env, target.label.name + ".production.spans.json", spans[0].basename)
+    asserts.equals(env, {}, info.native_trees)
+    asserts.equals(env, "", info.native_lib_dir)
+    return analysistest.end(env)
+
+_PACKING_ATTRS = {
+    "modules": attr.label_list(providers = [_KtJvmInfo]),
+    "member_modules": attr.string_list(),
+    "libraries": attr.label_list(providers = [JavaInfo]),
+    "library_jars": attr.label_list(allow_files = [".jar"]),
+    "keep_manifest": attr.bool(),
+    "spans": attr.bool(),
+}
+
+_packing_test = analysistest.make(_packing_test_impl, attrs = _PACKING_ATTRS, config_settings = {_TRACE_SPANS: False})
+_packing_spans_test = analysistest.make(_packing_test_impl, attrs = _PACKING_ATTRS, config_settings = {_TRACE_SPANS: True})
+
+def _natives_test_impl(ctx):
+    env = analysistest.begin(ctx)
+    target = analysistest.target_under_test(env)
+    info = target[ContentModuleJarInfo]
+    groups = target[OutputGroupInfo]
+    actions = [action for action in analysistest.target_actions(env) if action.mnemonic == "PackContentModuleJar"]
+
+    # One jar action and one tree action per platform. The jar is the one `DefaultInfo` names, and it only reserves
+    # the natives, so it does not depend on the platform.
+    asserts.equals(env, 1 + len(HOST_PLATFORMS), len(actions))
+    asserts.equals(env, [info.jar], target[DefaultInfo].files.to_list())
+    asserts.equals(env, ctx.attr.native_lib_dir, info.native_lib_dir)
+    asserts.equals(env, sorted(HOST_PLATFORMS), sorted(info.native_trees.keys()))
+    library_jars = [jar for entry in info.library_jars for jar in entry.jars]
+    jar_action = [action for action in actions if info.jar in action.outputs.to_list()]
+    asserts.equals(env, 1, len(jar_action))
+    jar_argv = jar_action[0].argv[1:]
+    asserts.true(env, "native-lib=" + ctx.attr.native_lib in jar_argv, str(jar_argv))
+    asserts.false(env, [line for line in jar_argv if line.startswith("native-tree=") or line.startswith("native-variant=")], str(jar_argv))
+
+    # A tree action packs the libraries alone into a scratch jar and writes the tree of its platform beside it. The
+    # scratch jar states no distribution name.
+    for platform in HOST_PLATFORMS:
+        native = info.native_trees[platform]
+        asserts.true(env, native.tree.is_directory)
+        asserts.equals(env, "native", native.tree.basename)
+        asserts.true(env, native.tree.path.endswith("/" + target.label.name + ".native_" + platform + "/native"), native.tree.path)
+        asserts.equals(env, [native.tree, native.metadata], getattr(groups, "native_tree_" + platform).to_list())
+        tree_action = [action for action in actions if native.tree in action.outputs.to_list()]
+        asserts.equals(env, 1, len(tree_action))
+        outputs = tree_action[0].outputs.to_list()
+        scratch = [file for file in outputs if file.basename == "scratch.jar"]
+        asserts.equals(env, 1, len(scratch))
+        expected = ["output=" + scratch[0].path, "metadata-file=" + native.metadata.path]
+        if len(library_jars) == 1:
+            expected.append("keep-manifest=true")
+        expected += [
+            "native-tree=" + native.tree.path,
+            "native-variant=" + platform,
+            "native-lib=" + ctx.attr.native_lib,
+        ]
+        expected += ["library=" + jar.path for jar in library_jars]
+        asserts.equals(env, expected, tree_action[0].argv[1:])
+        asserts.equals(env, [scratch[0], native.metadata, native.tree], outputs)
+    return analysistest.end(env)
+
+_natives_test = analysistest.make(
+    _natives_test_impl,
+    attrs = {
+        "native_lib": attr.string(mandatory = True),
+        "native_lib_dir": attr.string(mandatory = True),
+    },
+    config_settings = {_TRACE_SPANS: False},
+)
+
+def _platform_jar_test_impl(ctx):
+    env = analysistest.begin(ctx)
+    target = analysistest.target_under_test(env)
+    info = target[DevDistPlatformJarInfo]
+    actions = [action for action in analysistest.target_actions(env) if action.mnemonic == "PackContentModuleJar"]
+    asserts.equals(env, 1, len(actions))
+    action = actions[0]
+    asserts.equals(env, ctx.attr.destination, info.relative_path)
+    asserts.true(env, info.jar.path.endswith("/" + target.label.name + "/" + ctx.attr.destination), info.jar.path)
+    asserts.equals(env, ctx.attr.member_modules, list(info.member_modules))
+
+    # The flag file in grammar order. A fixture of one library keeps its manifest. A jar with a module member
+    # rejects a native entry, because a presigned library packs as a `content_module_jar`. A library-only jar keeps them.
+    expected = ["output=" + info.jar.path, "metadata-file=" + info.metadata.path]
+    expected += ["keep-manifest=true"] if len(ctx.files.library_jars) == 1 and not ctx.attr.member_modules else []
+    expected += ["merge-entities=true"] + (["reject-native-entries=true"] if ctx.attr.member_modules else [])
+
+    # A patch precedes the `module=` line of the patched module, so the packer takes the patch instead of the entry of
+    # the module output.
+    expected += ["patch=%s=%s" % (path, file.path) for file, path in zip(ctx.files.patch_files, ctx.attr.patch_paths)]
+    expected += ["module=" + jar.path for jar in info.member_jars]
+    expected += ["library=" + jar.path for jar in ctx.files.library_jars]
+    asserts.equals(env, expected, action.argv[1:])
+    asserts.equals(env, [info.jar, info.metadata], action.outputs.to_list())
+    for file in ctx.files.patch_files:
+        asserts.true(env, file in action.inputs.to_list(), "the patch %s is not an input" % file.path)
+    asserts.equals(env, [info.jar], target[DefaultInfo].files.to_list())
+    return analysistest.end(env)
+
+_platform_jar_test = analysistest.make(
+    _platform_jar_test_impl,
+    attrs = {
+        "destination": attr.string(mandatory = True),
+        "member_modules": attr.string_list(),
+        "library_jars": attr.label_list(allow_files = [".jar"]),
+        "patch_files": attr.label_list(allow_files = True),
+        "patch_paths": attr.string_list(),
+    },
+    config_settings = {_TRACE_SPANS: False},
+)
+
+def _natives_failure_test_impl(ctx):
+    env = analysistest.begin(ctx)
+    asserts.expect_failure(env, ctx.attr.expected_message)
+    return analysistest.end(env)
+
+_natives_failure_test = analysistest.make(
+    _natives_failure_test_impl,
+    expect_failure = True,
+    attrs = {"expected_message": attr.string(mandatory = True)},
+)
+
+def content_module_jar_test_suite(name):
+    """Covers source order, first-wins deduplication, meaningful sources and output selection."""
+    tests = []
+    first = name + "_first"
+    second = name + "_second"
+    for source in [first, second]:
+        _fixture_module(name = source, module_name = "test." + source)
+    _fixture_library(name = name + "_single_library", jars = [":" + first])
+    _fixture_library(name = name + "_library", jars = [":" + second, ":" + first])
+    _fixture_library(name = name + "_overlapping_library", jars = [":" + first, ":" + second])
+
+    for case, module_name, before, after, libraries, library_jars, keep_manifest in [
+        ("single", "test.production.single", [], [], [], [], False),
+        ("wrapper", "intellij.libraries.production.single", [], [], [name + "_single_library"], [first], True),
+        ("wrapper_multi", "intellij.libraries.production.multi", [], [], [name + "_library"], [second, first], False),
+        ("ordered", "test.production.ordered", [first], [second], [name + "_library", name + "_overlapping_library"], [second, first], False),
+    ]:
+        owner = name + "_" + case
+        _fixture_module(name = owner, module_name = module_name)
+        content_module_jar(
+            module = ":" + owner,
+            modules_before = [":" + member for member in before],
+            modules_after = [":" + member for member in after],
+            libraries = [":" + library for library in libraries],
+        )
+        target = content_module_jar_target_name(owner)
+        for suffix, test_rule, spans in [("_test", _packing_test, False), ("_spans_test", _packing_spans_test, True)]:
+            test_name = owner + suffix
+            test_rule(
+                name = test_name,
+                target_under_test = target,
+                modules = [":" + member for member in before + [owner] + after],
+                member_modules = ["test." + member for member in before] + [module_name] + ["test." + member for member in after],
+                libraries = [":" + library for library in libraries],
+                library_jars = [":" + jar for jar in library_jars],
+                keep_manifest = keep_manifest,
+                spans = spans,
+            )
+            tests.append(test_name)
+
+    # A platform jar states its own destination, and it may name a subdirectory of the plugin's `lib/`. The three
+    # residual jars of `idea` do - `ext/platform-main.jar` and the two `frontend-split/` jars - so the destination must
+    # survive both the rule and the provider rather than collapsing to the jar's own name.
+    for case, destination in [("flat", "platform-flat.jar"), ("nested", "ext/platform-nested.jar")]:
+        platform_jar = name + "_platform_" + case
+        dev_dist_platform_jar(
+            name = platform_jar,
+            relative_output_file = destination,
+            modules = [":" + first],
+            tags = ["manual"],
+        )
+        _platform_jar_test(
+            name = platform_jar + "_test",
+            target_under_test = ":" + platform_jar,
+            destination = destination,
+            member_modules = ["test." + first],
+        )
+        tests.append(platform_jar + "_test")
+
+    # The application-info module jar replaces two entries of the module output: the product descriptor and the
+    # stamped application info.
+    patched_jar = name + "_platform_patched"
+    patch_files = [name + "_patched_descriptor.xml", name + "_patched_application_info.xml"]
+    patch_paths = ["META-INF/plugin.xml", "idea/ApplicationInfo.xml"]
+    for file in patch_files:
+        native.genrule(name = file + "_file", outs = [file], cmd = "echo '<idea-plugin/>' > $@", tags = ["manual"])
+    dev_dist_platform_jar(
+        name = patched_jar,
+        relative_output_file = "platform-patched.jar",
+        modules = [":" + first],
+        patches = {":" + file: path for file, path in zip(patch_files, patch_paths)},
+        patched_module = "test." + first,
+        tags = ["manual"],
+    )
+    _platform_jar_test(
+        name = patched_jar + "_test",
+        target_under_test = ":" + patched_jar,
+        destination = "platform-patched.jar",
+        member_modules = ["test." + first],
+        patch_files = [":" + file for file in patch_files],
+        patch_paths = patch_paths,
+    )
+    tests.append(patched_jar + "_test")
+
+    # A patched module that is not a member is refused at analysis.
+    foreign_patch = name + "_platform_foreign_patch"
+    dev_dist_platform_jar(
+        name = foreign_patch,
+        relative_output_file = "platform-foreign.jar",
+        modules = [":" + first],
+        patches = {":" + patch_files[0]: patch_paths[0]},
+        patched_module = "test.absent",
+        tags = ["manual"],
+    )
+    _natives_failure_test(
+        name = foreign_patch + "_test",
+        target_under_test = ":" + foreign_patch,
+        expected_message = "the patched module 'test.absent' is not a member of the jar",
+    )
+    tests.append(foreign_patch + "_test")
+
+    # A library-only jar merges no module and keeps the native files of its libraries, as `JarPackager` does for a
+    # library that the layout places. Its manifest follows the same rule as for any other jar.
+    for case, library, library_jars in [("single", "_single_library", [first]), ("multi", "_library", [second, first])]:
+        library_jar = name + "_platform_library_" + case
+        dev_dist_platform_jar(
+            name = library_jar,
+            relative_output_file = "platform-library-%s.jar" % case,
+            libraries = [":" + name + library],
+            tags = ["manual"],
+        )
+        _platform_jar_test(
+            name = library_jar + "_test",
+            target_under_test = ":" + library_jar,
+            destination = "platform-library-%s.jar" % case,
+            library_jars = [":" + jar for jar in library_jars],
+        )
+        tests.append(library_jar + "_test")
+
+    # A jar with neither a module nor a library is refused at analysis.
+    refused = name + "_platform_refused_empty"
+    dev_dist_platform_jar(
+        name = refused,
+        relative_output_file = "platform-refused.jar",
+        tags = ["manual"],
+    )
+    _natives_failure_test(
+        name = refused + "_test",
+        target_under_test = ":" + refused,
+        expected_message = "a platform jar merges at least one module or library",
+    )
+    tests.append(refused + "_test")
+
+    # A content module jar with a presigned library reserves its natives, and one action per platform writes the tree.
+    natives_owner = name + "_natives"
+    _fixture_module(name = natives_owner, module_name = "intellij.libraries.natives")
+    content_module_jar(module = ":" + natives_owner, libraries = [":" + name + "_single_library"], native_lib = "jna", native_lib_dir = "jna")
+    _natives_test(
+        name = natives_owner + "_test",
+        target_under_test = content_module_jar_target_name(natives_owner),
+        native_lib = "jna",
+        native_lib_dir = "jna",
+    )
+    tests.append(natives_owner + "_test")
+
+    # The natives mode is both attributes or none, and the directory is one name under `lib/`. Each is refused at
+    # analysis, where the jar is still named, rather than in a distribution.
+    for case, native_lib, native_lib_dir, expected_message in [
+        ("partial", "jna", "", "needs both native_lib and native_lib_dir"),
+        ("bad_dir", "jna", "jna/x64", "is not one directory name"),
+    ]:
+        owner = name + "_natives_" + case
+        _fixture_module(name = owner, module_name = "intellij.libraries.natives." + case)
+        content_module_jar(module = ":" + owner, libraries = [":" + name + "_single_library"], native_lib = native_lib, native_lib_dir = native_lib_dir)
+        _natives_failure_test(
+            name = owner + "_test",
+            target_under_test = content_module_jar_target_name(owner),
+            expected_message = expected_message,
+        )
+        tests.append(owner + "_test")
+    native.test_suite(name = name, tests = tests)

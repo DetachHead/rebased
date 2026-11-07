@@ -14,7 +14,6 @@ import com.intellij.ide.util.gotoByName.GotoClassModel2
 import com.intellij.ide.util.gotoByName.GotoSymbolModel2
 import com.intellij.mcpserver.McpServerBundle
 import com.intellij.mcpserver.project
-import com.intellij.mcpserver.toolsets.Constants
 import com.intellij.mcpserver.util.projectDirectory
 import com.intellij.mcpserver.util.relativizeIfPossible
 import com.intellij.navigation.NavigationItem
@@ -30,8 +29,8 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.util.Segment
 import com.intellij.openapi.util.TextRange
-import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.openapi.vfs.VirtualFile
+import com.intellij.openapi.vfs.VirtualFileManager
 import com.intellij.openapi.vfs.toNioPathOrNull
 import com.intellij.platform.ide.progress.withBackgroundProgress
 import com.intellij.psi.PsiElement
@@ -47,7 +46,6 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.withTimeoutOrNull
 import org.jetbrains.annotations.ApiStatus
 import java.nio.file.Path
-import kotlin.time.Duration.Companion.milliseconds
 
 /**
  * Searches for symbols via a customizable symbol search engine and maps them to [SearchItem]s.
@@ -91,7 +89,7 @@ private suspend fun chooseByNameSearchSymbols(
   val projectDir = project.projectDirectory
   val pathScope = buildPathScope(projectDir, paths)
   val directoryFilterPath = resolveDirectoryFilter(project, pathScope)
-  val directoryFilterFile = directoryFilterPath?.let { LocalFileSystem.getInstance().refreshAndFindFileByNioFile(it) }
+  val directoryFilterFile = directoryFilterPath?.let { VirtualFileManager.getInstance().refreshAndFindFileByNioPath(it) }
   val baseSearchScope = directoryFilterFile?.let { GlobalSearchScopes.directoryScope(project, it, true) }
                         ?: if (includeExternal) GlobalSearchScope.allScope(project)
                         else GlobalSearchScope.projectScope(project)
@@ -104,7 +102,7 @@ private suspend fun chooseByNameSearchSymbols(
   var providerStoppedEarly = false
   var reachedLimit = false
 
-  val timedOut = withTimeoutOrNull(Constants.MEDIUM_TIMEOUT_MILLISECONDS_VALUE.milliseconds) {
+  val timedOut = withTimeoutOrNull(searchTimeout(project)) {
     withBackgroundProgress(
       project = project,
       title = McpServerBundle.message("tool.activity.searching.files.for.text", q),
@@ -158,6 +156,7 @@ private suspend fun chooseByNameSearchSymbols(
   return SearchResult(
     items = items.toList(),
     more = timedOut || reachedLimit || providerStoppedEarly,
+    partialResultReason = if (timedOut) SEARCH_TIMEOUT_PARTIAL_RESULT_REASON else null,
   )
 }
 
@@ -224,7 +223,7 @@ private fun mapNavigationItem(
                      is PsiElement -> item
                      is PsiElementNavigationItem -> item.targetElement
                      else -> null
-                   } ?: return null
+                   } ?: return mapNonPsiNavigationItem(item, projectDir, pathScope)
 
   val anchor = resolveNavigationAnchor(psiElement) ?: return null
   val filePath = projectDir.relativizeIfPossible(anchor.file)
@@ -238,6 +237,25 @@ private fun mapNavigationItem(
     startColumn = snippet?.startColumn,
     endLine = snippet?.endLine,
     endColumn = snippet?.endColumn,
+  )
+}
+
+private fun mapNonPsiNavigationItem(
+  item: NavigationItem,
+  projectDir: Path,
+  pathScope: PathScope?,
+): SearchItem? {
+  val location = McpNavigationItemMapper.EP_NAME.computeSafeIfAny { it.map(item) } ?: return null
+  val filePath = projectDir.relativizeIfPossible(location.file)
+  if (filePath.isBlank()) return null
+  if (!matchesPathScope(pathScope, projectDir, filePath)) return null
+
+  return SearchItem(
+    filePath = filePath,
+    startLine = location.startLine?.plus(1),
+    startColumn = location.startColumn?.plus(1),
+    endLine = location.endLine?.plus(1),
+    endColumn = location.endColumn?.plus(1),
   )
 }
 
@@ -256,7 +274,7 @@ private fun toRelativePath(projectDir: Path, filePath: String): Path? {
   return nioPath
 }
 
-@RequiresReadLock
+@RequiresReadLock(generateAssertion = false /* IJPL-115548 */)
 private fun buildSnippet(
   project: Project,
   fileDocumentManager: FileDocumentManager,
@@ -276,7 +294,7 @@ private data class NavigationAnchor(
   @JvmField val offset: Int,
 )
 
-@RequiresReadLock
+@RequiresReadLock(generateAssertion = false /* IJPL-115548 */)
 private fun resolveNavigationAnchor(element: PsiElement): NavigationAnchor? {
   val originalElement = EditSourceUtil.getNavigatableOriginalElement(element) ?: element
   val navigationElement = originalElement.navigationElement ?: originalElement

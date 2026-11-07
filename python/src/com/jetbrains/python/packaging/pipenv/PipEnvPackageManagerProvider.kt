@@ -2,7 +2,7 @@
 package com.jetbrains.python.packaging.pipenv
 
 import com.intellij.openapi.project.Project
-import com.intellij.openapi.projectRoots.Sdk
+import com.intellij.python.sdk.backend.PythonInterpreter
 import com.jetbrains.python.packaging.management.PythonPackageManager
 import com.jetbrains.python.packaging.management.PythonPackageManagerProvider
 import com.jetbrains.python.sdk.pipenv.isPipEnv
@@ -10,7 +10,7 @@ import org.jetbrains.annotations.ApiStatus
 
 @ApiStatus.Internal
 class PipEnvPackageManagerProvider : PythonPackageManagerProvider {
-  override fun createPackageManagerForSdk(project: Project, sdk: Sdk): PythonPackageManager? =
-    if (sdk.isPipEnv) PipEnvPackageManager(project, sdk) else null
+  override fun createPackageManager(project: Project, interpreter: PythonInterpreter): PythonPackageManager? =
+    if (interpreter.isPipEnv) PipEnvPackageManager(project, interpreter) else null
 
 }

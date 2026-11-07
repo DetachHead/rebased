@@ -8,25 +8,21 @@ import com.intellij.filePrediction.references.FilePredictionReferencesHelper
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.util.io.FileUtil
 import com.intellij.openapi.util.text.StringUtil
-import com.intellij.testFramework.builders.ModuleFixtureBuilder
-import com.intellij.testFramework.fixtures.CodeInsightFixtureTestCase
-import com.intellij.testFramework.fixtures.ModuleFixture
+import com.intellij.platform.testFramework.junit5.codeInsight.fixture.codeInsightFixture
+import com.intellij.platform.testFramework.junit5.codeInsight.fixture.codeInsightProjectFixture
+import com.intellij.testFramework.junit5.TestApplication
+import com.intellij.testFramework.runInEdtAndWait
 import com.intellij.util.containers.ContainerUtil
+import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertNotNull
+import org.junit.jupiter.api.Test
 import java.util.concurrent.Callable
 import java.util.concurrent.TimeUnit
 
-class FilePredictionCandidateProviderTest : CodeInsightFixtureTestCase<ModuleFixtureBuilder<ModuleFixture>>() {
-
-  override fun isCommunity(): Boolean = true
-
-  override fun getBasePath(): String {
-    return "${FilePredictionTestDataHelper.defaultTestData}/candidates"
-  }
-
-  override fun getTestName(lowercaseFirstLetter: Boolean): String {
-    val testName = super.getTestName(lowercaseFirstLetter)
-    return testName.replace("_", "/")
-  }
+@TestApplication
+class FilePredictionCandidateProviderTest {
+  private val projectFixture = codeInsightProjectFixture()
+  private val myFixture by codeInsightFixture(projectFixture)
 
   private fun doTestRecent(builder: FilePredictionTestProjectBuilder, vararg expected: Pair<String, String>) {
     doTestInternal(builder.openMain(), FilePredictionRecentFilesProvider(), 5, *expected)
@@ -51,23 +47,26 @@ class FilePredictionCandidateProviderTest : CodeInsightFixtureTestCase<ModuleFix
                              provider: FilePredictionCandidateProvider,
                              limit: Int,
                              vararg expected: Pair<String, String>) {
-    val root = builder.create(myFixture)
-    assertNotNull("Cannot create test project", root)
+    runInEdtAndWait {
+      val root = builder.create(myFixture)
+      assertNotNull(root, "Cannot create test project")
 
-    val file = FilePredictionTestDataHelper.findMainTestFile(root)
-    assertNotNull("Cannot find file with '${FilePredictionTestDataHelper.DEFAULT_MAIN_FILE}' name", file)
+      val file = FilePredictionTestDataHelper.findMainTestFile(root)
+      assertNotNull(file, "Cannot find file with '${FilePredictionTestDataHelper.DEFAULT_MAIN_FILE}' name")
 
-    val result: ExternalReferencesResult = ApplicationManager.getApplication().executeOnPooledThread(Callable {
-      FilePredictionReferencesHelper.calculateExternalReferences(myFixture.project, file!!).value
-    }).get(1, TimeUnit.SECONDS)
-    val candidates = provider.provideCandidates(myFixture.project, file, result.references, limit)
+      val result: ExternalReferencesResult = ApplicationManager.getApplication().executeOnPooledThread(Callable {
+        FilePredictionReferencesHelper.calculateExternalReferences(myFixture.project, file!!).value
+      }).get(1, TimeUnit.SECONDS)
+      val candidates = provider.provideCandidates(myFixture.project, file, result.references, limit)
 
-    val actual = candidates.map {
-      FileUtil.getRelativePath(root.path, it.file.path, '/') to StringUtil.toLowerCase(it.source.name)
-    }.toSet()
-    assertEquals(ContainerUtil.newHashSet(*expected), actual)
+      val actual = candidates.map {
+        FileUtil.getRelativePath(root.path, it.file.path, '/') to StringUtil.toLowerCase(it.source.name)
+      }.toSet()
+      assertEquals(ContainerUtil.newHashSet(*expected), actual)
+    }
   }
 
+  @Test
   fun testReference_single() {
     val builder =
       FilePredictionTestProjectBuilder().addFile(
@@ -76,6 +75,7 @@ class FilePredictionCandidateProviderTest : CodeInsightFixtureTestCase<ModuleFix
     doTestRefs(builder, "com/test/ui/Baz.java")
   }
 
+  @Test
   fun testReference_multiple() {
     val builder =
       FilePredictionTestProjectBuilder().addFile("com/test/MainTest.java", """
@@ -96,6 +96,7 @@ class FilePredictionCandidateProviderTest : CodeInsightFixtureTestCase<ModuleFix
     )
   }
 
+  @Test
   fun testReference_moreThanLimit() {
     val builder =
       FilePredictionTestProjectBuilder().addFile("com/test/MainTest.java", """
@@ -132,6 +133,7 @@ class FilePredictionCandidateProviderTest : CodeInsightFixtureTestCase<ModuleFix
     )
   }
 
+  @Test
   fun testReference_anotherPackage() {
     val builder =
       FilePredictionTestProjectBuilder().addFile("com/test/MainTest.java", """
@@ -168,6 +170,7 @@ class FilePredictionCandidateProviderTest : CodeInsightFixtureTestCase<ModuleFix
     )
   }
 
+  @Test
   fun testNeighbor_single() {
     val builder =
       FilePredictionTestProjectBuilder().addFiles(
@@ -177,6 +180,7 @@ class FilePredictionCandidateProviderTest : CodeInsightFixtureTestCase<ModuleFix
     doTestNeighbor(builder, "com/test/Foo.txt")
   }
 
+  @Test
   fun testNeighbor_multiple() {
     val builder =
       FilePredictionTestProjectBuilder().addFiles(
@@ -191,6 +195,7 @@ class FilePredictionCandidateProviderTest : CodeInsightFixtureTestCase<ModuleFix
     )
   }
 
+  @Test
   fun testNeighbor_sameDir() {
     val builder =
       FilePredictionTestProjectBuilder().addFiles(
@@ -209,6 +214,7 @@ class FilePredictionCandidateProviderTest : CodeInsightFixtureTestCase<ModuleFix
     )
   }
 
+  @Test
   fun testNeighbor_parentDir() {
     val builder =
       FilePredictionTestProjectBuilder().addFiles(
@@ -225,6 +231,7 @@ class FilePredictionCandidateProviderTest : CodeInsightFixtureTestCase<ModuleFix
     )
   }
 
+  @Test
   fun testNeighbor_moreThanLimit() {
     val builder =
       FilePredictionTestProjectBuilder().addFiles(
@@ -257,12 +264,14 @@ class FilePredictionCandidateProviderTest : CodeInsightFixtureTestCase<ModuleFix
     )
   }
 
+  @Test
   fun testRecent_single() {
     val builder = FilePredictionTestProjectBuilder("com")
       .open("com/test/ui/Baz.java")
     doTestRecent(builder, "com/test/ui/Baz.java" to "open")
   }
 
+  @Test
   fun testRecent_multiple() {
     val builder = FilePredictionTestProjectBuilder("com")
       .open("com/test/ui/Baz.java")
@@ -276,6 +285,7 @@ class FilePredictionCandidateProviderTest : CodeInsightFixtureTestCase<ModuleFix
     )
   }
 
+  @Test
   fun testRecent_notOpened() {
     val builder = FilePredictionTestProjectBuilder("com")
       .open("com/test/ui/Baz.java")
@@ -292,6 +302,7 @@ class FilePredictionCandidateProviderTest : CodeInsightFixtureTestCase<ModuleFix
     )
   }
 
+  @Test
   fun testRecent_opened() {
     val builder = FilePredictionTestProjectBuilder("com")
       .open("com/test/Foo1.java")
@@ -319,6 +330,7 @@ class FilePredictionCandidateProviderTest : CodeInsightFixtureTestCase<ModuleFix
     )
   }
 
+  @Test
   fun testComposite_sameDir() {
     val builder =
       FilePredictionTestProjectBuilder().addFile(
@@ -334,6 +346,7 @@ class FilePredictionCandidateProviderTest : CodeInsightFixtureTestCase<ModuleFix
     )
   }
 
+  @Test
   fun testComposite_childDirs() {
     val builder =
       FilePredictionTestProjectBuilder().addFile("com/test/MainTest.java", """
@@ -356,6 +369,7 @@ class FilePredictionCandidateProviderTest : CodeInsightFixtureTestCase<ModuleFix
     )
   }
 
+  @Test
   fun testComposite_childAndParentsDirs() {
     val builder =
       FilePredictionTestProjectBuilder().addFile("com/test/MainTest.java", """
@@ -380,6 +394,7 @@ class FilePredictionCandidateProviderTest : CodeInsightFixtureTestCase<ModuleFix
     )
   }
 
+  @Test
   fun testComposite_anotherPackage() {
     val builder =
       FilePredictionTestProjectBuilder().addFile("com/test/MainTest.java", """
@@ -405,6 +420,7 @@ class FilePredictionCandidateProviderTest : CodeInsightFixtureTestCase<ModuleFix
     )
   }
 
+  @Test
   fun testComposite_moreThanLimitRef() {
     val builder =
       FilePredictionTestProjectBuilder().addFile("com/test/MainTest.java", """
@@ -441,6 +457,7 @@ class FilePredictionCandidateProviderTest : CodeInsightFixtureTestCase<ModuleFix
     )
   }
 
+  @Test
   fun testComposite_moreThanLimitNeighbor() {
     val builder =
       FilePredictionTestProjectBuilder().addFile("com/test/MainTest.java", """
@@ -471,6 +488,7 @@ class FilePredictionCandidateProviderTest : CodeInsightFixtureTestCase<ModuleFix
     )
   }
 
+  @Test
   fun testComposite_moreThanLimit() {
     val builder =
       FilePredictionTestProjectBuilder().addFile("com/test/MainTest.java", """
@@ -520,6 +538,7 @@ class FilePredictionCandidateProviderTest : CodeInsightFixtureTestCase<ModuleFix
     )
   }
 
+  @Test
   fun testComposite_differentSources() {
     val builder =
       FilePredictionTestProjectBuilder().addFile(

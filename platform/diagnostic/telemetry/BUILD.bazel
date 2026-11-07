@@ -10,6 +10,10 @@ jps_test(
 )
 ### skip generation section `test intellij.platform.diagnostic.telemetry.tests`
 
+### auto-generated section `dev intellij.platform.diagnostic.telemetry` start
+content_module_jar(module = ":telemetry")
+### auto-generated section `dev intellij.platform.diagnostic.telemetry` end
+
 ### auto-generated section `build intellij.platform.diagnostic.telemetry` start
 jvm_provided_library(
     name = "libraries_kotlinx_coroutines_core_provided",
@@ -62,8 +66,6 @@ jvm_library(
     ],
 )
 
-content_module_jar(module = ":telemetry")
-
 jvm_library(
     name = "telemetry_test_lib",
     testonly = True,
@@ -94,10 +96,6 @@ jvm_library(
         "//platform/util:util_test_lib",
         "//platform/util/base:base_test_lib",
         "//platform/diagnostic:diagnostic_test_lib",
-        "//libraries/junit5",
-        "//libraries/junit5:junit5_test_lib",
-        "//libraries/kotlin/test-assertions-core-jvm:libraries-kotlinTestAssertionsCoreJvm",
-        "//libraries/kotlin/test-assertions-core-jvm:libraries-kotlinTestAssertionsCoreJvm_test_lib",
     ],
 )
 ### auto-generated section `build intellij.platform.diagnostic.telemetry` end
@@ -107,7 +105,6 @@ exports_files(
     [
         "intellij.platform.diagnostic.telemetry.iml",
         "resources/intellij.platform.diagnostic.telemetry.xml",
-        "module-content.yaml",
     ],
     visibility = ["//visibility:public"],
 )
@@ -162,12 +159,14 @@ jvm_library(
         "//platform/util:util_test_lib",
         "//platform/diagnostic",
         "//platform/diagnostic:diagnostic_test_lib",
-        "//libraries/junit5",
-        "//libraries/junit5:junit5_test_lib",
+        "//libraries/junit6",
+        "//libraries/junit6:junit6_test_lib",
         "//libraries/kotlin/test-assertions-core-jvm:libraries-kotlinTestAssertionsCoreJvm",
         "//libraries/kotlin/test-assertions-core-jvm:libraries-kotlinTestAssertionsCoreJvm_test_lib",
         "//platform/diagnostic/telemetry.exporters",
         "//platform/diagnostic/telemetry.exporters:telemetry.exporters_test_lib",
+        "//libraries/jackson3/jackson:libraries-jackson3",
+        "//libraries/jackson3/jackson:libraries-jackson3_test_lib",
     ],
 )
 ### auto-generated section `build intellij.platform.diagnostic.telemetry.tests` end

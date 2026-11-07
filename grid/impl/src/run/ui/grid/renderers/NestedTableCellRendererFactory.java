@@ -75,11 +75,19 @@ public class NestedTableCellRendererFactory implements GridCellRendererFactory {
 
       String valueText = columns.isEmpty() || nestedTable.getRowsNum() == 0
                          ? "[empty]"
-                         : String.format("[%d rows x %d columns]", nestedTable.getTotalRowsNum(), columns.size());
+                         : String.format("[%d rows x %d columns]", getRowsNum(nestedTable), columns.size());
 
       return isHovered ? valueText + "➘" : valueText + " ";
     }
 
+    /**
+     * {@link com.intellij.database.datagrid.DynamicNestedTable} uses -1 when the total row count is unknown.
+     * In that case, show the number of loaded rows.
+     */
+    private static int getRowsNum(@NotNull NestedTable nestedTable) {
+      int totalRowsNum = nestedTable.getTotalRowsNum();
+      return totalRowsNum < 0 ? nestedTable.getRowsNum() : totalRowsNum;
+    }
 
     @Override
     protected @NotNull String getValueText(@NotNull ModelIndex<GridColumn> columnIdx, @NotNull Object value) {

@@ -5,7 +5,7 @@ import com.intellij.codeInsight.completion.CompletionType
 import org.jetbrains.plugins.groovy.util.TestUtils
 
 class GroovyInstanceofCompletionTest : GroovyCompletionTestBase() {
-  override fun getBasePath(): String = TestUtils.getTestDataPath() + "groovy/completion/instanceof"
+  override fun getTestDataPath(): String = TestUtils.getAbsoluteTestDataPath() + "groovy/completion/instanceof"
 
   fun testInsideLogicalBinaryExpression() = doCompletionTest(CompletionType.BASIC)
 

@@ -1,6 +1,7 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.progress.impl
 
+import com.intellij.platform.ide.progress.BackgroundTaskOwnerKind
 import com.intellij.platform.ide.progress.TaskCancellation
 import com.intellij.platform.ide.progress.TaskInfoEntity
 import com.intellij.platform.ide.progress.TaskStatus
@@ -142,6 +143,7 @@ internal class TaskInfoEntityCollectorTest {
     return change {
       TaskInfoEntity.new {
         it[TaskInfoEntity.ProjectIdType] = projectId
+        it[TaskInfoEntity.OwnerKindType] = BackgroundTaskOwnerKind.PROJECT
         it[TaskInfoEntity.TitleType] = "test task"
         it[TaskInfoEntity.TaskCancellationType] = TaskCancellation.nonCancellable()
         it[TaskInfoEntity.TaskSuspensionType] = TaskSuspension.NonSuspendable

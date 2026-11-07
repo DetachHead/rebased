@@ -6,7 +6,6 @@ import com.intellij.platform.pluginSystem.parser.impl.parseContentAndXIncludes
 import org.jetbrains.intellij.build.BuildContext
 import org.jetbrains.intellij.build.ModuleOutputProvider
 import org.jetbrains.intellij.build.PLUGIN_XML_RELATIVE_PATH
-import org.jetbrains.intellij.build.findFileInModuleSources
 import org.jetbrains.intellij.build.getProductionLibraryDependencies
 import org.jetbrains.intellij.build.impl.BaseLayout
 import org.jetbrains.intellij.build.impl.DistributionBuilderState
@@ -46,7 +45,7 @@ const val PLUGIN_LAYOUT_PARITY_VALIDATION_NAME: String = "plugin-layout-parity"
  * @param mainModuleOfCorePlugin the module that holds the core plugin descriptor
  * @param corePluginDescriptorPath the path of the core plugin descriptor, relative to a resource root
  */
-suspend fun createLayoutProviderByDistributionState(
+fun createLayoutProviderByDistributionState(
   state: DistributionBuilderState,
   context: BuildContext,
   mainModuleOfCorePlugin: String,
@@ -66,7 +65,7 @@ suspend fun createLayoutProviderByDistributionState(
   return DistributionStatePluginLayoutProvider(
     platformLayout = state.platformLayout,
     layoutByMainModule = layoutByMainModule,
-    allPluginLayouts = context.productProperties.productLayout.pluginLayouts,
+    allPluginLayouts = context.productProperties.productLayout.pluginLayouts.value,
     mainModulesOfBundledPlugins = mainModulesOfBundledPlugins,
     mainModuleOfCorePlugin = mainModuleOfCorePlugin,
     corePluginDescriptorPath = corePluginDescriptorPath,
@@ -92,13 +91,13 @@ suspend fun createLayoutProviderByDistributionState(
  * An include that no module answers is skipped. The roots are wider than the packed set already, and the
  * `plugin-layout-parity` validation reports a root the report has and the provider does not.
  */
-private suspend fun collectContentModulesByMainModule(
+private fun collectContentModulesByMainModule(
   mainModules: Collection<String>,
   outputProvider: ModuleOutputProvider,
 ): Map<String, List<String>> {
   return mainModules.mapConcurrent { mainModule ->
     val module = outputProvider.findModule(mainModule) ?: return@mapConcurrent null
-    val pluginXml = findFileInModuleSources(module = module, relativePath = PLUGIN_XML_RELATIVE_PATH, onlyProductionSources = true)
+    val pluginXml = outputProvider.findFileInModuleSources(module = module, relativePath = PLUGIN_XML_RELATIVE_PATH, onlyProductionSources = true)
                     ?: return@mapConcurrent null
     val contentModules = LinkedHashSet<String>()
     val visited = HashSet<String>()
@@ -126,7 +125,7 @@ private suspend fun collectContentModulesByMainModule(
   }.filterNotNull().toMap()
 }
 
-private suspend fun collectMainModulesWithPluginDescriptor(
+private fun collectMainModulesWithPluginDescriptor(
   mainModules: Collection<String>,
   outputProvider: ModuleOutputProvider,
 ): Set<String> {

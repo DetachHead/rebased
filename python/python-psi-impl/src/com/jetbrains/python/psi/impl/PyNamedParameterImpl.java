@@ -242,10 +242,12 @@ public class PyNamedParameterImpl extends PyBaseElementImpl<PyNamedParameterStub
           }
         }
         if (isKeywordContainer()) {
-          return PyTypeUtil.toKeywordContainerType(this, PyAnyType.getUnknown());
+          final PyType keywordContainerType = PyTypeUtil.toKeywordContainerType(this, PyAnyType.getUnknown());
+          return keywordContainerType != null ? keywordContainerType : PyAnyType.getUnknown();
         }
         if (isPositionalContainer()) {
-          return PyTypeUtil.toPositionalContainerType(this, PyAnyType.getUnknown());
+          final PyType positionalContainerType = PyTypeUtil.toPositionalContainerType(this, PyAnyType.getUnknown());
+          return positionalContainerType != null ? positionalContainerType : PyAnyType.getUnknown();
         }
         if (context.maySwitchToAST(this)) {
           final PyExpression defaultValue = getDefaultValue();
@@ -281,7 +283,7 @@ public class PyNamedParameterImpl extends PyBaseElementImpl<PyNamedParameterStub
               }
             );
 
-            return types.isEmpty() ? null : PyUnionType.createWeakType(PyUnionType.union(types));
+            return types.isEmpty() ? null : PyUnionType.createWeakType(PyUnionType.unionOrUnknown(types));
           });
           if (assumedResult != null) {
             return assumedResult;
@@ -463,7 +465,7 @@ public class PyNamedParameterImpl extends PyBaseElementImpl<PyNamedParameterStub
 
     if (!usedAttributes.isEmpty()) {
       final PyStructuralType structuralType = new PyStructuralType(usedAttributes, true);
-      return noneComparison.get() ? PyUnionType.union(structuralType, PyBuiltinCache.getInstance(this).getNoneType()) : structuralType;
+      return noneComparison.get() ? PyUnionType.unionOrUnknown(structuralType, PyBuiltinCache.getInstance(this).getNoneType()) : structuralType;
     }
 
     return null;

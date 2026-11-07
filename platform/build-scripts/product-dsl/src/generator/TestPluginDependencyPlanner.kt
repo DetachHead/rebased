@@ -9,6 +9,8 @@ import com.intellij.platform.pluginGraph.PluginGraph
 import com.intellij.platform.pluginGraph.PluginId
 import com.intellij.platform.pluginGraph.TargetDependencyScope
 import com.intellij.platform.pluginGraph.TargetName
+import org.jetbrains.intellij.build.ModuleOutputProvider
+import org.jetbrains.intellij.build.isTestModule
 import org.jetbrains.intellij.build.productLayout.LIB_MODULE_PREFIX
 import org.jetbrains.intellij.build.productLayout.TestPluginSpec
 import org.jetbrains.intellij.build.productLayout.buildContentBlocksAndChainMapping
@@ -45,7 +47,7 @@ internal object TestPluginDependencyPlanner : PipelineNode {
   override val requires: Set<DataSlot<*>> get() = setOf(Slots.CONTENT_MODULE_PLAN)
   override val produces: Set<DataSlot<*>> get() = setOf(Slots.TEST_PLUGIN_DEPENDENCY_PLAN)
 
-  override suspend fun execute(ctx: ComputeContext) {
+  override fun execute(ctx: ComputeContext) {
     val model = ctx.model
     val productClassByName = model.discovery.products
       .associate { product -> product.name to (product.properties?.javaClass?.name ?: TEST_PRODUCT_CLASS_NAME) }
@@ -68,6 +70,7 @@ internal object TestPluginDependencyPlanner : PipelineNode {
     val plans = testPluginsWithSource.map { (spec, productClass, productName) ->
       buildTestPluginDependencyPlan(
         graph = model.pluginGraph,
+        outputProvider = model.outputProvider,
         resolutionContext = resolutionContext,
         spec = spec,
         productName = productName,
@@ -98,6 +101,7 @@ private enum class ModuleDependencyDeclarationPolicy {
 
 private fun buildTestPluginDependencyPlan(
   graph: PluginGraph,
+  outputProvider: ModuleOutputProvider,
   resolutionContext: DependencyResolutionContext,
   spec: TestPluginSpec,
   productName: String,
@@ -186,8 +190,8 @@ private fun buildTestPluginDependencyPlan(
 
       // A library module owned by a module-set wrapper plugin must be depended on by name, not through its owner:
       // a wrapper is only a packaging container, and products are free to take its content modules directly instead
-      // of bundling it (JetBrains Client and Android Studio do that for intellij.libraries.oshi.core, while Rider
-      // bundles intellij.libraries.misc.plugin). Gating on the wrapper breaks the products that inline the module.
+      // of bundling it (Rider bundles intellij.libraries.misc.plugin, while other products inline its modules).
+      // Gating on the wrapper breaks the products that inline the module.
       if (dependency.value.startsWith(LIB_MODULE_PREFIX) &&
           resolvableProdOwners.all { isModuleSetPluginModuleName(it.name.value) }) {
         moduleDepsFromContent.add(dependency)
@@ -217,7 +221,7 @@ private fun buildTestPluginDependencyPlan(
 
   val filteredRequiredByPlugin = requiredByPlugin
     .filter { (pluginId, modules) ->
-      pluginId in existingPluginDependencies || modules.any { !isTestOnlyContentModule(it) }
+      pluginId in existingPluginDependencies || modules.any { !isTestOnlyContentModule(it, outputProvider) }
     }
     .mapValues { it.value.toSet() }
   val computedPluginDependencies = LinkedHashSet<PluginId>().apply {
@@ -274,11 +278,13 @@ private fun buildTestPluginDependencyPlan(
 }
 
 /**
- * Test-only content modules (`*.tests`) must not, on their own, introduce a *new* `<plugin>` dependency into a generated
- * DSL test plugin descriptor: their JPS deps are test-runtime-only, and pulling in whole plugins duplicates test roots
+ * A test-only content module must not, on its own, introduce a *new* `<plugin>` dependency into a generated
+ * DSL test plugin descriptor: its JPS deps are test-runtime-only, and pulling in whole plugins duplicates test roots
  * (IJPL-241684). Plugin dependencies already declared in the descriptor are kept regardless.
  */
-private fun isTestOnlyContentModule(moduleName: ContentModuleName): Boolean = moduleName.value.endsWith(".tests")
+private fun isTestOnlyContentModule(moduleName: ContentModuleName, outputProvider: ModuleOutputProvider): Boolean {
+  return outputProvider.findRequiredModule(moduleName.value).isTestModule()
+}
 
 private fun collectTargetDependencies(
   graph: PluginGraph,

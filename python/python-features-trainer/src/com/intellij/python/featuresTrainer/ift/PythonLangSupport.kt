@@ -7,11 +7,12 @@ import com.intellij.openapi.projectRoots.Sdk
 import com.intellij.openapi.roots.ModuleRootManager
 import com.intellij.openapi.roots.ProjectRootManager
 import com.intellij.openapi.vfs.VirtualFile
+import com.intellij.python.sdk.backend.getSdkAPI
 import com.intellij.util.concurrency.annotations.RequiresEdt
 import com.intellij.util.concurrency.annotations.RequiresReadLock
 import com.jetbrains.python.Result
 import com.jetbrains.python.errorProcessing.emit
-import com.jetbrains.python.inspections.interpreter.InterpreterSettingsQuickFix
+import com.jetbrains.python.sdk.inspections.InterpreterSettingsQuickFix
 import com.jetbrains.python.projectCreation.createVenvAndSdk
 import com.jetbrains.python.sdk.ModuleOrProject
 import com.jetbrains.python.sdk.pythonSdk
@@ -68,19 +69,19 @@ internal class PythonLangSupport(private val errorSink: ErrorSink = ErrorSink())
   }
 
   @Throws(NoSdkException::class)
-  @RequiresEdt
+  @RequiresEdt(generateAssertion = false /* IJPL-115548 */)
   override fun getSdkForProject(project: Project, selectedSdk: Sdk?): Sdk = runWithSdkConfigurationLock(project) {
     when (val r = createVenvAndSdk(ModuleOrProject.ProjectOnly(project))) {
       is Result.Failure -> {
         errorSink.emit(r.error, project)
         null
       }
-      is Result.Success -> r.result
+      is Result.Success -> r.result.getSdkAPI()
     } ?: throw NoSdkException()
   }
 
 
-  @RequiresEdt
+  @RequiresEdt(generateAssertion = false /* IJPL-115548 */)
   override fun applyProjectSdk(sdk: Sdk, project: Project) {
   }
 
@@ -121,13 +122,13 @@ internal class PythonLangSupport(private val errorSink: ErrorSink = ErrorSink())
     }
   }
 
-  @RequiresReadLock
+  @RequiresReadLock(generateAssertion = false /* IJPL-115548 */)
   override fun getProtectedDirs(project: Project): Set<Path> {
     return project.getSdks().mapNotNull { it.homePath }.map { Path.of(it) }.toSet()
   }
 }
 
-@RequiresReadLock
+@RequiresReadLock(generateAssertion = false /* IJPL-115548 */)
 private fun Project.getSdks(): Set<Sdk> {
   val projectSdk = ProjectRootManager.getInstance(this).projectSdk
   val moduleSdks = modules.mapNotNull {

@@ -1,7 +1,6 @@
 <idea-plugin visibility="public">
   <!-- region Generated dependencies - run `Generate Product Layouts` to regenerate -->
   <dependencies>
-    <module name="intellij.platform.externalSystem.impl"/>
     <module name="intellij.gradle.toolingExtension"/>
     <module name="intellij.gradle.toolingExtension.impl"/>
     <module name="intellij.gradle.toolingProxy"/>
@@ -12,26 +11,37 @@
     <module name="intellij.libraries.gson"/>
     <module name="intellij.libraries.guava"/>
     <module name="intellij.libraries.ion"/>
+    <module name="intellij.libraries.jna"/>
     <module name="intellij.libraries.jspecify"/>
     <module name="intellij.libraries.kotlinx.coroutines.core"/>
     <module name="intellij.libraries.kryo5"/>
     <module name="intellij.libraries.opentelemetry"/>
     <module name="intellij.libraries.stream"/>
     <module name="intellij.platform.analysis"/>
+    <module name="intellij.platform.backend.observation"/>
+    <module name="intellij.platform.backend.workspace"/>
+    <module name="intellij.platform.buildView"/>
+    <module name="intellij.platform.concurrency"/>
+    <module name="intellij.platform.consoleView"/>
     <module name="intellij.platform.core"/>
     <module name="intellij.platform.core.impl"/>
     <module name="intellij.platform.core.ui"/>
     <module name="intellij.platform.diagnostic.telemetry"/>
     <module name="intellij.platform.diagnostic.telemetry.impl"/>
     <module name="intellij.platform.editor.ui"/>
+    <module name="intellij.platform.eel.provider"/>
     <module name="intellij.platform.execution"/>
     <module name="intellij.platform.execution.impl"/>
     <module name="intellij.platform.externalSystem"/>
     <module name="intellij.platform.externalSystem.dependencyUpdater"/>
+    <module name="intellij.platform.externalSystem.impl"/>
     <module name="intellij.platform.ide.core"/>
     <module name="intellij.platform.ide.core.impl"/>
     <module name="intellij.platform.ide.impl"/>
+    <module name="intellij.platform.ide.observable"/>
     <module name="intellij.platform.ide.progress"/>
+    <module name="intellij.platform.ide.ui"/>
+    <module name="intellij.platform.ijent"/>
     <module name="intellij.platform.lang"/>
     <module name="intellij.platform.lang.core"/>
     <module name="intellij.platform.lang.impl"/>
@@ -41,10 +51,14 @@
     <module name="intellij.platform.smRunner"/>
     <module name="intellij.platform.statistics"/>
     <module name="intellij.platform.testRunner"/>
+    <module name="intellij.platform.util.annotations"/>
     <module name="intellij.platform.util.coroutines"/>
     <module name="intellij.platform.util.ex"/>
+    <module name="intellij.platform.util.progress"/>
+    <module name="intellij.platform.util.text.matching"/>
     <module name="intellij.platform.util.ui"/>
     <module name="intellij.platform.workspace.jps"/>
+    <module name="intellij.platform.workspace.storage"/>
   </dependencies>
   <!-- endregion -->
 
@@ -291,6 +305,8 @@
                  description="Use gradle stable resilient model fetch API to resolve gradle models"/>
     <registryKey key="gradle.use.resilient.model.fetch.unstable" defaultValue="false"
                  description="Use gradle unstable resilient model fetch API to resolve gradle models"/>
+    <registryKey key="gradle.build.toolwindow.single.console" defaultValue="false"
+                 description="Use single console output for all execution nodes in Build tool window for Gradle execution"/>
 
     <commandLineInspectionProjectConfigurator implementation="org.jetbrains.plugins.gradle.GradleCommandLineProjectConfigurator"/>
     <warmupConfigurator implementation="org.jetbrains.plugins.gradle.GradleWarmupConfigurator"/>
@@ -395,7 +411,6 @@
 
     <action id="Gradle.ImportExternalProject" class="org.jetbrains.plugins.gradle.action.ImportProjectFromScriptAction" icon="GradleIcons.Gradle">
       <add-to-group group-id="ProjectViewPopupMenuSettingsGroup" anchor="last"/>
-      <add-to-group group-id="EditorPopupMenu" anchor="last"/>
     </action>
   </actions>
   <projectListeners>

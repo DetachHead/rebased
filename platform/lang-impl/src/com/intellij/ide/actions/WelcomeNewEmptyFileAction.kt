@@ -7,6 +7,8 @@ import com.intellij.ide.scratch.RootType
 import com.intellij.ide.scratch.ScratchFileActions
 import com.intellij.ide.scratch.ScratchFileActions.ChangeLanguageAction
 import com.intellij.ide.scratch.ScratchFileCreationHelper
+import com.intellij.ide.trustedProjects.TrustedProjects
+import com.intellij.ide.trustedProjects.TrustedProjectsLocator
 import com.intellij.ide.util.DeleteHandler
 import com.intellij.ide.welcomeScreen.WelcomeUtils
 import com.intellij.idea.ActionsBundle
@@ -17,6 +19,7 @@ import com.intellij.openapi.actionSystem.CommonDataKeys
 import com.intellij.openapi.actionSystem.DefaultActionGroup
 import com.intellij.openapi.application.ApplicationBundle
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.command.undo.UndoUtil
 import com.intellij.openapi.fileChooser.FileChooserDescriptorFactory
 import com.intellij.openapi.fileChooser.FileChooserFactory
 import com.intellij.openapi.fileChooser.FileSaverDescriptor
@@ -24,8 +27,10 @@ import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.fileEditor.TextEditor
 import com.intellij.openapi.fileEditor.ex.FileEditorManagerEx
+import com.intellij.openapi.fileEditor.ex.IdeDocumentHistory
 import com.intellij.openapi.fileEditor.impl.EditorWindow
 import com.intellij.openapi.fileEditor.impl.NonProjectFileWritingAccessExtension
+import com.intellij.openapi.fileEditor.impl.NonProjectFileWritingAccessProvider
 import com.intellij.openapi.fileEditor.impl.tabActions.CloseTab
 import com.intellij.openapi.project.DumbAwareAction
 import com.intellij.openapi.project.Project
@@ -34,10 +39,11 @@ import com.intellij.openapi.ui.MessageConstants.YesNoCancelResult
 import com.intellij.openapi.ui.MessageDialogBuilder
 import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.util.Condition
+import com.intellij.openapi.util.io.FileUtil
 import com.intellij.openapi.vfs.VfsUtil
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.openapi.vfs.VirtualFilePreCloseCheck
-import com.intellij.openapi.vfs.findOrCreateFile
+import com.intellij.openapi.vfs.findFile
 import com.intellij.platform.PROJECT_CLOSE_WITH_CONFIRMATION
 import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiManager
@@ -60,7 +66,13 @@ internal class WelcomeNewEmptyFileAction : DumbAwareAction() {
     val context = ScratchFileCreationHelper.Context()
     context.defaultRootType = WelcomeFilesRootType.Util.instance
     context.filePrefix = "Untitled"
-    context.fileExtension = "txt"
+    context.language = CommonDataKeys.LANGUAGE.getData(e.dataContext)
+    if (context.language == null) {
+      context.fileExtension = "txt"
+    }
+    else {
+      context.prepareText = false
+    }
     ScratchFileActions.doCreateNewScratch(project, context, e.dataContext)
   }
 }
@@ -81,7 +93,8 @@ internal class WelcomeChangeLanguageAction : ChangeLanguageAction() {
   }
 }
 
-internal class WelcomeFilesRootType : RootType("welcomeFiles", "") {
+@ApiStatus.Internal
+class WelcomeFilesRootType : RootType("HomeFiles", "") {
   object Util {
     val instance: WelcomeFilesRootType
       get() = findByClass(WelcomeFilesRootType::class.java)
@@ -139,7 +152,7 @@ class WelcomeSaveFileAction : DumbAwareAction() {
 
   override fun update(event: AnActionEvent) {
     val project = event.project
-    event.presentation.isEnabledAndVisible = project != null && getFile(project, event) != null
+    event.presentation.isEnabledAndVisible = project != null && isWelcomeFile(project, event)
     event.presentation.text = ActionsBundle.message("action.WelcomeSaveFileAction.text")
   }
 
@@ -148,6 +161,9 @@ class WelcomeSaveFileAction : DumbAwareAction() {
     val file = getFile(project, event) ?: return
     doSaveFile(project, file, true)
   }
+
+  @ApiStatus.Internal
+  fun isWelcomeFile(project: Project, event: AnActionEvent): Boolean = getFile(project, event) != null
 
   private fun getFile(project: Project, event: AnActionEvent): VirtualFile? {
     if (!WelcomeUtils.isWelcomeProject(project)) {
@@ -244,13 +260,7 @@ private fun doSaveFile(project: Project, file: VirtualFile, closeCurrentTab: Boo
   ApplicationManager.getApplication().invokeLater(
     {
       ApplicationManager.getApplication().runWriteAction(Runnable {
-        val manager = FileDocumentManager.getInstance()
-        val source = manager.getDocument(file)!!
-        val target = manager.getDocument(targetFile)!!
-
-        targetFile.refresh(false, false)
-        target.setText(source.charsSequence)
-        manager.saveDocument(target)
+        writeFile(FileDocumentManager.getInstance(), file, targetFile)
 
         ApplicationManager.getApplication().invokeLater(
           {
@@ -260,6 +270,8 @@ private fun doSaveFile(project: Project, file: VirtualFile, closeCurrentTab: Boo
               fileEditorManager.closeFile(file)
             }
             fileEditorManager.openFile(targetFile)
+
+            IdeDocumentHistory.getInstance(project).includeCurrentPlaceAsChangePlace()
 
             deleteFile(project, file)
           }, project.disposed)
@@ -273,13 +285,7 @@ private fun doSaveFileOnExit(project: Project, file: VirtualFile): Boolean {
   val targetFile = showSaveFileDialog(project, file) ?: return false
 
   ApplicationManager.getApplication().runWriteAction(Runnable {
-    val manager = FileDocumentManager.getInstance()
-    val source = manager.getDocument(file)!!
-    val target = manager.getDocument(targetFile)!!
-
-    targetFile.refresh(false, false)
-    target.setText(source.charsSequence)
-    manager.saveDocument(target)
+    writeFile(FileDocumentManager.getInstance(), file, targetFile)
   })
 
   deleteFilesOnExit(project, listOf(file))
@@ -301,23 +307,13 @@ private fun doSaveFilesOnExit(project: Project, files: List<VirtualFile>): Boole
   val dialog = FileChooserFactory.getInstance().createPathChooser(FileChooserDescriptorFactory.singleDir(), project, null)
   dialog.choose(VfsUtil.getUserHomeDir(), Consumer { targetDirRef = it.firstOrNull() })
 
-  val targetDir = targetDirRef
-  if (targetDir == null) {
-    return false
-  }
+  val targetDir = targetDirRef ?: return false
 
   ApplicationManager.getApplication().runWriteAction(Runnable {
     val manager = FileDocumentManager.getInstance()
 
     for (file in files) {
-      val targetFile = targetDir.findOrCreateFile(file.name)
-
-      val source = manager.getDocument(file)!!
-      val target = manager.getDocument(targetFile)!!
-
-      targetFile.refresh(false, false)
-      target.setText(source.charsSequence)
-      manager.saveDocument(target)
+      writeFile(manager, file, createChildFile(targetDir, file))
     }
   })
 
@@ -326,10 +322,55 @@ private fun doSaveFilesOnExit(project: Project, files: List<VirtualFile>): Boole
   return true
 }
 
+private fun createChildFile(targetDir: VirtualFile, file: VirtualFile): VirtualFile {
+  val name = file.name
+  val newFile = targetDir.findFile(name)
+  if (newFile != null) {
+    val ext = file.extension
+    if (ext == null) {
+      return createChildFile(targetDir, name, "")
+    }
+    return createChildFile(targetDir, file.nameWithoutExtension, ".${ext}")
+  }
+  return targetDir.createChildData(targetDir.fileSystem, name)
+}
+
+private fun createChildFile(targetDir: VirtualFile, name: String, extensionWithDot: String): VirtualFile {
+  var index = 1
+  while (true) {
+    val newName = "${name}_${index++}${extensionWithDot}"
+    val newFile = targetDir.findChild(newName)
+    if (newFile == null) {
+      return targetDir.createChildData(targetDir.fileSystem, newName)
+    }
+  }
+}
+
+private fun writeFile(manager: FileDocumentManager, file: VirtualFile, targetFile: VirtualFile) {
+  val source = manager.getDocument(file)!!
+  val target = manager.getDocument(targetFile)
+
+  if (target == null || !target.isWritable) {
+    // binary file format
+    FileUtil.copy(file.toNioPath().toFile(), targetFile.toNioPath().toFile())
+  }
+  else {
+    targetFile.refresh(false, false)
+    target.setText(source.charsSequence)
+    manager.saveDocument(target)
+
+    NonProjectFileWritingAccessProvider.allowWriting(listOf(targetFile))
+
+    val locatedProject = TrustedProjectsLocator.locateProject(targetFile.fileSystem.getNioPath(targetFile) ?: return, null)
+    TrustedProjects.setProjectTrusted(locatedProject, true)
+  }
+}
+
 private fun deleteFile(project: Project, file: VirtualFile) {
   if (file.isValid()) {
     val psiFile = PsiManager.getInstance(project).findFile(file)
     if (psiFile != null) {
+      UndoUtil.disableUndoFor(file)
       DeleteHandler.deletePsiElement(arrayOf(psiFile), project, false)
     }
   }

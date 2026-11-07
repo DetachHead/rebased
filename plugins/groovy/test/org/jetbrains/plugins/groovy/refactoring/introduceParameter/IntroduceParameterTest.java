@@ -26,8 +26,8 @@ import org.jetbrains.plugins.groovy.util.TestUtils;
  */
 public class IntroduceParameterTest extends LightJavaCodeInsightFixtureTestCase {
   @Override
-  public final String getBasePath() {
-    return TestUtils.getTestDataPath() + "refactoring/introduceParameter/" + getTestName(true) + "/";
+  public final String getTestDataPath() {
+    return TestUtils.getAbsoluteTestDataPath() + "refactoring/introduceParameter/" + getTestName(true) + "/";
   }
 
   private void doTest(int replaceFieldsWithGetters,

@@ -70,23 +70,28 @@ internal class LightEditFileEditorManagerImpl(
     return FileEditorWithProvider(editorInfo.fileEditor, editorInfo.provider)
   }
 
-  override fun getSelectedEditor(): FileEditor? = LightEditService.getInstance().getSelectedFileEditor()
+  override val selectedEditor: FileEditor?
+    get() = LightEditService.getInstance().getSelectedFileEditor()
 
-  override fun getSelectedTextEditor(): Editor? = LightEditorInfoImpl.getEditor(selectedEditor)
+  override val selectedTextEditor: Editor?
+    get() = LightEditorInfoImpl.getEditor(selectedEditor)
 
-  override fun getOpenFiles(): Array<VirtualFile> {
-    return VfsUtilCore.toVirtualFileArray(LightEditService.getInstance().editorManager.openFiles)
-  }
+  override val openFiles: Array<VirtualFile>
+    get() {
+      return VfsUtilCore.toVirtualFileArray(LightEditService.getInstance().editorManager.openFiles)
+    }
 
   override fun isFileOpen(file: VirtualFile): Boolean = LightEditService.getInstance().editorManager.isFileOpen(file)
 
   override fun hasOpenedFile(): Boolean = !LightEditService.getInstance().editorManager.openFiles.isEmpty()
 
-  override fun getSelectedFiles(): Array<VirtualFile> {
-    return arrayOf(LightEditService.getInstance().getSelectedFile() ?: return VirtualFile.EMPTY_ARRAY)
-  }
+  override val selectedFiles: Array<VirtualFile>
+    get() {
+      return arrayOf(LightEditService.getInstance().getSelectedFile() ?: return VirtualFile.EMPTY_ARRAY)
+    }
 
-  override fun getCurrentFile(): VirtualFile? = LightEditService.getInstance().getSelectedFile()
+  override val currentFile: VirtualFile?
+    get() = LightEditService.getInstance().getSelectedFile()
 
   override fun hasOpenFiles(): Boolean = !LightEditService.getInstance().editorManager.openFiles.isEmpty()
 

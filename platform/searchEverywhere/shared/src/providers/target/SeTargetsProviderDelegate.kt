@@ -4,15 +4,10 @@ package com.intellij.platform.searchEverywhere.providers.target
 import com.intellij.ide.actions.searcheverywhere.PSIPresentationBgRendererWrapper
 import com.intellij.ide.actions.searcheverywhere.PSIPresentationBgRendererWrapper.ItemWithPresentation
 import com.intellij.ide.actions.searcheverywhere.SearchEverywhereContributor
-import com.intellij.ide.actions.searcheverywhere.SearchEverywherePreviewFetcher
 import com.intellij.ide.util.PsiElementListCellRenderer.ItemMatchers
-import com.intellij.ide.vfs.rpcId
-import com.intellij.idea.AppMode
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.EDT
-import com.intellij.openapi.application.readAction
 import com.intellij.openapi.project.Project
-import com.intellij.openapi.roots.ProjectFileIndex
 import com.intellij.openapi.util.Disposer
 import com.intellij.platform.scopes.SearchScopesInfo
 import com.intellij.platform.searchEverywhere.SeExtendedInfo
@@ -21,8 +16,8 @@ import com.intellij.platform.searchEverywhere.SeItemsProvider
 import com.intellij.platform.searchEverywhere.SeLegacyItem
 import com.intellij.platform.searchEverywhere.SeParams
 import com.intellij.platform.searchEverywhere.SePreviewInfo
-import com.intellij.platform.searchEverywhere.SePreviewInfoFactory
 import com.intellij.platform.searchEverywhere.SeProviderIdUtils
+import com.intellij.platform.searchEverywhere.SeTypeFilterKeys
 import com.intellij.platform.searchEverywhere.presentations.SeItemPresentation
 import com.intellij.platform.searchEverywhere.presentations.SeTargetItemPresentationBuilder
 import com.intellij.platform.searchEverywhere.providers.AsyncProcessorWithExactMatch
@@ -32,8 +27,6 @@ import com.intellij.platform.searchEverywhere.providers.SeEverywhereFilterImpl
 import com.intellij.platform.searchEverywhere.providers.SeTypeVisibilityStateProviderDelegate
 import com.intellij.platform.searchEverywhere.providers.getExtendedInfo
 import com.intellij.psi.PsiDirectory
-import com.intellij.psi.codeStyle.NameUtil
-import com.intellij.util.text.matching.MatchingMode
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.jetbrains.annotations.ApiStatus.Internal
@@ -58,7 +51,11 @@ class SeTargetItem(
 }
 
 @Internal
-class SeTargetsProviderDelegate(private val contributorWrapper: SeAsyncContributorWrapper<Any>, parentDisposable: Disposable): Disposable {
+class SeTargetsProviderDelegate(
+  private val contributorWrapper: SeAsyncContributorWrapper<Any>,
+  parentDisposable: Disposable,
+  private val filterKeys: List<String> = listOf(SeTypeFilterKeys.DEFAULT),
+): Disposable {
   private val scopeProviderDelegate = ScopeChooserActionProviderDelegate.createOrNull(contributorWrapper)
   private val contributor = contributorWrapper.contributor
   private val usagePreviewDisposableList = ConcurrentLinkedQueue<Disposable>()
@@ -68,7 +65,7 @@ class SeTargetsProviderDelegate(private val contributorWrapper: SeAsyncContribut
   }
 
   suspend fun <T> collectItems(params: SeParams, collector: SeItemsProvider.Collector, operationDisposable: Disposable? = null) {
-    val inputQuery = normalizeQuery(params.inputQuery)
+    val inputQuery = SeTargetItemsProvider.normalizeQuery(params.inputQuery)
     val defaultMatchers = createDefaultMatchers(inputQuery)
 
     scopeProviderDelegate?.let { scopeProviderDelegate ->
@@ -76,7 +73,7 @@ class SeTargetsProviderDelegate(private val contributorWrapper: SeAsyncContribut
         scopeProviderDelegate.applyScope(isEverywhere, false)
       } ?: run {
         val targetsFilter = SeTargetsFilter.from(params.filter)
-        SeTypeVisibilityStateProviderDelegate.applyTypeVisibilityStates<T>(contributor, targetsFilter.hiddenTypes)
+        SeTypeVisibilityStateProviderDelegate.applyTypeVisibilityStates<T>(contributor, targetsFilter.hiddenTypes, filterKeys)
         scopeProviderDelegate.applyScope(targetsFilter.selectedScopeId, targetsFilter.isAutoTogglePossible)
       }
     }
@@ -94,12 +91,12 @@ class SeTargetsProviderDelegate(private val contributorWrapper: SeAsyncContribut
         val isDirectory = PSIPresentationBgRendererWrapper.toPsi(legacyItem.item) is PsiDirectory
 
         // If the item main presentation text equals the query, we make it exact match as well
-        val isExactMatch = isExactMatch(isExactMatch,
-                                        presentableText = presentableText,
-                                        inputQuery = inputQuery,
-                                        isFile = isFile,
-                                        inputQueryHasNoExtension = hasNoExtension,
-                                        isDirectory = isDirectory)
+        val isExactMatch = SeTargetItemsProvider.isExactMatch(isExactMatch,
+                                                              presentableText = presentableText,
+                                                              inputQuery = inputQuery,
+                                                              isFile = isFile,
+                                                              inputQueryHasNoExtension = hasNoExtension,
+                                                              isDirectory = isDirectory)
 
         return collector.put(SeTargetItem(legacyItem,
                                           matchers,
@@ -122,27 +119,7 @@ class SeTargetsProviderDelegate(private val contributorWrapper: SeAsyncContribut
 
   suspend fun getPreviewInfo(item: SeItem, project: Project): SePreviewInfo? {
     val legacyItem = (item as? SeTargetItem)?.legacyItem ?: return null
-
-    val usageInfo = readAction {
-      SearchEverywherePreviewFetcher.findFirstChild(legacyItem, project) {
-        usagePreviewDisposableList.add(it)
-      }
-    }
-    if (usageInfo?.virtualFile == null) return null
-
-    val fileIndex = ProjectFileIndex.getInstance(project)
-    // PsiElement is null for non-decompiled class files, so hide all library files
-    if (AppMode.isRemoteDevHost() && readAction {
-        fileIndex.isInLibraryClasses(usageInfo.virtualFile!!) ||
-         fileIndex.isInLibrarySource(usageInfo.virtualFile!!)
-      }) return null
-
-    val rangeResult = readAction {
-      SearchEverywherePreviewFetcher.readRangeFromUsageInfo(usageInfo)
-    }
-    val (startOffset, endOffset) = rangeResult ?: return null
-
-    return SePreviewInfoFactory.create(usageInfo.virtualFile!!.rpcId(), listOf(startOffset to endOffset))
+    return SeTargetItemsProvider.fetchPreviewInfo(legacyItem, project) { usagePreviewDisposableList.add(it) }
   }
 
   /**
@@ -152,18 +129,16 @@ class SeTargetsProviderDelegate(private val contributorWrapper: SeAsyncContribut
     return contributor.showInFindResults()
   }
 
-  private fun createDefaultMatchers(rawPattern: String): ItemMatchers {
-    val namePattern = contributor.filterControlSymbols(rawPattern)
-    val matcher = NameUtil.buildMatcherWithFallback("*$rawPattern", "*$namePattern", MatchingMode.IGNORE_CASE)
-    return ItemMatchers(matcher, null)
-  }
+  /** Takes the name pattern out of the contributor, then hands the rest to [SeTargetItemsProvider]. */
+  private fun createDefaultMatchers(rawPattern: String): ItemMatchers =
+    SeTargetItemsProvider.createDefaultMatchers(rawPattern, contributor.filterControlSymbols(rawPattern))
 
   suspend fun getSearchScopesInfo(): SearchScopesInfo? {
     return scopeProviderDelegate?.searchScopesInfo?.getValue()
   }
 
-  fun <T> getTypeVisibilityStates(index: Int): List<SeTypeVisibilityStatePresentation> {
-    return SeTypeVisibilityStateProviderDelegate.getStates<T>(contributor, index)
+  fun <T> getTypeVisibilityStates(key: String): List<SeTypeVisibilityStatePresentation> {
+    return SeTypeVisibilityStateProviderDelegate.getStates<T>(contributor, key, filterKeys)
   }
 
   suspend fun performExtendedAction(item: SeItem): Boolean {
@@ -175,24 +150,5 @@ class SeTargetsProviderDelegate(private val contributorWrapper: SeAsyncContribut
 
   override fun dispose() {
     usagePreviewDisposableList.forEach { Disposer.dispose(it) }
-  }
-
-  companion object {
-    /**
-     * Removes the trailing space from the query. A trailing space is not part of a name.
-     */
-    fun normalizeQuery(rawQuery: String): String = rawQuery.trimEnd()
-
-    fun isExactMatch(
-      isExactMatchFromItem: Boolean,
-      presentableText: String,
-      inputQuery: String,
-      isFile: Boolean,
-      inputQueryHasNoExtension: Boolean,
-      isDirectory: Boolean,
-    ): Boolean =
-      isExactMatchFromItem || // IJPL-133399, IJPL-251596
-      !isDirectory && ((presentableText == inputQuery) || // IJPL-55665
-                       (isFile && inputQueryHasNoExtension && presentableText.startsWith("$inputQuery."))) // IJPL-55732, IJPL-156298
   }
 }

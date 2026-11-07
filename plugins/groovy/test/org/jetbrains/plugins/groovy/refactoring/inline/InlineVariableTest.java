@@ -162,7 +162,7 @@ public class InlineVariableTest extends LightJavaCodeInsightFixtureTestCase {
   }
 
   @Override
-  public final String getBasePath() {
-    return TestUtils.getTestDataPath() + "groovy/refactoring/inlineLocal/";
+  public final String getTestDataPath() {
+    return TestUtils.getAbsoluteTestDataPath() + "groovy/refactoring/inlineLocal/";
   }
 }

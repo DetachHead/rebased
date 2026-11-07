@@ -275,11 +275,7 @@ class PyUnresolvedReferencesVisitor(
     if (PyNames.DUNDER_AWAIT != prefixExpression.operator.specialMethodName) return false
     val callExpression = getReferenceQualifierOrImportSource(reference) as? PyCallExpression ?: return false
     val callees = callExpression.multiResolveCalleeFunction(PyResolveContext.defaultContext(myTypeEvalContext))
-    if (callees.isEmpty()) return false
-    for (callee in callees) {
-      if (callee is PyFunction && callee.isAsync) return false
-    }
-    return true // no signature is declared async -> warning
+    return callees.isNotEmpty() && callees.none { it is PyFunction && it.isAsync } // no signature is declared async -> warning
   }
 
   private fun registerUnresolvedReferenceProblem(node: PyElement, reference: PsiReference, severity: HighlightSeverity) {
@@ -493,8 +489,7 @@ class PyUnresolvedReferencesVisitor(
       type.module.languageLevel.isAtLeast(LanguageLevel.PYTHON37) ->
         definesGetAttr(type.module, myTypeEvalContext)
 
-      type != null -> isIgnoredByExtension(type, name)
-      else -> false
+      else -> isIgnoredByExtension(type, name)
     }
   }
 
@@ -537,7 +532,7 @@ class PyUnresolvedReferencesVisitor(
   }
 
   private fun isIgnoredByExtension(type: PyType, name: String): Boolean =
-    PyInspectionExtension.EP_NAME.extensionList.any { it.ignoreUnresolvedMember(type, name, myTypeEvalContext) }
+    PyInspectionExtension.EP_NAME.findFirstSafe { it.ignoreUnresolvedMember(type, name, myTypeEvalContext) } != null
 
   private fun findStrictUnionMemberMissingAttribute(type: PyType, ref: PsiReference, name: String): PyType? {
     if (type !is PyUnionType || !PyUnionType.isStrictSemanticsEnabled()) {
@@ -605,16 +600,8 @@ class PyUnresolvedReferencesVisitor(
     }
   }
 
-  private fun ignoreUnresolved(node: PyElement, reference: PsiReference): Boolean {
-    var ignoreUnresolved = false
-    for (extension in PyInspectionExtension.EP_NAME.extensionList) {
-      if (extension.ignoreUnresolvedReference(node, reference, myTypeEvalContext)) {
-        ignoreUnresolved = true
-        break
-      }
-    }
-    return ignoreUnresolved
-  }
+  private fun ignoreUnresolved(node: PyElement, reference: PsiReference): Boolean =
+    PyInspectionExtension.EP_NAME.findFirstSafe { it.ignoreUnresolvedReference(node, reference, myTypeEvalContext) } != null
 
   private data class ProblemSpec(
     val node: PyElement,
@@ -636,8 +623,7 @@ class PyUnresolvedReferencesVisitor(
     }
 
     private fun overriddenUnresolvedReferenceInspection(file: PsiFile): Boolean? {
-      return PyInspectionExtension.EP_NAME.extensionList
-        .firstNotNullOfOrNull { it.overrideUnresolvedReferenceInspection(file) }
+      return PyInspectionExtension.EP_NAME.computeSafeIfAny { it.overrideUnresolvedReferenceInspection(file) }
     }
 
     private fun getImportErrorGuard(node: PyElement?): PyExceptPart? {
@@ -681,16 +667,11 @@ class PyUnresolvedReferencesVisitor(
     ): Boolean {
       val types: List<PyClassType> = listOf(type) + type.getAncestorTypes(typeEvalContext).filterIsInstance<PyClassType>()
 
-      for (typeToCheck in types) {
-        for (provider in PyClassMembersProvider.EP_NAME.extensionList) {
-          val resolveResult = provider.getMembers(typeToCheck, reference.element, typeEvalContext)
-          for (member in resolveResult) {
-            if (member.name == name) return true
-          }
-        }
+      return types.any { typeToCheck ->
+        PyClassMembersProvider.EP_NAME.findFirstSafe { provider ->
+          provider.getMembers(typeToCheck, reference.element, typeEvalContext).any { it.name == name }
+        } != null
       }
-
-      return false
     }
   }
 }

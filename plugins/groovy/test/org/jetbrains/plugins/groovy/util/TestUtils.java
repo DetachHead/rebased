@@ -11,6 +11,7 @@ import com.intellij.openapi.util.Ref;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.VirtualFileFilter;
+import com.intellij.platform.bazel.runfiles.BazelLabel;
 import com.intellij.pom.PomDeclarationSearcher;
 import com.intellij.pom.PomTarget;
 import com.intellij.psi.PsiClass;
@@ -25,6 +26,7 @@ import com.intellij.psi.PsiVariable;
 import com.intellij.psi.ResolveResult;
 import com.intellij.psi.impl.PsiManagerEx;
 import com.intellij.testFramework.RunAll;
+import com.intellij.testFramework.common.BazelTestUtil;
 import com.intellij.testFramework.fixtures.JavaCodeInsightTestFixture;
 import com.intellij.util.CollectConsumer;
 import com.intellij.util.IncorrectOperationException;
@@ -78,6 +80,10 @@ public abstract class TestUtils {
   }
 
   public static String getAbsoluteTestDataPath() {
+    if (BazelTestUtil.isUnderBazelTest()) {
+      var label = BazelLabel.Companion.fromString("@community//plugins/groovy:testdata");
+      return FileUtil.toSystemIndependentName(BazelTestUtil.getFileFromBazelRuntime(label).toAbsolutePath().toString()) + "/";
+    }
     return FileUtil.toSystemIndependentName(PluginPathManager.getPluginHomePath("groovy")) + "/testdata/";
   }
 

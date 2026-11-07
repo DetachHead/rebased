@@ -2,7 +2,7 @@
   <!-- region Generated dependencies - run `Generate Product Layouts` to regenerate -->
   <dependencies>
     <module name="intellij.libraries.jetbrains.annotations"/>
-    <module name="intellij.libraries.junit5"/>
+    <module name="intellij.libraries.junit6"/>
     <module name="intellij.libraries.kotlinx.coroutines.core"/>
     <module name="intellij.platform.analysis"/>
     <module name="intellij.platform.core"/>
@@ -23,10 +23,11 @@
     <module name="intellij.python.community"/>
     <module name="intellij.python.community.common"/>
     <module name="intellij.python.community.impl"/>
+    <module name="intellij.python.community.junit5Tests.framework"/>
     <module name="intellij.python.psi"/>
     <module name="intellij.python.pyproject"/>
-    <module name="intellij.python.pytools"/>
-    <module name="intellij.python.pytools.ui"/>
+    <module name="intellij.python.pytools.backend"/>
+    <module name="intellij.python.pytools.frontend"/>
     <module name="intellij.python.sdk.backend"/>
     <module name="intellij.python.test.env.junit5"/>
   </dependencies>

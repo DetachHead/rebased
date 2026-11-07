@@ -152,12 +152,20 @@ interface PluginUiModel {
 
   fun addDependency(id: PluginId, optional: Boolean)
 
+  val isUpdateable: Boolean
+    get() = !isBundled || allowBundledUpdate
+
   /**
    * Java compatibility method. Going to be removed after refactoring is done.
    */
   fun getDescriptor(): IdeaPluginDescriptor = this.getPluginDescriptor()
 
   companion object {
+    @JvmStatic
+    fun areDetailsLoaded(externalPluginId: String?, externalUpdateId: String?, description: String?): Boolean {
+      return externalPluginId == null || externalUpdateId == null || description != null
+    }
+
     @JvmStatic
     fun getDescriptorOrNull(model: PluginUiModel?): IdeaPluginDescriptor? = model?.getDescriptor()
   }
@@ -246,8 +254,12 @@ fun PluginUiModel.calculateTags(): List<String> {
 
 @ApiStatus.Internal
 fun PluginUiModel.calculateTags(sessionId: String): List<String> {
+  return calculateTags(getInstance().isPluginRequiresUltimateButItIsDisabled(sessionId, pluginId))
+}
+
+internal fun PluginUiModel.calculateTags(requiresUltimateButDisabled: Boolean): List<String> {
   val result = this.getDescriptor().getTags()
-  if (getInstance().isPluginRequiresUltimateButItIsDisabled(sessionId, pluginId)) {
+  if (requiresUltimateButDisabled) {
     return buildList {
       addAll(result)
       if (PlatformUtils.isPyCharmPro()) {

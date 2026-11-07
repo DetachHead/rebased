@@ -2,6 +2,7 @@
 package com.intellij.platform.eel.impl.base
 
 import com.intellij.platform.eel.EelDescriptor
+import com.intellij.platform.eel.EelTunnelsApi
 import kotlinx.coroutines.CoroutineScope
 import org.jetbrains.annotations.ApiStatus
 import java.util.ServiceLoader
@@ -10,16 +11,21 @@ import java.util.ServiceLoader
  * Housekeeping for eel environment
  */
 interface EelEnvironmentHousekeepingService {
-  suspend fun prepareEnvironment(descriptor: EelDescriptor, coroutineScope: CoroutineScope): Map<String, String>
+  /**
+   * [tunnels] belong to the Eel that is being prepared.
+   * Use them instead of `descriptor.toEelApi()`.
+   * That call can resolve or deploy a different Eel for the same descriptor, and it can wait for the Eel that is being prepared.
+   */
+  suspend fun prepareEnvironment(descriptor: EelDescriptor, tunnels: EelTunnelsApi, coroutineScope: CoroutineScope): Map<String, String>
 
   companion object {
     private val provider: EelEnvironmentHousekeepingServiceProvider? by lazy {
       ServiceLoader.load(EelEnvironmentHousekeepingServiceProvider::class.java, EelEnvironmentHousekeepingServiceProvider::class.java.classLoader).firstOrNull()
     }
 
-    suspend fun prepareEnvironment(descriptor: EelDescriptor, coroutineScope: CoroutineScope): Map<String, String> {
+    suspend fun prepareEnvironment(descriptor: EelDescriptor, tunnels: EelTunnelsApi, coroutineScope: CoroutineScope): Map<String, String> {
       provider?.let {
-        return it.getAll().flatMap { it.prepareEnvironment(descriptor, coroutineScope).entries }.groupBy { it.key }
+        return it.getAll().flatMap { it.prepareEnvironment(descriptor, tunnels, coroutineScope).entries }.groupBy { it.key }
           .mapValues { it.value.last().value }
       }
       return emptyMap()

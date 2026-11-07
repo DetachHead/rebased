@@ -7,6 +7,7 @@ import com.intellij.driver.sdk.ui.Finder
 import com.intellij.driver.sdk.ui.SearchContext
 import com.intellij.driver.sdk.ui.UiText
 import com.intellij.driver.sdk.ui.UiText.Companion.asString
+import com.intellij.driver.sdk.ui.isWayland
 import com.intellij.driver.sdk.ui.keyboard.RemoteKeyboard
 import com.intellij.driver.sdk.ui.keyboard.WithKeyboard
 import com.intellij.driver.sdk.ui.remote.Component
@@ -16,11 +17,13 @@ import com.intellij.driver.sdk.ui.remote.SearchService
 import com.intellij.driver.sdk.waitAny
 import com.intellij.driver.sdk.waitFor
 import com.intellij.driver.sdk.waitForOne
+import com.intellij.driver.sdk.withoutPauseOnIndicators
 import com.intellij.openapi.diagnostic.logger
 import org.intellij.lang.annotations.Language
 import java.awt.Color
 import java.awt.IllegalComponentStateException
 import java.awt.Point
+import java.awt.Rectangle
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
 
@@ -39,11 +42,12 @@ private val LOG = logger<UiComponent>()
 
 open class UiComponent(private val data: ComponentData) : Finder, WithKeyboard {
   private var cachedComponent: Component? = null
+  private var readinessCheckInProgress: Boolean = false
 
   val component: Component
     get() = data.foundComponent
             ?: kotlin.runCatching { cachedComponent?.takeIf { it.isShowing() } }.getOrNull()
-            ?: findThisComponent().apply { cachedComponent = this }
+            ?: findThisComponent()
 
   override val driver: Driver = data.driver
   override val searchService: SearchService = data.searchService
@@ -57,7 +61,7 @@ open class UiComponent(private val data: ComponentData) : Finder, WithKeyboard {
     override val context: String = data.parentSearchContext.context + data.xpath
 
     override fun findAll(xpath: String): List<Component> {
-      return withComponent { searchService.findAll(xpath, it) }
+      return withoutPauseOnIndicators { withComponent { searchService.findAll(xpath, it) } }
     }
   }
 
@@ -99,13 +103,40 @@ open class UiComponent(private val data: ComponentData) : Finder, WithKeyboard {
     withComponent { robot.focus(it) }
   }
 
-  private fun findThisComponent(timeout: Duration? = DEFAULT_FIND_TIMEOUT): Component =
-    waitForOne(
+  open fun waitReady(timeout: Duration = DEFAULT_FIND_TIMEOUT) {}
+
+  private fun findThisComponent(timeout: Duration? = DEFAULT_FIND_TIMEOUT): Component = withoutPauseOnIndicators {
+    val findTimeout = timeout ?: DEFAULT_FIND_TIMEOUT
+    val found = waitForOne(
       message = "Find $this in ${data.parentSearchContext.contextAsString}",
-      timeout = timeout ?: DEFAULT_FIND_TIMEOUT,
+      timeout = findTimeout,
       interval = 1.seconds,
       getter = { data.parentSearchContext.findAll(data.xpath) }
     )
+    // Cache the component before the readiness check. The check searches inside this component,
+    // and such a search reads [component] again. Without the cache the search starts an infinite recursion.
+    cachedComponent = found
+    waitReadyOnce(findTimeout)
+    found
+  }
+
+  /**
+   * Calls [waitReady] on this component, but only if no readiness check runs on it already.
+   *
+   * The cache in [findThisComponent] is not sufficient to stop a recursion.
+   * The [component] getter drops the cached value when the component is not showing,
+   * and [withComponent] drops it after an [IllegalComponentStateException].
+   */
+  private fun waitReadyOnce(timeout: Duration) {
+    if (readinessCheckInProgress) return
+    readinessCheckInProgress = true
+    try {
+      waitReady(timeout)
+    }
+    finally {
+      readinessCheckInProgress = false
+    }
+  }
 
   fun <T> withComponent(action: (Component) -> T): T {
     var lastException: Exception? = null
@@ -549,5 +580,14 @@ open class UiComponent(private val data: ComponentData) : Finder, WithKeyboard {
     return withComponent { Color(it.getForeground().getRGB()) }
   }
 
-  fun getLocationOnScreen(): Point = component.getLocationOnScreen()
+  fun getLocationOnScreen(): Point {
+    check(!driver.isWayland) { "not supported on Wayland" }
+    return component.getLocationOnScreen()
+  }
+
+  fun getBounds(): Rectangle = component.getBounds()
+
+  fun getWidth(): Int = component.width
+
+  fun getHeight(): Int = component.height
 }

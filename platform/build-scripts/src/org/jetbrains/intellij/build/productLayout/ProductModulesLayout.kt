@@ -12,10 +12,80 @@ import kotlinx.collections.immutable.persistentSetOf
 import kotlinx.collections.immutable.plus
 import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.intellij.build.BuildContext
-import org.jetbrains.intellij.build.CommunityRepositoryModules
+import org.jetbrains.intellij.build.PRESIGNED_NATIVE_LIBS
 import org.jetbrains.intellij.build.PluginBundlingRestrictions
+import org.jetbrains.intellij.build.getCommunityRepositoryPlugins
+import org.jetbrains.intellij.build.impl.LIB_DIRECTORY
+import org.jetbrains.intellij.build.impl.PLUGINS_DIRECTORY
 import org.jetbrains.intellij.build.impl.PlatformLayout
 import org.jetbrains.intellij.build.impl.PluginLayout
+import org.jetbrains.intellij.build.impl.convertModuleNameToFileName
+
+/**
+ * The main module of the bundled plugin that owns the JNA copy.
+ *
+ * A product that bundles it ships the JNA native tree [JNA_NATIVE_DIR], and its launcher gets the `jna.*` JVM arguments.
+ */
+const val JNA_PLUGIN_MODULE: String = "intellij.jna.plugin"
+
+/**
+ * The main module of the bundled plugin that owns the pty4j copy. The plugin depends on the plugin [JNA_PLUGIN_MODULE].
+ *
+ * A product that bundles it ships the pty4j native tree [PTY4J_NATIVE_DIR], and its launcher gets the `pty4j.*` JVM argument.
+ */
+const val PTY4J_PLUGIN_MODULE: String = "intellij.pty4j.plugin"
+
+/**
+ * The main module of the bundled plugin that owns the Compose UI stack and the one Skiko copy.
+ *
+ * A product that bundles it ships the Skiko native tree [SKIKO_NATIVE_DIR], and its launcher gets the `skiko.*` JVM argument.
+ * The Compose runtime and Compose Swing modules stay in the platform, see [CommunityModuleSets.composeRuntime].
+ */
+const val COMPOSE_PLUGIN_MODULE: String = "intellij.platform.compose.plugin"
+
+/**
+ * The content modules of the plugin [COMPOSE_PLUGIN_MODULE], in the order of its `plugin.xml`.
+ *
+ * Keep this list equal to the `plugin.xml`. The shared-index generator and the Rider Android layout read it.
+ */
+val COMPOSE_PLUGIN_CONTENT_MODULES: List<String> = listOf(
+  "intellij.libraries.skiko",
+  "intellij.libraries.compose.foundation.desktop",
+  "intellij.libraries.coil",
+  "intellij.platform.jewel.foundation",
+  "intellij.platform.jewel.ui",
+  "intellij.platform.jewel.ideLafBridge",
+  "intellij.platform.compose",
+  "intellij.platform.jewel.markdown.core",
+  "intellij.platform.jewel.markdown.ideLafBridgeStyling",
+  "intellij.platform.jewel.markdown.extensions.autolink",
+  "intellij.platform.jewel.markdown.extensions.gfmAlerts",
+  "intellij.platform.jewel.markdown.extensions.gfmTables",
+  "intellij.platform.jewel.markdown.extensions.gfmStrikethrough",
+  "intellij.platform.jewel.markdown.extensions.frontMatter",
+  "intellij.platform.jewel.markdown.extensions.images",
+  "intellij.platform.compose.markdown",
+)
+
+/**
+ * The JNA native tree relative to the IDE home: `plugins/jna-plugin/lib/jna`. It holds one directory per architecture.
+ * The tree is in the `lib/` directory of the plugin [JNA_PLUGIN_MODULE], next to the jar that owns it.
+ */
+val JNA_NATIVE_DIR: String = pluginNativeDir(JNA_PLUGIN_MODULE, "jna")
+
+/** The pty4j native tree relative to the IDE home: `plugins/pty4j-plugin/lib/pty4j`, in the plugin [PTY4J_PLUGIN_MODULE]. */
+val PTY4J_NATIVE_DIR: String = pluginNativeDir(PTY4J_PLUGIN_MODULE, "pty4j")
+
+/**
+ * The Skiko native tree relative to the IDE home: `plugins/platform-compose-plugin/lib/skiko-awt-runtime-all`, in the
+ * plugin [COMPOSE_PLUGIN_MODULE].
+ */
+val SKIKO_NATIVE_DIR: String = pluginNativeDir(COMPOSE_PLUGIN_MODULE, "skiko-awt-runtime-all")
+
+/** The native tree of the presigned library [library] in the `lib/` directory of the plugin [pluginModule]. */
+private fun pluginNativeDir(pluginModule: String, library: String): String {
+  return "$PLUGINS_DIRECTORY/${convertModuleNameToFileName(pluginModule)}/$LIB_DIRECTORY/${PRESIGNED_NATIVE_LIBS.getValue(library)}"
+}
 
 /**
  * Default bundled plugins for all products.
@@ -24,9 +94,11 @@ val DEFAULT_BUNDLED_PLUGINS: PersistentList<String> = persistentListOf(
   //"intellij.dev",
   //"intellij.java.aetherDependencyResolver.plugin",
   //"intellij.jcef.plugin",
-  "intellij.libraries.misc.plugin",
+  "intellij.grid.plugin",
+  JNA_PLUGIN_MODULE,
+  PTY4J_PLUGIN_MODULE,
+  //COMPOSE_PLUGIN_MODULE,
   "intellij.platform.bookmarks.plugin",
-  "intellij.grid.core.plugin",
   "intellij.platform.navbar.plugin",
   //"intellij.platform.problemView.plugin",
   //"intellij.platform.testRunner.plugin",
@@ -39,8 +111,54 @@ val DEFAULT_BUNDLED_PLUGINS: PersistentList<String> = persistentListOf(
   //"intellij.platform.execution.serviceView.plugin",
   //"intellij.platform.todo.plugin",
   "intellij.platform.vcs.plugin",
+  "intellij.xml.plugin",
   "intellij.platform.images",
 )
+
+/**
+ * The main modules of the plugins that only a development run uses.
+ *
+ * A user must never install one of them, so no product publishes one.
+ * A development run still loads such a plugin, because `-Dadditional.modules` names the module.
+ *
+ * The build leaves such a plugin out of the pipeline, so no check runs on it.
+ *
+ * A community product reads this list too, so `community/.idea/modules.xml` must register each entry.
+ * A module of the ultimate project belongs in `ULTIMATE_COMPATIBLE_PLUGINS_TO_IGNORE` instead.
+ *
+ * @see ProductModulesLayout.compatiblePluginsToIgnore
+ */
+val COMPATIBLE_PLUGINS_TO_IGNORE: PersistentList<String> = persistentListOf(
+  // it registers a file type named Dart, Lua, Rust and Swift, and takes the name from the real plugin
+  "intellij.lsp.client.playground",
+)
+
+/**
+ * The main modules of the plugins that get no searchable options in any product.
+ *
+ * A community product reads this set too, so `community/.idea/modules.xml` must register each entry.
+ * A module of the ultimate project belongs in `ULTIMATE_PLUGINS_WITHOUT_SEARCHABLE_OPTIONS` instead.
+ *
+ * @see ProductModulesLayout.pluginModulesWithoutSearchableOptions
+ */
+val PLUGINS_WITHOUT_SEARCHABLE_OPTIONS: PersistentSet<String> = persistentSetOf()
+
+/**
+ * Add the default entries to [ProductModulesLayout.compatiblePluginsToIgnore] and to
+ * [ProductModulesLayout.pluginModulesWithoutSearchableOptions].
+ *
+ * A product calls this function, so each product switches its own behavior. A default value of the property
+ * would switch every product at once.
+ *
+ * A commercial product calls `addCommercialProductDefaults` instead, and that function calls this one.
+ *
+ * @see COMPATIBLE_PLUGINS_TO_IGNORE
+ * @see PLUGINS_WITHOUT_SEARCHABLE_OPTIONS
+ */
+fun ProductModulesLayout.addProductDefaults() {
+  compatiblePluginsToIgnore += COMPATIBLE_PLUGINS_TO_IGNORE
+  pluginModulesWithoutSearchableOptions += PLUGINS_WITHOUT_SEARCHABLE_OPTIONS
+}
 
 class ProductModulesLayout {
   /**
@@ -71,54 +189,83 @@ class ProductModulesLayout {
   var pluginModulesToPublish: PersistentSet<String> = persistentSetOf()
 
   /**
-   * Describes the layout of non-trivial plugins which may be included in the product.
-   * The actual list of the plugins needs to be bundled with the product is specified by [bundledPluginModules],
-   * the actual list of plugins which need to be prepared for publishing is specified by [pluginModulesToPublish].
+   * Whether the searchable options step also indexes the plugins that the product publishes and does not bundle.
+   *
+   * The step starts the IDE with those plugins, so each of them must load in the product.
+   * A product whose publish set still holds a plugin that cannot load keeps this off. The step then indexes the
+   * bundled plugins only, and a published plugin gets no searchable options.
+   *
+   * The `buildNonBundledPlugins` task ignores this flag, because it builds the published plugins and nothing else.
+   * That task always indexes them.
+   *
+   * @see pluginExclusionVariants
+   * @see compatiblePluginsToIgnore
    */
-  var pluginLayouts: PersistentList<PluginLayout> = CommunityRepositoryModules.COMMUNITY_REPOSITORY_PLUGINS
-    set(value) {
-      val nameGuard = createPluginLayoutSet(value.size)
-      for (layout in value) {
-        check(nameGuard.add(layout)) {
-          val bundlingRestrictionsAsString = if (layout.bundlingRestrictions == PluginBundlingRestrictions.NONE) {
-            ""
-          }
-          else {
-            ", bundlingRestrictions=${layout.bundlingRestrictions}"
-          }
-          "PluginLayout(mainModule=${layout.mainModule}$bundlingRestrictionsAsString) is duplicated"
-        }
-      }
-      field = value
-    }
+  var buildSearchableOptionsForPluginsToPublish: Boolean = false
 
   /**
-   * Module name to list of Ant-like patterns describing entries which should be excluded from its output.
-   * <strong>This is a temporary property added to keep the layout of some products.
-   * If some directory from a module shouldn't be included in the product JAR,
-   * it's strongly recommended to move that directory outside the module source roots.</strong>
+   * The plugin ids that each variant of the plugin set leaves out.
+   *
+   * It is used only if [buildAllCompatiblePlugins] is set to `true`.
+   *
+   * Some plugins do not load next to each other. One IDE cannot hold them all, so a consumer that loads the plugin set
+   * runs once per variant. The searchable options step starts one `traverseUI` run per variant, and the plugin
+   * dependency validation checks one plugin set per variant.
+   *
+   * A variant must name each dependent of a plugin that it leaves out, because a plugin does not load without a
+   * required dependency. A variant that keeps such a dependent makes the consumer fail.
+   *
+   * An empty list means one variant that excludes nothing.
+   * A plugin that every variant excludes gets no searchable options and no validation.
+   * State the conflict next to each entry, because only a full product build reveals it.
    */
-  internal val moduleExcludes: MutableMap<String, MutableList<String>> = LinkedHashMap()
+  var pluginExclusionVariants: List<Set<String>> = emptyList()
 
-  @ApiStatus.Internal
-  fun getModuleExcludesModuleNames(): Set<String> = moduleExcludes.keys
+  /**
+   * The main modules of the plugins that get no searchable options.
+   *
+   * The searchable options step starts the IDE in headless mode. A plugin that needs a runtime which that mode does
+   * not give makes the step fail. A backend process is such a runtime.
+   * A plugin that requires an entry gets no searchable options either.
+   *
+   * Add to this set, and do not replace it, because [addProductDefaults] adds the default entries.
+   * State the reason next to each entry, because only a full product build reveals it.
+   */
+  var pluginModulesWithoutSearchableOptions: PersistentSet<String> = persistentSetOf()
+
+  /**
+   * Describes the layout of non-trivial plugins which may be included in the product.
+   * [bundledPluginModules] specifies the plugins to bundle, and [pluginModulesToPublish] specifies the plugins to publish.
+   * The producer runs on the first read of its [Lazy.value]. Assigned producers check for duplicate layouts before they cache their lists.
+   */
+  var pluginLayouts: Lazy<PersistentList<PluginLayout>> = lazy { getCommunityRepositoryPlugins() }
+    set(value) {
+      field = lazy {
+        val layouts = value.value
+        val nameGuard = createPluginLayoutSet(layouts.size)
+        for (layout in layouts) {
+          check(nameGuard.add(layout)) {
+            val bundlingRestrictionsAsString = if (layout.bundlingRestrictions == PluginBundlingRestrictions.NONE) {
+              ""
+            }
+            else {
+              ", bundlingRestrictions=${layout.bundlingRestrictions}"
+            }
+            "PluginLayout(mainModule=${layout.mainModule}$bundlingRestrictionsAsString) is duplicated"
+          }
+        }
+        layouts
+      }
+    }
 
   /**
    * Additional customizations of platform JARs. **This is a temporary property added to keep layout of some products.**
    */
-  internal var platformLayoutSpec = persistentListOf<suspend (PlatformLayout, BuildContext) -> Unit>()
+  internal var platformLayoutSpec = persistentListOf<(PlatformLayout) -> Unit>()
     private set
 
-  fun addPlatformSpec(customizer: suspend (PlatformLayout, BuildContext) -> Unit) {
+  fun addPlatformSpec(customizer: (PlatformLayout) -> Unit) {
     platformLayoutSpec += customizer
-  }
-
-  fun excludeModuleOutput(module: String, path: String) {
-    moduleExcludes.computeIfAbsent(module) { mutableListOf() }.add(path)
-  }
-
-  fun excludeModuleOutput(module: String, path: Collection<String>) {
-    moduleExcludes.computeIfAbsent(module) { mutableListOf() }.addAll(path)
   }
 
   /**
@@ -139,7 +286,10 @@ class ProductModulesLayout {
   var buildAllCompatiblePlugins: Boolean = true
 
   /**
-   * List of plugin names which should not be built even if they are compatible and [buildAllCompatiblePlugins] is true
+   * The main modules of the plugins that the build must not build, even when the plugin is compatible
+   * and [buildAllCompatiblePlugins] is `true`.
+   *
+   * Add to this list, and do not replace it, because [addProductDefaults] adds the default entries.
    */
   var compatiblePluginsToIgnore: PersistentList<String> = persistentListOf()
 

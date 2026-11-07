@@ -1,4 +1,5 @@
 load("@community//build:tests-options.bzl", "jps_test")
+load("@jps_dynamic_deps_community//:targets.bzl", "dev_dist_plugin")
 load("@rules_jvm//:jvm.bzl", "jvm_library")
 
 jps_test(
@@ -8,6 +9,16 @@ jps_test(
     runtime_deps = [":completionMlRanking-tests_test_lib"],
 )
 ### skip generation section `test intellij.completionMlRanking.tests`
+
+### auto-generated section `dev intellij.completionMlRanking` start
+dev_dist_plugin(
+    descriptor = "resources/META-INF/plugin.xml",
+    jars = {
+        "lib/completionMlRanking.jar": ["intellij.completionMlRanking"],
+    },
+    main_module = "intellij.completionMlRanking",
+)
+### auto-generated section `dev intellij.completionMlRanking` end
 
 ### auto-generated section `build intellij.completionMlRanking` start
 jvm_library(
@@ -24,6 +35,7 @@ jvm_library(
     resource_strip_prefix = "resources",
     resources = glob(
         ["resources/**/*"],
+        exclude = ["resources/**/icon-robots.txt"],
     ),
     visibility = ["//visibility:public"],
     deps = [
@@ -41,8 +53,8 @@ jvm_library(
         "//platform/core-ui",
         "//platform/platform-impl/codeinsight-inline:ide-codeinsight-inline",
         "//libraries/caffeine",
-        "//libraries/jackson/jr-objects:libraries-jackson-jr-objects",
-        "//libraries/jackson/jackson",
+        "//libraries/jackson3/jr-objects:libraries-jackson3-jr-objects",
+        "//libraries/jackson3/jackson:libraries-jackson3",
         "//libraries/kotlinx/serialization/json",
         "//libraries/kotlinx/serialization/core",
         "//libraries/kotlin/reflect",
@@ -88,8 +100,8 @@ jvm_library(
         "//platform/core-ui:core-ui_test_lib",
         "//platform/platform-impl/codeinsight-inline:ide-codeinsight-inline_test_lib",
         "//libraries/caffeine:caffeine_test_lib",
-        "//libraries/jackson/jr-objects:libraries-jackson-jr-objects_test_lib",
-        "//libraries/jackson/jackson:jackson_test_lib",
+        "//libraries/jackson3/jr-objects:libraries-jackson3-jr-objects_test_lib",
+        "//libraries/jackson3/jackson:libraries-jackson3_test_lib",
         "//libraries/kotlinx/serialization/json:json_test_lib",
         "//libraries/kotlinx/serialization/core:core_test_lib",
         "//libraries/kotlin/reflect:reflect_test_lib",
@@ -131,7 +143,11 @@ jvm_library(
     ),
     module_name = "intellij.completionMlRanking.tests",
     visibility = ["//visibility:public"],
-    runtime_deps = ["//platform/core-ui"],
+    runtime_deps = [
+        # do not sort,
+        "//platform/core-ui",
+        "//xml/plugin",
+    ],
 )
 
 jvm_library(
@@ -151,6 +167,7 @@ jvm_library(
         # do not sort,
         ":completionMlRanking-tests",
         "//platform/platform-impl/internal:internal_test_lib",
+        "//xml/plugin:plugin_test_lib",
     ],
     deps = [
         # do not sort,
@@ -191,8 +208,6 @@ jvm_library(
         "//java/plugin:plugin_test_lib",
         "//aether-dependency-resolver/plugin",
         "//aether-dependency-resolver/plugin:plugin_test_lib",
-        "//libraries/misc/plugin",
-        "//libraries/misc/plugin:plugin_test_lib",
         "//platform/structure-view-impl/plugin",
         "//platform/structure-view-impl/plugin:plugin_test_lib",
         "//platform/todo/plugin",

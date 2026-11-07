@@ -107,6 +107,7 @@ mod tests {
         assert_eq!(vm_options_file.canonicalize().unwrap(), path.canonicalize().unwrap());
 
         // hardcoded VM options
+        assert_vm_option_presence(&dump, &format!("-Didea.home.path={}", test.dist_root.display()));
         assert_vm_option_presence(&dump, "-Dide.native.launcher=true");
 
         dump.vmOptions.iter().find(|s| s.starts_with("-XX:ErrorFile="))
@@ -120,7 +121,7 @@ mod tests {
         let dump = run_launcher_ext(&test, LauncherRunSpec::standard().with_dump().assert_status()).dump();
 
         let cef_version = env::var("CEF_VERSION").expect("'CEF_VERSION' not set; is the 'cef' feature enabled?");
-        assert_vm_option_presence(&dump, format!("-Djcef.sandbox.cefVersion={cef_version}").as_ref());
+        assert_vm_option_presence(&dump, &format!("-Djcef.sandbox.cefVersion={cef_version}"));
         dump.vmOptions.iter().find(|s| s.starts_with("-Djcef.sandbox.ptr="))
             .unwrap_or_else(|| panic!("'-Djcef.sandbox.ptr=' is not in {:?}", dump.vmOptions));
     }
@@ -448,8 +449,8 @@ mod tests {
         script.push(" --args print-cwd\n");
         let script_file = test.project_dir.join("_test.sh");
         OpenOptions::new().write(true).create_new(true)
-            .open(&script_file).unwrap_or_else(|_| panic!("Cannot create {:?}", &script_file))
-            .write_all(script.as_bytes()).unwrap_or_else(|_| panic!("Cannot write {:?}", &script_file));
+            .open(&script_file).unwrap_or_else(|_| panic!("Cannot create {:?}", script_file))
+            .write_all(script.as_bytes()).unwrap_or_else(|_| panic!("Cannot write {:?}", script_file));
         let open_res = std::process::Command::new("/bin/sh").args([script_file]).current_dir(&non_ascii_dir)
             .output().unwrap_or_else(|e| panic!("Failed: 'open': {:?}", e));
         assert!(open_res.status.success(), "Failed: 'open':\n{:?}", open_res);

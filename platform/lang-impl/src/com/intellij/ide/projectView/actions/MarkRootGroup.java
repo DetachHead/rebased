@@ -5,13 +5,14 @@ import com.intellij.ide.actions.NonTrivialActionGroup;
 import com.intellij.idea.ActionsBundle;
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.actionSystem.CommonDataKeys;
+import com.intellij.openapi.actionSystem.remoting.ActionRemoteBehaviorSpecification;
 import com.intellij.openapi.vfs.VirtualFile;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.VisibleForTesting;
 
 @ApiStatus.Internal
-public final class MarkRootGroup extends NonTrivialActionGroup {
+public final class MarkRootGroup extends NonTrivialActionGroup implements ActionRemoteBehaviorSpecification.BackendOnly {
   @Override
   public void update(@NotNull AnActionEvent e) {
     super.update(e);

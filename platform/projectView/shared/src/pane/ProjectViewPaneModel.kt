@@ -24,7 +24,7 @@ interface ProjectViewPaneModel {
 
   suspend fun loadChildren(parentId: Long, options: ProjectViewPaneLoadChildrenOptions)
 
-  suspend fun navigate(nodeId: Long, options: ProjectViewPaneNavigateOptions)
+  suspend fun navigate(nodeId: Long, options: ProjectViewPaneNavigateOptions): Boolean
 
   suspend fun setOptionValue(option: ProjectViewPaneOption, newValue: Boolean)
 
@@ -37,6 +37,8 @@ interface ProjectViewPaneModel {
   fun getDataContext(nodeIds: List<Long>): DataContext
 
   suspend fun findNodeForSelectIn(selectInRequest: SelectInRequest): ProjectViewNodePath?
+  
+  suspend fun refreshSettings() { }
 }
 
 /** Reserved for future use. */

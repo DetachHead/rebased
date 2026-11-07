@@ -190,6 +190,16 @@ public abstract class XLineBreakpointType<P extends XBreakpointProperties> exten
   }
 
   /**
+   * The frontend tracks the highlight range of a breakpoint with a range marker.
+   * After a document edit, it sends the tracked range to the backend with a position request.
+   * The backend calls this method with that range before it fires the change event.
+   * A type that stores the position in its properties updates them here.
+   * The default changes nothing.
+   */
+  public void highlightRangeMoved(@NotNull XLineBreakpoint<P> breakpoint, @NotNull TextRange range) {
+  }
+
+  /**
    * Return the list of variants if there can be more than one breakpoint on the line.
    */
   public @NotNull List<? extends XLineBreakpointVariant> computeVariants(@NotNull Project project, @NotNull XSourcePosition position) {

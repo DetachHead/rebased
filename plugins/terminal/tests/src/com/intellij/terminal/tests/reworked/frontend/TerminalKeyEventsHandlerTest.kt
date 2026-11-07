@@ -13,7 +13,6 @@ import com.intellij.terminal.frontend.view.impl.TerminalInput
 import com.intellij.terminal.frontend.view.impl.TerminalKeyEncodingManager
 import com.intellij.terminal.frontend.view.impl.TerminalKeyEventsHandlerImpl
 import com.intellij.terminal.frontend.view.impl.TerminalOutputScrollingModel
-import com.intellij.terminal.frontend.view.impl.TimedKeyEvent
 import com.intellij.terminal.frontend.view.impl.createTerminalKeyEventDispatcherForTests
 import com.intellij.terminal.frontend.view.typeahead.TerminalTypeAhead
 import com.intellij.testFramework.common.timeoutRunBlocking
@@ -61,11 +60,11 @@ internal class TerminalKeyEventsHandlerTest : BasePlatformTestCase() {
 
         fixture.handler.keyTyped(event)
 
-        assertThat(event.original.isConsumed).isTrue()
-        assertThat(fixture.session.processedEvents).containsExactly(event.original)
+        assertThat(event.isConsumed).isTrue()
+        assertThat(fixture.session.processedEvents).containsExactly(event)
         assertThat(awaitWrittenString(fixture.session)).isEqualTo("x")
         assertThat(fixture.typeAhead!!.typedStrings).containsExactly("x")
-        assertThat(fixture.afterKeyEvents.map { it.awtEvent }).containsExactly(event.original)
+        assertThat(fixture.afterKeyEvents.map { it.awtEvent }).containsExactly(event)
         assertThat(fixture.afterKeyEvents.map { it.cursorOffset }).containsOnly(TerminalOffset.of(2))
       }
     }
@@ -81,8 +80,8 @@ internal class TerminalKeyEventsHandlerTest : BasePlatformTestCase() {
 
         fixture.handler.keyPressed(event)
 
-        assertThat(event.original.isConsumed).isTrue()
-        assertThat(fixture.session.processedEvents).containsExactly(event.original)
+        assertThat(event.isConsumed).isTrue()
+        assertThat(fixture.session.processedEvents).containsExactly(event)
         assertThat(awaitWrittenString(fixture.session)).isEqualTo("\u001B[D")
         assertThat(fixture.typeAhead!!.typedStrings).isEmpty()
       }
@@ -98,7 +97,7 @@ internal class TerminalKeyEventsHandlerTest : BasePlatformTestCase() {
 
         fixture.handler.keyTyped(event)
 
-        assertThat(event.original.isConsumed).isTrue()
+        assertThat(event.isConsumed).isTrue()
         assertThat(awaitWrittenBytes(fixture.session)).containsExactly('x'.code.toByte())
         assertThat(fixture.typeAhead!!.typedStrings).isEmpty()
       }
@@ -131,11 +130,11 @@ internal class TerminalKeyEventsHandlerTest : BasePlatformTestCase() {
         fixture.handler.keyPressed(pressed)
         fixture.handler.keyTyped(typed)
 
-        assertThat(pressed.original.isConsumed).isTrue()
-        assertThat(typed.original.isConsumed).isTrue()
-        assertThat(fixture.session.processedEvents).containsExactly(pressed.original)
+        assertThat(pressed.isConsumed).isTrue()
+        assertThat(typed.isConsumed).isTrue()
+        assertThat(fixture.session.processedEvents).containsExactly(pressed)
         assertThat(awaitWrittenString(fixture.session)).isEqualTo("a")
-        assertThat(fixture.afterKeyEvents.map { it.awtEvent }).containsExactly(pressed.original)
+        assertThat(fixture.afterKeyEvents.map { it.awtEvent }).containsExactly(pressed)
       }
     }
 
@@ -151,11 +150,70 @@ internal class TerminalKeyEventsHandlerTest : BasePlatformTestCase() {
         fixture.handler.keyPressed(pressed)
         fixture.handler.keyTyped(typed)
 
-        assertThat(pressed.original.isConsumed).isFalse()
-        assertThat(typed.original.isConsumed).isTrue()
-        assertThat(fixture.session.processedEvents).containsExactly(pressed.original, typed.original)
+        assertThat(pressed.isConsumed).isFalse()
+        assertThat(typed.isConsumed).isTrue()
+        assertThat(fixture.session.processedEvents).containsExactly(pressed, typed)
         assertThat(awaitWrittenString(fixture.session)).isEqualTo("b")
-        assertThat(fixture.afterKeyEvents.map { it.awtEvent }).containsExactly(pressed.original, typed.original)
+        assertThat(fixture.afterKeyEvents.map { it.awtEvent }).containsExactly(pressed, typed)
+      }
+    }
+
+  @Test
+  fun `handled keyReleased sends bytes and consumes the event, without the listeners and the type-ahead`(): Unit =
+    timeoutRunBlocking(context = Dispatchers.EDT) {
+      createFixture().use { fixture ->
+        val released = releasedKeyEvent(fixture.editor.contentComponent, KeyEvent.VK_A, 'a')
+        fixture.session.enqueueResult(KeyEventProcessingResultDto.BytesResult("\u001B[97;1:3u".toByteArray(), shouldScrollToBottom = false))
+
+        fixture.handler.keyReleased(released)
+
+        assertThat(released.isConsumed).isTrue()
+        assertThat(fixture.session.processedEvents).containsExactly(released)
+        assertThat(awaitWrittenString(fixture.session)).isEqualTo("\u001B[97;1:3u")
+        assertThat(fixture.typeAhead!!.typedStrings).isEmpty()
+        assertThat(fixture.afterKeyEvents).isEmpty()
+      }
+    }
+
+  @Test
+  fun `unhandled keyReleased is left to the IDE`(): Unit =
+    timeoutRunBlocking(context = Dispatchers.EDT) {
+      createFixture().use { fixture ->
+        val released = releasedKeyEvent(fixture.editor.contentComponent, KeyEvent.VK_UP, KeyEvent.CHAR_UNDEFINED)
+
+        fixture.handler.keyReleased(released)
+
+        assertThat(released.isConsumed).isFalse()
+        assertThat(fixture.session.processedEvents).containsExactly(released)
+        assertThat(fixture.afterKeyEvents).isEmpty()
+      }
+    }
+
+  @Test
+  fun `buffered keyReleased is replayed in order and keeps the keyTyped pairing`(): Unit =
+    timeoutRunBlocking(context = Dispatchers.EDT) {
+      createFixture(completeSessionImmediately = false).use { fixture ->
+        val component = fixture.editor.contentComponent
+        val pressedA = pressedKeyEvent(component, KeyEvent.VK_A, 'a')
+        val typedA = typedKeyEvent(component, 'a')
+        val releasedA = releasedKeyEvent(component, KeyEvent.VK_A, 'a')
+        val pressedB = pressedKeyEvent(component, KeyEvent.VK_B, 'b')
+        val typedB = typedKeyEvent(component, 'b')
+        fixture.session.enqueueResult(KeyEventProcessingResultDto.StringResult("a", shouldScrollToBottom = false)) // pressedA: suppresses typedA
+        fixture.session.enqueueResult(KeyEventProcessingResultDto.Unhandled) // releasedA
+        fixture.session.enqueueResult(KeyEventProcessingResultDto.Unhandled) // pressedB: typedB goes through
+        fixture.session.enqueueResult(KeyEventProcessingResultDto.StringResult("b", shouldScrollToBottom = false)) // typedB
+
+        fixture.handler.keyPressed(pressedA)
+        fixture.handler.keyTyped(typedA)
+        fixture.handler.keyReleased(releasedA)
+        fixture.handler.keyPressed(pressedB)
+        fixture.handler.keyTyped(typedB)
+        fixture.activateSession()
+
+        assertThat(fixture.session.processedEvents).containsExactly(pressedA, releasedA, pressedB, typedB)
+        assertThat(awaitWrittenString(fixture.session)).isEqualTo("a")
+        assertThat(awaitWrittenString(fixture.session)).isEqualTo("b")
       }
     }
 
@@ -213,7 +271,7 @@ internal class TerminalKeyEventsHandlerTest : BasePlatformTestCase() {
 
         fixture.handler.keyTyped(event)
 
-        assertThat(event.original.isConsumed).isTrue()
+        assertThat(event.isConsumed).isTrue()
         assertThat(fixture.session.processedEvents).isEmpty()
         assertThat(fixture.session.inputEvents.tryReceive().getOrNull()).isNull()
 
@@ -221,7 +279,7 @@ internal class TerminalKeyEventsHandlerTest : BasePlatformTestCase() {
         fixture.activateSession()
 
         assertThat(awaitWrittenString(fixture.session)).isEqualTo("x")
-        assertThat(fixture.session.processedEvents).containsExactly(event.original)
+        assertThat(fixture.session.processedEvents).containsExactly(event)
         assertThat(fixture.typeAhead!!.typedStrings).containsExactly("x")
       }
     }
@@ -238,10 +296,10 @@ internal class TerminalKeyEventsHandlerTest : BasePlatformTestCase() {
         fixture.session.enqueueResult(KeyEventProcessingResultDto.StringResult("a", shouldScrollToBottom = false))
         fixture.activateSession()
 
-        assertThat(pressed.original.isConsumed).isTrue()
-        assertThat(typed.original.isConsumed).isTrue()
+        assertThat(pressed.isConsumed).isTrue()
+        assertThat(typed.isConsumed).isTrue()
         assertThat(awaitWrittenString(fixture.session)).isEqualTo("a")
-        assertThat(fixture.session.processedEvents).containsExactly(pressed.original)
+        assertThat(fixture.session.processedEvents).containsExactly(pressed)
       }
     }
 
@@ -260,9 +318,9 @@ internal class TerminalKeyEventsHandlerTest : BasePlatformTestCase() {
 
         assertThat(awaitWrittenString(fixture.session)).isEqualTo("a")
         assertThat(awaitWrittenString(fixture.session)).isEqualTo("b")
-        assertThat(fixture.session.processedEvents).containsExactly(first.original, second.original)
+        assertThat(fixture.session.processedEvents).containsExactly(first, second)
         assertThat(fixture.typeAhead!!.typedStrings).containsExactly("a", "b")
-        assertThat(fixture.afterKeyEvents.map { it.awtEvent }).containsExactly(first.original, second.original)
+        assertThat(fixture.afterKeyEvents.map { it.awtEvent }).containsExactly(first, second)
       }
     }
 
@@ -280,9 +338,9 @@ internal class TerminalKeyEventsHandlerTest : BasePlatformTestCase() {
         fixture.activateSession()
 
         assertThat(awaitWrittenString(fixture.session)).isEqualTo("a")
-        assertThat(fixture.session.processedEvents).containsExactly(pressed.original, typed.original)
-        assertThat(pressed.original.isConsumed).isTrue()
-        assertThat(typed.original.isConsumed).isTrue()
+        assertThat(fixture.session.processedEvents).containsExactly(pressed, typed)
+        assertThat(pressed.isConsumed).isTrue()
+        assertThat(typed.isConsumed).isTrue()
       }
     }
 
@@ -304,11 +362,11 @@ internal class TerminalKeyEventsHandlerTest : BasePlatformTestCase() {
 
         fixture.handler.keyTyped(event)
 
-        assertThat(event.original.isConsumed).isTrue()
-        assertThat(interceptedEvent).isSameAs(event.original)
+        assertThat(event.isConsumed).isTrue()
+        assertThat(interceptedEvent).isSameAs(event)
         assertThat(fixture.session.processedEvents).isEmpty()
         assertThat(fixture.session.inputEvents.tryReceive().getOrNull()).isNull()
-        assertThat(fixture.afterKeyEvents.map { it.awtEvent }).containsExactly(event.original)
+        assertThat(fixture.afterKeyEvents.map { it.awtEvent }).containsExactly(event)
       }
     }
 
@@ -349,7 +407,7 @@ internal class TerminalKeyEventsHandlerTest : BasePlatformTestCase() {
 
         fixture.handler.keyTyped(event)
 
-        assertThat(event.original.isConsumed).isTrue()
+        assertThat(event.isConsumed).isTrue()
         assertThat(awaitWrittenString(fixture.session)).isEqualTo("x")
       }
     }
@@ -367,9 +425,9 @@ internal class TerminalKeyEventsHandlerTest : BasePlatformTestCase() {
         fixture.session.enqueueResult(KeyEventProcessingResultDto.StringResult("b", shouldScrollToBottom = false))
         fixture.session.enqueueResult(KeyEventProcessingResultDto.StringResult("c", shouldScrollToBottom = false))
 
-        events.forEach { event -> dispatcher.dispatch(event.original) }
+        events.forEach { event -> dispatcher.dispatch(event) }
 
-        assertThat(fixture.session.processedEvents).containsExactly(events[1].original, events[2].original)
+        assertThat(fixture.session.processedEvents).containsExactly(events[1], events[2])
         assertThat(awaitWrittenString(fixture.session)).isEqualTo("b")
         assertThat(awaitWrittenString(fixture.session)).isEqualTo("c")
       }
@@ -385,10 +443,10 @@ internal class TerminalKeyEventsHandlerTest : BasePlatformTestCase() {
         fixture.session.enqueueResult(KeyEventProcessingResultDto.Unhandled)
         fixture.session.enqueueResult(KeyEventProcessingResultDto.StringResult("a", shouldScrollToBottom = false))
 
-        dispatcher.dispatch(pressed.original)
-        dispatcher.dispatch(typed.original)
+        dispatcher.dispatch(pressed)
+        dispatcher.dispatch(typed)
 
-        assertThat(fixture.session.processedEvents).containsExactly(pressed.original, typed.original)
+        assertThat(fixture.session.processedEvents).containsExactly(pressed, typed)
         assertThat(awaitWrittenString(fixture.session)).isEqualTo("a")
       }
     }
@@ -423,7 +481,7 @@ internal class TerminalKeyEventsHandlerTest : BasePlatformTestCase() {
         sessionModel = sessionModel,
         startupFusInfo = null,
         coroutineScope = scope,
-        encodingManager = TerminalKeyEncodingManager(sessionModel, scope),
+        encodingManager = TerminalKeyEncodingManager(sessionModel),
       ),
       scrollingModel = scrollingModel,
       outputModel = outputModel,
@@ -540,12 +598,16 @@ internal class TerminalKeyEventsHandlerTest : BasePlatformTestCase() {
   }
 
   companion object {
-    private fun pressedKeyEvent(source: Component, keyCode: Int, keyChar: Char, modifiersEx: Int = 0): TimedKeyEvent {
-      return TimedKeyEvent(KeyEvent(source, KeyEvent.KEY_PRESSED, System.currentTimeMillis(), modifiersEx, keyCode, keyChar))
+    private fun pressedKeyEvent(source: Component, keyCode: Int, keyChar: Char, modifiersEx: Int = 0): KeyEvent {
+      return KeyEvent(source, KeyEvent.KEY_PRESSED, System.currentTimeMillis(), modifiersEx, keyCode, keyChar)
     }
 
-    private fun typedKeyEvent(source: Component, keyChar: Char): TimedKeyEvent {
-      return TimedKeyEvent(KeyEvent(source, KeyEvent.KEY_TYPED, System.currentTimeMillis(), 0, KeyEvent.VK_UNDEFINED, keyChar))
+    private fun typedKeyEvent(source: Component, keyChar: Char): KeyEvent {
+      return KeyEvent(source, KeyEvent.KEY_TYPED, System.currentTimeMillis(), 0, KeyEvent.VK_UNDEFINED, keyChar)
+    }
+
+    private fun releasedKeyEvent(source: Component, keyCode: Int, keyChar: Char): KeyEvent {
+      return KeyEvent(source, KeyEvent.KEY_RELEASED, System.currentTimeMillis(), 0, keyCode, keyChar)
     }
 
     private suspend fun awaitWrittenBytes(session: RecordingTerminalSession): ByteArray {

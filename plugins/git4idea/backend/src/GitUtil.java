@@ -26,13 +26,13 @@ import com.intellij.openapi.vcs.VcsException;
 import com.intellij.openapi.vcs.VcsRoot;
 import com.intellij.openapi.vcs.changes.Change;
 import com.intellij.openapi.vcs.changes.ChangeListManager;
-import com.intellij.openapi.vcs.changes.ChangeListManagerEx;
 import com.intellij.openapi.vcs.changes.ChangesUtil;
 import com.intellij.openapi.vcs.update.RefreshVFsSynchronously;
 import com.intellij.openapi.vcs.versionBrowser.CommittedChangeList;
-import com.intellij.openapi.vfs.LocalFileSystem;
+import com.intellij.openapi.vfs.StandardFileSystems;
 import com.intellij.openapi.vfs.VfsUtil;
 import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.openapi.vfs.VirtualFileManager;
 import com.intellij.platform.eel.path.EelPath;
 import com.intellij.platform.eel.path.EelPathException;
 import com.intellij.platform.eel.provider.EelNioBridgeServiceKt;
@@ -163,7 +163,7 @@ public final class GitUtil {
     if (pathToDir == null) return null;
     Path file = findRealRepositoryDir(rootDir.toNioPath(), pathToDir);
     if (file == null) return null;
-    return LocalFileSystem.getInstance().refreshAndFindFileByNioFile(file);
+    return VirtualFileManager.getInstance().refreshAndFindFileByNioPath(file);
   }
 
   private static @Nullable Path findRealRepositoryDir(@NotNull @NonNls Path rootPath, @NotNull @NonNls String path) {
@@ -399,7 +399,7 @@ public final class GitUtil {
       Path root = path;
       while (root != null) {
         if (isGitRoot(root)) {
-          return LocalFileSystem.getInstance().findFileByNioFile(root);
+          return VirtualFileManager.getInstance().findFileByNioPath(root);
         }
         root = root.getParent();
       }
@@ -553,13 +553,13 @@ public final class GitUtil {
 
   /**
    * @throws VcsException if the path is invalid
-   * @see VcsFileUtil#unescapeGitPath(String, String)
+   * @see VcsFileUtil#unescapeGitPath(String)
    */
   public static @NotNull String unescapePath(@NotNull @NonNls String path) throws VcsException {
     try {
       return VcsFileUtil.unescapeGitPath(path);
     }
-    catch (IllegalStateException e) {
+    catch (IllegalArgumentException e) {
       throw new VcsException(e);
     }
   }
@@ -804,9 +804,9 @@ public final class GitUtil {
   }
 
   public static @Nullable VirtualFile findRefreshFileOrLog(@NotNull @NonNls String absolutePath) {
-    VirtualFile file = LocalFileSystem.getInstance().findFileByPath(absolutePath);
+    VirtualFile file = StandardFileSystems.local().findFileByPath(absolutePath);
     if (file == null) {
-      file = LocalFileSystem.getInstance().refreshAndFindFileByPath(absolutePath);
+      file = StandardFileSystems.local().refreshAndFindFileByPath(absolutePath);
     }
     if (file == null) {
       LOG.debug("VirtualFile not found for " + absolutePath);
@@ -830,7 +830,7 @@ public final class GitUtil {
    */
   public static @NotNull List<Change> findLocalChangesForPaths(@NotNull Project project, @NotNull VirtualFile root,
                                                                @NotNull Collection<@NonNls String> affectedPaths, boolean relativePaths) {
-    ChangeListManagerEx changeListManager = ChangeListManagerEx.getInstanceEx(project);
+    ChangeListManager changeListManager = ChangeListManager.getInstance(project);
     List<Change> affectedChanges = new ArrayList<>();
     for (String path : affectedPaths) {
       String absolutePath = relativePaths ? toAbsolute(root, path) : path;

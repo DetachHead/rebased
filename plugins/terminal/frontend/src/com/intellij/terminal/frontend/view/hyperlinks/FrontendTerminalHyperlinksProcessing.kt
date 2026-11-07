@@ -1,5 +1,6 @@
 package com.intellij.terminal.frontend.view.hyperlinks
 
+import com.intellij.diagnostic.rethrowControlFlowException
 import com.intellij.execution.impl.EditorTextDecoration
 import com.intellij.execution.impl.EditorTextDecorationApplier
 import com.intellij.execution.impl.buildHighlighting
@@ -57,6 +58,7 @@ import org.jetbrains.plugins.terminal.hyperlinks.session.toFilterResultInfo
 import org.jetbrains.plugins.terminal.hyperlinks.toPlatformId
 import org.jetbrains.plugins.terminal.view.TerminalOffset
 import org.jetbrains.plugins.terminal.view.TerminalOutputModel
+import org.jetbrains.plugins.terminal.view.TerminalOutputOsc8Hyperlink
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
@@ -77,16 +79,18 @@ fun installHyperlinksProcessing(
   // The modification stamp of the most recent highlighting task whose
   // `TerminalHyperlinksOutputEvent.TaskFinished` event has been observed.
   val lastFinishedTaskStamp = MutableStateFlow(0L)
+  // The number of processed hover states, see installInvisibleHyperlinksOnHover().
+  val processedHovers = MutableStateFlow(0L)
 
   val sessionDeferred = coroutineScope.async(CoroutineName("createHyperlinksSession")) {
     createHyperlinksSession(project, eelDescriptor, coroutineScope.childScope("FrontendTerminalHyperlinksSession"))
   }
 
   coroutineScope.launch(CoroutineName("processHyperlinks")) {
-    processHyperlinks(outputModel, sessionModel, sessionDeferred, decorationApplier, lastFinishedTaskStamp)
+    processHyperlinks(outputModel, sessionModel, sessionDeferred, decorationApplier, lastFinishedTaskStamp, processedHovers)
   }
 
-  return FrontendTerminalHyperlinkFacade(sessionDeferred, decorationApplier, lastFinishedTaskStamp)
+  return FrontendTerminalHyperlinkFacade(sessionDeferred, decorationApplier, lastFinishedTaskStamp, processedHovers)
 }
 
 private suspend fun processHyperlinks(
@@ -95,9 +99,23 @@ private suspend fun processHyperlinks(
   sessionDeferred: Deferred<TerminalHyperlinksSession>,
   applier: EditorTextDecorationApplier,
   lastFinishedTaskStamp: MutableStateFlow<Long>,
+  processedHovers: MutableStateFlow<Long>,
 ) = coroutineScope {
   val scope = this
   val session = sessionDeferred.await()
+  val onLinkClicked: (TerminalHyperlinkId, EditorMouseEvent) -> Unit = { id, mouseEvent ->
+    scope.launch {
+      try {
+        session.handleHyperlinkClick(TerminalHyperlinkClickedEvent(id, mouseEvent))
+      }
+      catch (e: Exception) {
+        rethrowControlFlowException(e)
+        LOG.warn("Failed to follow the hyperlink $id", e)
+      }
+    }
+  }
+
+  installInvisibleHyperlinksOnHover(outputModel, applier, session, onLinkClicked, processedHovers, scope)
 
   val outputModelChangesTracker = TerminalOutputModelChangesTracker(outputModel, parentDisposable = this.asDisposable())
 
@@ -114,11 +132,7 @@ private suspend fun processHyperlinks(
       hyperlinkUpdatesChannel = session.hyperlinkUpdatesChannel,
       inputEventsSink = session.inputEventsSink,
       lastFinishedTaskStamp = lastFinishedTaskStamp,
-      onLinkClicked = { id, mouseEvent ->
-        scope.launch {
-          session.handleHyperlinkClick(TerminalHyperlinkClickedEvent(id, mouseEvent))
-        }
-      }
+      onLinkClicked = onLinkClicked,
     )
   }
 }
@@ -183,8 +197,10 @@ private suspend fun trackOutputModelChanges(
     }
   }
 
-  // Send content updates to the backend periodically.
+  // Send content updates to the backend, at most once per flush delay.
   while (true) {
+    tracker.awaitContentChange()
+
     val update = withContext(Dispatchers.UI + ModalityState.any().asContextElement()) {
       try {
         getContentUpdate(outputModel, tracker)
@@ -203,7 +219,7 @@ private suspend fun trackOutputModelChanges(
   }
 }
 
-@RequiresEdt
+@RequiresEdt(generateAssertion = false /* IJPL-115548 */)
 private fun getContentUpdate(
   outputModel: TerminalOutputModel,
   tracker: TerminalOutputModelChangesTracker,
@@ -353,11 +369,13 @@ private fun processHyperlinksUpdatedEvent(
   )
   applier.removeDecorations(removed.map { it.toPlatformId() })
 
+  val osc8Hyperlinks = outputModel.getOsc8Hyperlinks()
   val newLinks = event.hyperlinks
     .asSequence()
     .map { it.toFilterResultInfo() }
     .filter { it.absoluteStartOffset >= modelStartOffset }  // Filter out trimmed hyperlinks
     .filter { it.absoluteEndOffset <= applyUpToOffset }   // Filter out hyperlinks in the range that was changed during links' calculation
+    .filterNot { it.isOverlappedBy(osc8Hyperlinks) }
     .toList()
 
   // Add only hyperlinks that can be transformed into decorations
@@ -372,7 +390,37 @@ private fun processHyperlinksUpdatedEvent(
   applier.addDecorations(decorations)
 }
 
-private fun TerminalFilterResultInfo.toEditorDecoration(
+/**
+ * Returns `true` if this is a hyperlink that shares a character with one of [osc8Hyperlinks].
+ *
+ * OSC8 hyperlinks have priority over the detected ones in the same text (IJPL-256174).
+ * Returns `false` for highlightings and inlays, because they are not hyperlinks.
+ */
+internal fun TerminalFilterResultInfo.isOverlappedBy(osc8Hyperlinks: List<TerminalOutputOsc8Hyperlink>): Boolean {
+  return this is TerminalHyperlinkInfo && osc8Hyperlinks.intersects(absoluteStartOffset, absoluteEndOffset)
+}
+
+/**
+ * Returns `true` if the range `[absoluteStartOffset, absoluteEndOffset)` shares a character with a hyperlink of this list.
+ *
+ * The list must be sorted by offset and have no overlapping ranges, as [TerminalOutputModel.getOsc8Hyperlinks] returns it.
+ */
+private fun List<TerminalOutputOsc8Hyperlink>.intersects(
+  absoluteStartOffset: Long,
+  absoluteEndOffset: Long,
+): Boolean {
+  if (isEmpty()) return false
+  // Find the first OSC8 hyperlink that ends after the range start.
+  val result = binarySearch {
+    if (it.endOffset.toAbsolute() <= absoluteStartOffset) -1 else 1
+  }
+  // binarySearch never finds, so result == (-insertionIndex - 1)
+  check(result < 0) { "result = $result" }
+  val insertionIndex = -result - 1
+  return insertionIndex < size && this[insertionIndex].startOffset.toAbsolute() < absoluteEndOffset
+}
+
+internal fun TerminalFilterResultInfo.toEditorDecoration(
   outputModel: TerminalOutputModel,
   onLinkClicked: (TerminalHyperlinkId, EditorMouseEvent) -> Unit,
 ): EditorTextDecoration? {

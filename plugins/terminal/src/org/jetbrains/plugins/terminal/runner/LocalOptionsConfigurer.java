@@ -73,6 +73,14 @@ public final class LocalOptionsConfigurer {
   }
 
   private static @NotNull Path getDefaultStartingDirectory(@NotNull Project project) {
+    Path contextualStartingDirectory = toExistentNioDirectory(
+      TerminalStartupKt.getContextualStartWorkingDirectoryBlocking(project),
+      "Contextual directory"
+    );
+    if (contextualStartingDirectory != null) {
+      return contextualStartingDirectory;
+    }
+
     Path configuredStartingDirectory = toExistentNioDirectory(
       TerminalProjectOptionsProvider.getInstance(project).getStartingDirectory(),
       "Starting directory"
@@ -162,6 +170,7 @@ public final class LocalOptionsConfigurer {
     if (!isWindows) {
       envs.put("TERM", "xterm-256color");
     }
+    envs.put("COLORTERM", "truecolor");
     envs.put(TERMINAL_EMULATOR, "JetBrains-JediTerm");
     envs.put(TERM_SESSION_ID, UUID.randomUUID().toString());
 

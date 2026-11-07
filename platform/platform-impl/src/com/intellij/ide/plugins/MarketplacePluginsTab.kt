@@ -73,7 +73,7 @@ import java.util.function.Supplier
 import javax.swing.JComponent
 import kotlin.time.TimeSource
 
-internal class MarketplacePluginsTab @RequiresEdt constructor(
+internal class MarketplacePluginsTab @RequiresEdt(generateAssertion = false /* IJPL-115548 */) constructor(
   facade: PluginModelFacade,
   scope: CoroutineScope,
   customizer: PluginManagerCustomizer?,
@@ -105,7 +105,7 @@ internal class MarketplacePluginsTab @RequiresEdt constructor(
     customizeSearchTextField()
   }
 
-  @RequiresEdt
+  @RequiresEdt(generateAssertion = false /* IJPL-115548 */)
   override fun createPluginsPanel(): JComponent {
     val project = ProjectUtil.getActiveProject()
     computeAndApplyMarketplacePanelModel(selectionListener, project)
@@ -187,6 +187,7 @@ internal class MarketplacePluginsTab @RequiresEdt constructor(
     val pluginIds = marketplaceData.flatMap { it.value.getPlugins().map { plugin -> plugin.pluginId } }.toSet() +
                     customRepositoriesMap.flatMap { it.value.map { plugin -> plugin.pluginId } }.toSet()
     val installedPlugins = pluginManager.findInstalledPlugins(pluginIds)
+    pluginManagerCustomizer?.awaitPluginStatesLoaded()
 
     return CreateMarketplacePanelModel(
       marketplaceData,
@@ -230,7 +231,7 @@ internal class MarketplacePluginsTab @RequiresEdt constructor(
     return marketplaceData
   }
 
-  @RequiresEdt
+  @RequiresEdt(generateAssertion = false /* IJPL-115548 */)
   private fun applyMarketplacePanelModel(
     project: Project?,
     model: CreateMarketplacePanelModel,
@@ -336,9 +337,6 @@ internal class MarketplacePluginsTab @RequiresEdt constructor(
           )
         }
       }
-      if (pluginManagerCustomizer != null) {
-        pluginManagerCustomizer.ensurePluginStatesLoaded()
-      }
     }
     finally {
       ApplicationManager.getApplication().invokeLater({
@@ -404,7 +402,7 @@ internal class MarketplacePluginsTab @RequiresEdt constructor(
           ).map { sort -> sort.query }
           SearchWords.VENDOR -> getOrCalculateVendors()
           SearchWords.REPOSITORY -> RepositoryHelper.getCustomPluginRepositoryHosts()
-          SearchWords.INTERNAL, SearchWords.SUGGESTED, SearchWords.STAFF_PICKS, null -> null
+          SearchWords.INTERNAL, SearchWords.SUGGESTED, SearchWords.STAFF_PICKS, SearchWords.PLUGIN_UPDATE_SOURCE, null -> null
         }
       }
 
@@ -464,6 +462,7 @@ internal class MarketplacePluginsTab @RequiresEdt constructor(
       selectionListener,
       marketplaceSortByGroup,
       Supplier { marketplacePanel },
+      pluginModelFacade,
     )
     return searchPanel
   }

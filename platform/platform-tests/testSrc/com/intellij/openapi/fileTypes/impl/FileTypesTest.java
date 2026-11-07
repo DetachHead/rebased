@@ -60,12 +60,12 @@ import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.AsyncFileListener;
 import com.intellij.openapi.vfs.CharsetToolkit;
 import com.intellij.openapi.vfs.CharsetToolkit.GuessedEncoding;
-import com.intellij.openapi.vfs.LocalFileSystem;
 import com.intellij.openapi.vfs.PersistentFSConstants;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.vfs.VirtualFileSystem;
 import com.intellij.openapi.vfs.encoding.EncodingProjectManager;
 import com.intellij.openapi.vfs.encoding.EncodingProjectManagerImpl;
+import com.intellij.openapi.vfs.newvfs.RefreshQueue;
 import com.intellij.openapi.vfs.newvfs.events.VFileContentChangeEvent;
 import com.intellij.openapi.vfs.newvfs.impl.CachedFileType;
 import com.intellij.openapi.vfs.newvfs.impl.FakeVirtualFile;
@@ -76,6 +76,7 @@ import com.intellij.psi.PsiPlainTextFile;
 import com.intellij.psi.impl.PsiManagerEx;
 import com.intellij.testFramework.ExtensionTestUtil;
 import com.intellij.testFramework.HeavyPlatformTestCase;
+import com.intellij.testFramework.JUnit38AssumeSupportRunner;
 import com.intellij.testFramework.PerformanceUnitTest;
 import com.intellij.testFramework.PlatformTestUtil;
 import com.intellij.testFramework.ServiceContainerUtil;
@@ -93,6 +94,7 @@ import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.junit.Assume;
+import org.junit.runner.RunWith;
 
 import javax.swing.Icon;
 import java.io.ByteArrayInputStream;
@@ -121,6 +123,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
+@RunWith(JUnit38AssumeSupportRunner.class)
 public class FileTypesTest extends HeavyPlatformTestCase {
   private static final Logger LOG = Logger.getInstance(FileTypesTest.class);
 
@@ -1001,7 +1004,7 @@ public class FileTypesTest extends HeavyPlatformTestCase {
         });
         try {
           FileUtil.appendToFile(f, StringUtil.repeatSymbol(' ', 50));
-          LocalFileSystem.getInstance().refreshFiles(Collections.singletonList(virtualFile));
+          RefreshQueue.getInstance().refresh(false, false, null, Collections.singletonList(virtualFile));
           LOG.debug("f = " + f.length() + "; virtualFile=" + virtualFile.getLength() +
                     "; psiFile=" + psiFile.isValid() + "; type=" + getFileType(virtualFile));
         }

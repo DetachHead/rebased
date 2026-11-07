@@ -16,12 +16,19 @@ data class GitLabProjectPath(val owner: @NlsSafe String, val name: @NlsSafe Stri
   override fun toString(): String = "$owner/$name"
 
   companion object {
+    /**
+     * Gets the project path from [gitRemoteUrl].
+     * SSH URLs use the full project path. HTTP URLs include the web path of [server], which this function removes.
+     */
     fun create(server: GitLabServerPath, gitRemoteUrl: String): GitLabProjectPath? {
       val serverPath = server.toURI().path
       val remotePath = GitHostingUrlUtil.getUriFromRemoteUrl(gitRemoteUrl)?.path ?: return null
 
-      if (!remotePath.startsWith(serverPath)) return null
-      val repositoryPath = remotePath.removePrefix(serverPath).removePrefix("/")
+      val repositoryPath = when {
+        GitHostingUrlUtil.isSshUrl(gitRemoteUrl) -> remotePath
+        remotePath.startsWith(serverPath) -> remotePath.removePrefix(serverPath)
+        else -> return null
+      }.removePrefix("/")
 
       return extractProjectPath(repositoryPath)
     }

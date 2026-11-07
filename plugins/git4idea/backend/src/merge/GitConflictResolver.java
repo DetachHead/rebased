@@ -22,7 +22,7 @@ import com.intellij.openapi.vcs.VcsNotifier;
 import com.intellij.openapi.vcs.merge.MergeConflictManager;
 import com.intellij.openapi.vcs.merge.MergeDialogCustomizer;
 import com.intellij.openapi.vcs.merge.MergeProvider;
-import com.intellij.openapi.vfs.LocalFileSystem;
+import com.intellij.openapi.vfs.StandardFileSystems;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.util.concurrency.annotations.RequiresBackgroundThread;
 import com.intellij.util.concurrency.annotations.RequiresEdt;
@@ -183,8 +183,11 @@ public class GitConflictResolver {
 
       Collection<VirtualFile> unmergedFilesAfterResolve = getUnmergedFiles(myProject, myRoots);
       if (unmergedFilesAfterResolve.isEmpty()) {
-        LOG.info("merge no more unmerged files");
-        return mergeDialogInvokedFromNotification || proceedAfterAllMerged();
+        // The notification path does nothing after the merge, unless the user asked to finish it with "Accept and Finish".
+        if (mergeDialogInvokedFromNotification && !myShouldFinishMergeAfterDialog) {
+          return true;
+        }
+        return proceedAfterAllMerged();
       }
 
       LOG.info("mergeFiles unmerged files remain: " + unmergedFilesAfterResolve);
@@ -291,6 +294,6 @@ public class GitConflictResolver {
     }
 
     List<FilePath> files = GitChangeUtils.getUnmergedFiles(repository);
-    return ContainerUtil.mapNotNull(files, it -> LocalFileSystem.getInstance().refreshAndFindFileByPath(it.getPath()));
+    return ContainerUtil.mapNotNull(files, it -> StandardFileSystems.local().refreshAndFindFileByPath(it.getPath()));
   }
 }

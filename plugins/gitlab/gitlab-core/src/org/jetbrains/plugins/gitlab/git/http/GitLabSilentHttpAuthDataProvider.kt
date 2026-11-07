@@ -4,7 +4,7 @@ package org.jetbrains.plugins.gitlab.git.http
 import com.intellij.collaboration.auth.DefaultAccountHolder
 import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.logger
-import com.intellij.openapi.diagnostic.rethrowControlFlowException
+import com.intellij.diagnostic.rethrowControlFlowException
 import com.intellij.openapi.project.Project
 import com.intellij.util.AuthData
 import git4idea.remote.hosting.http.HostedGitAuthenticationFailureManager

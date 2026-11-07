@@ -32,9 +32,7 @@ fun isMultiRoutingFileSystemEnabledForProduct(platformPrefix: String?): Boolean 
  * In case of problems in a particular IDE and inability to fix them quickly, add the platform prefix here.
  * The platform prefix is defined in `org.jetbrains.intellij.build.ProductProperties.platformPrefix`.
  */
-private val MRFS_AND_IJENT_DISABLED_BY_DEFAULT_IN: Collection<String> = java.util.List.of(
-  "Gateway",
-)
+private val MRFS_AND_IJENT_DISABLED_BY_DEFAULT_IN: Collection<String> = java.util.List.of()
 
 const val IJENT_BOOT_CLASSPATH_MODULE: String = "intellij.platform.core.nio.fs"
 

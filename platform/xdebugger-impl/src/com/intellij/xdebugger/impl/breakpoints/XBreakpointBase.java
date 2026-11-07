@@ -74,6 +74,7 @@ public class XBreakpointBase<Self extends XBreakpoint<P>, P extends XBreakpointP
   private XExpression myCondition;
   private boolean myLogExpressionEnabled = true;
   private XExpression myLogExpression;
+  private final ThreadDumpCaptureState myThreadDumpCaptureState = new ThreadDumpCaptureState();
   private volatile boolean myDisposed;
   // replay the last change event because some breakpoints can be modified asynchronously right after creation
   // (for example, method breakpoints in Java), but faster than our subscriber collects the flow,
@@ -247,6 +248,24 @@ public class XBreakpointBase<Self extends XBreakpoint<P>, P extends XBreakpointP
 
   public void setLogStack(long requestId, boolean logStack) {
     updateStateIfNeededAndNotify(requestId, logStack, myState::isLogStack, myState::setLogStack);
+  }
+
+  @ApiStatus.Internal
+  public @Nullable ThreadDumpCapturePolicy getThreadDumpCapturePolicy() {
+    return withStateLock(() -> ThreadDumpCapturePolicy.fromState(myState.getThreadDumpCapture()));
+  }
+
+  @ApiStatus.Internal
+  public void setThreadDumpCapturePolicy(@Nullable ThreadDumpCapturePolicy policy) {
+    updateStateIfNeededAndNotify(-1, policy, this::getThreadDumpCapturePolicy, (p) -> {
+      myState.setThreadDumpCapture(ThreadDumpCapturePolicy.toState(p));
+      myThreadDumpCaptureState.reset();
+    });
+  }
+
+  @ApiStatus.Internal
+  public @NotNull ThreadDumpCaptureState getThreadDumpCaptureState() {
+    return myThreadDumpCaptureState;
   }
 
   public boolean isConditionEnabled() {
@@ -527,6 +546,10 @@ public class XBreakpointBase<Self extends XBreakpoint<P>, P extends XBreakpointP
 
     if (isLogStack()) {
       builder.append(separator.get()).append(XDebuggerBundle.message("xbreakpoint.tooltip.log.stack"));
+    }
+
+    if (getThreadDumpCapturePolicy() instanceof ThreadDumpCapturePolicy.OncePerSession) {
+      builder.append(separator.get()).append(XDebuggerBundle.message("xbreakpoint.tooltip.thread.dump.once.per.session"));
     }
 
     String logExpression = getLogExpression();

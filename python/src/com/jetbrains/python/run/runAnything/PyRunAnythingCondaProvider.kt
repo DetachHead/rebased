@@ -2,7 +2,7 @@
 package com.jetbrains.python.run.runAnything
 
 import com.intellij.openapi.actionSystem.DataContext
-import com.intellij.python.community.impl.conda.icons.PythonCommunityImplCondaIcons
+import com.intellij.python.community.impl.conda.common.icons.PythonCommunityImplCondaCommonIcons
 import com.jetbrains.python.PyBundle
 import com.jetbrains.python.packaging.conda.CondaPackageManager
 import com.jetbrains.python.packaging.conda.CondaPackageRepository
@@ -11,7 +11,7 @@ import com.jetbrains.python.packaging.repository.PyPackageRepository
 import org.jetbrains.annotations.Nls
 import javax.swing.Icon
 
-class PyRunAnythingCondaProvider : PyRunAnythingPackageProvider() {
+internal class PyRunAnythingCondaProvider : PyRunAnythingPackageProvider() {
   override fun getHelpCommand(): String = "conda"
 
   override fun getHelpGroupTitle(): String = "Python"  // NON-NLS
@@ -21,11 +21,11 @@ class PyRunAnythingCondaProvider : PyRunAnythingPackageProvider() {
   override fun getCompletionGroupTitle(): @Nls String = PyBundle.message("python.run.anything.conda.provider")
 
   override fun getIcon(value: String): Icon {
-    return PythonCommunityImplCondaIcons.Anaconda
+    return PythonCommunityImplCondaCommonIcons.Anaconda
   }
 
   override fun getHelpIcon(): Icon {
-    return PythonCommunityImplCondaIcons.Anaconda
+    return PythonCommunityImplCondaCommonIcons.Anaconda
   }
 
   override fun getDefaultCommands(): Sequence<String> {
@@ -33,8 +33,8 @@ class PyRunAnythingCondaProvider : PyRunAnythingPackageProvider() {
   }
 
   override fun getPackageManager(dataContext: DataContext): PythonPackageManager? {
-    val pythonSdk = getSdk(dataContext) ?: return null
-    return (PythonPackageManager.forSdk(dataContext.project, pythonSdk) as? CondaPackageManager)
+    val interpreter = getInterpreter(dataContext) ?: return null
+    return (PythonPackageManager.forPythonInterpreter(dataContext.project, interpreter) as? CondaPackageManager)
   }
 
   override fun getPackageRepository(dataContext: DataContext): PyPackageRepository? {

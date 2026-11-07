@@ -1,6 +1,10 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
 load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
+### auto-generated section `dev intellij.python.ty` start
+content_module_jar(module = ":ty")
+### auto-generated section `dev intellij.python.ty` end
+
 ### auto-generated section `build intellij.python.ty` start
 jvm_library(
     name = "ty",
@@ -9,8 +13,6 @@ jvm_library(
             "src/**/*.kt",
             "src/**/*.java",
             "src/**/*.form",
-            "gen/**/*.kt",
-            "gen/**/*.java",
         ],
         allow_empty = True,
     ),
@@ -44,20 +46,18 @@ jvm_library(
         "//libraries/lsp4j/jsonrpc",
         "//platform/analysis-api:analysis",
         "//python/python-lsp-core:lsp-core",
-        "//python/python-pytools-ui:pytools-ui",
+        "//python/python-ty/common",
         "//platform/core-impl",
         "//platform/statistics",
-        "//libraries/jackson/jackson",
-        "//libraries/jackson/databind",
+        "//libraries/jackson3/jackson:libraries-jackson3",
+        "//libraries/jackson3/databind",
         "//platform/progress/shared:ide-progress",
         "//platform/ide-core",
         "//platform/util/progress",
         "//platform/observable",
-        "//python/python-pytools:pytools",
+        "//python/python-pytools/backend",
     ],
 )
-
-content_module_jar(module = ":ty")
 
 jvm_library(
     name = "ty_test_lib",
@@ -97,16 +97,16 @@ jvm_library(
         "//libraries/lsp4j/jsonrpc:jsonrpc_test_lib",
         "//platform/analysis-api:analysis_test_lib",
         "//python/python-lsp-core:lsp-core_test_lib",
-        "//python/python-pytools-ui:pytools-ui_test_lib",
+        "//python/python-ty/common:common_test_lib",
         "//platform/core-impl:core-impl_test_lib",
         "//platform/statistics:statistics_test_lib",
-        "//libraries/jackson/jackson:jackson_test_lib",
-        "//libraries/jackson/databind:databind_test_lib",
+        "//libraries/jackson3/jackson:libraries-jackson3_test_lib",
+        "//libraries/jackson3/databind:databind_test_lib",
         "//platform/progress/shared:ide-progress_test_lib",
         "//platform/ide-core:ide-core_test_lib",
         "//platform/util/progress:progress_test_lib",
         "//platform/observable:observable_test_lib",
-        "//python/python-pytools:pytools_test_lib",
+        "//python/python-pytools/backend:backend_test_lib",
     ],
 )
 ### auto-generated section `build intellij.python.ty` end

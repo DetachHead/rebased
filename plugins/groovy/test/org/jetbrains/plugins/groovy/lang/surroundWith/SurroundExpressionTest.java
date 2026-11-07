@@ -5,8 +5,8 @@ import org.jetbrains.plugins.groovy.util.TestUtils;
 
 public class SurroundExpressionTest extends SurroundTestCase {
   @Override
-  public final String getBasePath() {
-    return TestUtils.getTestDataPath() + "groovy/surround/expr/";
+  public final String getTestDataPath() {
+    return TestUtils.getAbsoluteTestDataPath() + "groovy/surround/expr/";
   }
 
   public void testBrackets1() { doTest(new ParenthesisExprSurrounder()); }

@@ -7,6 +7,7 @@ import com.intellij.platform.eel.EelWindowsProcess
 import com.intellij.platform.eel.SafeDeferred
 import com.intellij.platform.eel.provider.utils.asOutputStream
 import com.intellij.platform.eel.provider.utils.consumeAsInputStream
+import com.intellij.platform.eel.terminate
 import com.intellij.platform.ijent.spi.IjentThreadPool
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.DelicateCoroutinesApi
@@ -61,7 +62,7 @@ internal class IjentChildProcessAdapterDelegate(
 
   fun isAlive(): Boolean = when (ijentChildProcess.exitCode.state) {
     SafeDeferred.State.Active -> true
-    is SafeDeferred.State.Canceled, is SafeDeferred.State.Completed<*>, is SafeDeferred.State.Failed -> false
+    is SafeDeferred.State.Finished<*> -> false
   }
 
   fun onExit(): CompletableFuture<Any?> =
@@ -70,7 +71,7 @@ internal class IjentChildProcessAdapterDelegate(
   fun exitValue(): Int = when (val s = ijentChildProcess.exitCode.state) {
     is SafeDeferred.State.Completed -> s.value
 
-    SafeDeferred.State.Active, is SafeDeferred.State.Canceled, is SafeDeferred.State.Failed -> throw IllegalThreadStateException()
+    SafeDeferred.State.Active, is SafeDeferred.State.Finished -> throw IllegalThreadStateException()
   }
 
   fun destroy() {

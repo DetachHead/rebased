@@ -26,6 +26,8 @@ import com.intellij.platform.searchEverywhere.SeResultAddedEvent
 import com.intellij.platform.searchEverywhere.SeResultEndEvent
 import com.intellij.platform.searchEverywhere.SeResultEvent
 import com.intellij.platform.searchEverywhere.SeResultReplacedEvent
+import com.intellij.platform.searchEverywhere.SeResultSkippedEvent
+import com.intellij.platform.searchEverywhere.SeSearchRestartListener
 import com.intellij.platform.searchEverywhere.SeSession
 import com.intellij.platform.searchEverywhere.frontend.AutoToggleAction
 import com.intellij.platform.searchEverywhere.frontend.SeEmptyResultInfo
@@ -52,6 +54,7 @@ import com.intellij.platform.searchEverywhere.withPresentation
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -61,6 +64,7 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
@@ -69,6 +73,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.mapNotNull
 import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.jetbrains.annotations.ApiStatus
@@ -105,7 +110,10 @@ sealed interface SeTabVm {
   suspend fun getEmptyResultInfo(context: DataContext): SeEmptyResultInfo?
 }
 
-@OptIn(ExperimentalCoroutinesApi::class, ExperimentalAtomicApi::class)
+/** A burst of [SeSearchRestartListener] events re-runs the query once, after the last event. */
+private const val SEARCH_RESTART_DEBOUNCE_MS = 300L
+
+@OptIn(ExperimentalCoroutinesApi::class, ExperimentalAtomicApi::class, FlowPreview::class)
 @ApiStatus.Internal
 class SeTabVmImpl(
   private val project: Project?,
@@ -160,11 +168,21 @@ class SeTabVmImpl(
       }
     }
 
+  private val searchRestartEpochFlow =
+    if (project == null) flowOf(0)
+    else {
+      MutableStateFlow(0).also { epochFlow ->
+        project.messageBus.connect(coroutineScope).subscribe(SeSearchRestartListener.TOPIC, SeSearchRestartListener {
+          epochFlow.update { it + 1 }
+        })
+      }.debounce { epoch -> if (epoch == 0) 0L else SEARCH_RESTART_DEBOUNCE_MS } // the initial value must not delay the first search
+    }
+
   override var lastNotFoundString: String? = null
 
   init {
     coroutineScope.launch {
-      isActiveFlow.combine(dumbModeStateFlow) { isActive, _ ->
+      combine(isActiveFlow, dumbModeStateFlow, searchRestartEpochFlow) { isActive, _, _ ->
         isActive
       }.collectLatest { isActive ->
         if (!isActive) {
@@ -192,6 +210,7 @@ class SeTabVmImpl(
           val params = SeParams(searchPattern, filterData)
           val searchId = UUID.randomUUID().toString()
           val disabledProviderIds = SeEverywhereFilterImpl.from(filterData).disabledProviderIds
+          val shouldApplyMlWeight = searchPattern.isNotEmpty()
 
           SeMlService.getInstanceIfEnabled()?.onStateStarted(this@SeTabVmImpl.tabId, params)
 
@@ -199,7 +218,7 @@ class SeTabVmImpl(
             val resultsFlowWithAdaptedPresentations = resultsFlow.mapNotNull {
               checkAndAddMissingPresentationIfPossible(it)
                 ?.let { withPresentation ->
-                  calculateMlWeight(withPresentation)
+                  processWithMl(withPresentation, shouldApplyMlWeight)
                 }
             }
 
@@ -207,7 +226,9 @@ class SeTabVmImpl(
             if (essential.isEmpty()) {
               if (shouldThrottle.load()) {
                 SeLog.log(SeLog.THROTTLING) { "Will throttle with accumulation (pattern = $searchPattern, searchId = $searchId)" }
-                resultsFlowWithAdaptedPresentations.throttledWithAccumulation(shouldPassItem = { item -> item !is SeResultEndEvent })
+                resultsFlowWithAdaptedPresentations.throttledWithAccumulation(shouldPassItem = {
+                  item -> item !is SeResultEndEvent && item !is SeResultSkippedEvent
+                })
               }
               else {
                 SeLog.log(SeLog.THROTTLING) { "Will not throttle (pattern = $searchPattern, searchId = $searchId)" }
@@ -295,7 +316,7 @@ class SeTabVmImpl(
         })
 
         when (resultEvent) {
-          is SeResultEndEvent -> resultEvent
+          is SeResultEndEvent, is SeResultSkippedEvent -> resultEvent
           is SeResultAddedEvent -> SeResultAddedEvent(newItemData)
           is SeResultReplacedEvent -> SeResultReplacedEvent(resultEvent.uuidsToReplace, newItemData)
         }
@@ -306,12 +327,17 @@ class SeTabVmImpl(
     }
   }
 
-  private fun calculateMlWeight(resultEvent: SeResultEvent): SeResultEvent {
+  private fun processWithMl(resultEvent: SeResultEvent, shouldApplyWeight: Boolean): SeResultEvent {
     if (resultEvent !is SeResultAddedEvent && resultEvent !is SeResultReplacedEvent) return resultEvent
     val mlService = SeMlService.getInstanceIfEnabled() ?: return resultEvent
 
     val itemData = resultEvent.itemDataOrNull() ?: return resultEvent
-    val newItemData = mlService.applyMlWeight(itemData)
+    val newItemData =
+      if (shouldApplyWeight) mlService.applyMlWeight(itemData)
+      else {
+        mlService.process(itemData)
+        itemData
+      }
 
     return when (resultEvent) {
       is SeResultAddedEvent -> SeResultAddedEvent(newItemData)
@@ -372,7 +398,7 @@ private fun Flow<SeResultEvent>.throttleUntilEssentialsArrive(essentialProviderI
 
   return throttledWithAccumulation(
     resultThrottlingMs = essentialWaitingTimeout,
-    shouldPassItem = { it !is SeResultEndEvent },
+    shouldPassItem = { it !is SeResultEndEvent && it !is SeResultSkippedEvent },
     fastPassThrottlingMs = FAST_PASS_THROTTLE,
     shouldFastPassItem = { it.itemDataOrNull()?.shouldIgnoreThrottling() == true }
   ) { event: SeResultEvent, _: Int ->
@@ -386,7 +412,10 @@ private fun Flow<SeResultEvent>.throttleUntilEssentialsArrive(essentialProviderI
       }
       else -> {
         essentialProvidersCounts[providerId]?.let {
-          SeLog.log(SeLog.THROTTLING) { "Arrived: $providerId ($it)" }
+          SeLog.log(SeLog.THROTTLING) {
+            val skippedText = if (event is SeResultSkippedEvent) "(skipped)" else ""
+            "Arrived$skippedText: $providerId ($it)"
+          }
           essentialProvidersCounts[providerId] = it + 1
         }
       }
@@ -402,13 +431,14 @@ private fun Flow<SeResultEvent>.throttleUntilEssentialsArrive(essentialProviderI
 private fun SeResultEvent.providerId() = when (this) {
   is SeResultAddedEvent -> itemData.providerId
   is SeResultReplacedEvent -> newItemData.providerId
+  is SeResultSkippedEvent -> providerId
   is SeResultEndEvent -> providerId
 }
 
 private fun SeResultEvent.itemDataOrNull(): SeItemData? = when (this) {
   is SeResultAddedEvent -> itemData
   is SeResultReplacedEvent -> newItemData
-  is SeResultEndEvent -> null
+  is SeResultEndEvent, is SeResultSkippedEvent -> null
 }
 
 private fun SeItemData.shouldIgnoreThrottling(): Boolean =

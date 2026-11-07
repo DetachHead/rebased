@@ -12,6 +12,10 @@ jps_test(
 )
 ### skip generation section `test intellij.devkit.gradle.tests`
 
+### auto-generated section `dev intellij.devkit.gradle` start
+content_module_jar(module = ":gradle")
+### auto-generated section `dev intellij.devkit.gradle` end
+
 ### auto-generated section `build intellij.devkit.gradle` start
 jvm_library(
     name = "gradle",
@@ -45,7 +49,10 @@ jvm_library(
         "//platform/projectModel-api:projectModel",
         "//platform/analysis-api:analysis",
         "//platform/execution",
+        "//platform/consoleView",
         "//platform/lang-api:lang",
+        "//platform/lang-impl",
+        "//platform/buildView",
         "//platform/util",
         "//plugins/gradle",
         "//plugins/gradle:gradle-common",
@@ -67,8 +74,6 @@ jvm_library(
         "//libraries/kotlinc/kotlin-compiler-common:libraries-kotlinc-kotlin-compiler-common",
     ],
 )
-
-content_module_jar(module = ":gradle")
 
 jvm_library(
     name = "gradle_test_lib",
@@ -95,7 +100,10 @@ jvm_library(
         "//platform/projectModel-api:projectModel_test_lib",
         "//platform/analysis-api:analysis_test_lib",
         "//platform/execution:execution_test_lib",
+        "//platform/consoleView:consoleView_test_lib",
         "//platform/lang-api:lang_test_lib",
+        "//platform/lang-impl:lang-impl_test_lib",
+        "//platform/buildView:buildView_test_lib",
         "//platform/util:util_test_lib",
         "//plugins/gradle:gradle_test_lib",
         "//plugins/gradle:gradle-common_test_lib",
@@ -108,10 +116,6 @@ jvm_library(
         "//java/java-psi-api:psi_test_lib",
         "//platform/platform-impl:ide-impl_test_lib",
         "//platform/core-ui:core-ui_test_lib",
-        "//platform/testFramework",
-        "//platform/testFramework:testFramework_test_lib",
-        "//java/testFramework",
-        "//java/testFramework:testFramework_test_lib",
         "//java/openapi:java_test_lib",
         "//platform/workspace/jps:jps_test_lib",
         "//platform/workspace/storage:storage_test_lib",
@@ -195,6 +199,10 @@ jvm_library(
         "//platform/analysis-api:analysis_test_lib",
         "//platform/execution",
         "//platform/execution:execution_test_lib",
+        "//platform/consoleView",
+        "//platform/consoleView:consoleView_test_lib",
+        "//platform/consoleView/impl",
+        "//platform/consoleView/impl:impl_test_lib",
         "//platform/lang-api:lang",
         "//platform/lang-api:lang_test_lib",
         "//plugins/gradle:gradle-common",
@@ -228,18 +236,30 @@ jvm_library(
         "//platform/projectModel-impl:projectModel-impl_test_lib",
         "//jps/model-api:model",
         "//jps/model-api:model_test_lib",
+        "//plugins/devkit/intellij.devkit.gradle.toml:gradle-toml",
+        "//plugins/devkit/intellij.devkit.gradle.toml:gradle-toml_test_lib",
         "//plugins/devkit/intellij.devkit.gradle.tooling:gradle-tooling",
         "//plugins/devkit/intellij.devkit.gradle.tooling:gradle-tooling_test_lib",
         "//libraries/junit4",
         "//libraries/junit4:junit4_test_lib",
         "//aether-dependency-resolver/plugin",
         "//aether-dependency-resolver/plugin:plugin_test_lib",
-        "//libraries/misc/plugin",
-        "//libraries/misc/plugin:plugin_test_lib",
         "//platform/structure-view-impl/plugin",
         "//platform/structure-view-impl/plugin:plugin_test_lib",
         "//platform/todo/plugin",
         "//platform/todo/plugin:plugin_test_lib",
+        "//plugins/gradle:gradle-tests",
+        "//plugins/gradle:gradle-tests_test_lib",
+        "//platform/external-system-impl:externalSystem-tests",
+        "//platform/external-system-impl:externalSystem-tests_test_lib",
+        "//platform/external-system-api/testFramework",
+        "//platform/external-system-api/testFramework:testFramework_test_lib",
+        "//platform/testRunner/plugin",
+        "//platform/testRunner/plugin:plugin_test_lib",
+        "//platform/structuralsearch/plugin",
+        "//platform/structuralsearch/plugin:plugin_test_lib",
+        "//xml/plugin",
+        "//xml/plugin:plugin_test_lib",
     ],
 )
 ### auto-generated section `build intellij.devkit.gradle.tests` end

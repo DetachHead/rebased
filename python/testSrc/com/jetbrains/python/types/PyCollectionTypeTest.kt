@@ -6,6 +6,7 @@ import com.jetbrains.python.allure.Layers
 import com.jetbrains.python.allure.Components
 import com.intellij.idea.TestFor
 import com.jetbrains.python.fixtures.PyCodeInsightTestCase
+import com.jetbrains.python.psi.impl.PyDoubleStarExpressionImpl
 import org.junit.jupiter.api.Nested
 import org.junit.jupiter.api.Test
 
@@ -29,10 +30,25 @@ class PyCollectionTypeTest : PyCodeInsightTestCase() {
       """.trimIndent())
 
     @Test
+    @TestFor(classes = [PyDoubleStarExpressionImpl::class])
+    fun `a dict unpacking in a dict literal has no type of its own`() = test("""
+      base = {"a": 1}
+      expr = {**base, "b": 2}
+      #       └ TYPE Unknown
+      """.trimIndent())
+
+    @Test
     fun `list literal of ints`() = test("""
       expr = [1, 2, 3]
       # └ TYPE list[int]
       """.trimIndent())
+
+    @Test
+    fun `list literal splicing list does not keep unpacked tuple in fallback`() = test("""
+        def f(xs: list[int]):
+            x: list[str] = [*xs]
+        #                  ^^^^^ WARNING Expected type 'list[str]', got 'list[int]' instead
+        """.trimIndent())
 
     @Test
     fun `list literal of mixed values`() = test("""

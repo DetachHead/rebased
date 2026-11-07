@@ -1,7 +1,7 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.editor.impl;
 
-import com.intellij.openapi.editor.ex.DocumentTextPatch;
+import com.intellij.openapi.editor.ex.DocumentPatch;
 import com.intellij.util.text.CharArrayUtil;
 import com.intellij.util.text.ImmutableCharSequence;
 import org.junit.jupiter.api.Test;
@@ -18,7 +18,7 @@ public class OptimizedTextReplacementTest {
   public void commonAffixIsNarrowedAndOriginRangeIsKept() {
     OptimizedTextReplacement replacement = replacement("abcOLDxyz", 0, 9, "abcNEWxyz", false, false);
     assertFalse(replacement.perform());
-    DocumentTextPatch patch = replacement.getPatch();
+    DocumentPatch patch = replacement.getPatch();
     assertEquals(3, patch.startOffset());
     assertEquals(6, patch.endOffset());
     assertEquals("NEW", patch.newFragment().toString());
@@ -34,7 +34,7 @@ public class OptimizedTextReplacementTest {
     ImmutableCharSequence fragment = CharArrayUtil.createImmutableCharSequence("abcNEWxyz");
     OptimizedTextReplacement replacement = replacement("abcOLDxyz", 0, 9, fragment, true, false);
     assertFalse(replacement.perform());
-    DocumentTextPatch patch = replacement.getPatch();
+    DocumentPatch patch = replacement.getPatch();
     assertEquals(0, patch.startOffset());
     assertEquals(9, patch.endOffset());
     assertSame(fragment, patch.newFragment());
@@ -52,7 +52,7 @@ public class OptimizedTextReplacementTest {
     ImmutableCharSequence fragment = CharArrayUtil.createImmutableCharSequence("NEW");
     OptimizedTextReplacement replacement = replacement("abcOLDxyz", 3, 6, fragment, true, false);
     assertFalse(replacement.perform());
-    DocumentTextPatch patch = replacement.getPatch();
+    DocumentPatch patch = replacement.getPatch();
     // the fragment is not the whole text here, so it must not be widened to the full range
     assertEquals(3, patch.startOffset());
     assertEquals(6, patch.endOffset());
@@ -66,7 +66,7 @@ public class OptimizedTextReplacementTest {
   public void rawClearLineFlagsAreMergedIntoPatch() {
     OptimizedTextReplacement replacement = replacement("abcdef", 1, 3, "ZZ", false, true);
     assertFalse(replacement.perform());
-    DocumentTextPatch patch = replacement.getPatch();
+    DocumentPatch patch = replacement.getPatch();
     assertEquals(1, patch.startOffset());
     assertEquals(3, patch.endOffset());
     assertTrue(patch.clearLineFlags());
@@ -77,7 +77,7 @@ public class OptimizedTextReplacementTest {
     ImmutableCharSequence fragment = CharArrayUtil.createImmutableCharSequence("abc");
     OptimizedTextReplacement replacement = replacement("", 0, 0, fragment, true, false);
     assertFalse(replacement.perform());
-    DocumentTextPatch patch = replacement.getPatch();
+    DocumentPatch patch = replacement.getPatch();
     assertEquals(0, patch.startOffset());
     assertEquals(0, patch.endOffset());
     assertSame(fragment, patch.newFragment());
@@ -97,7 +97,7 @@ public class OptimizedTextReplacementTest {
       false
     );
     assertFalse(replacement.perform());
-    DocumentTextPatch patch = replacement.getPatch();
+    DocumentPatch patch = replacement.getPatch();
     assertEquals(1, patch.startOffset());
     assertEquals(1, patch.endOffset());
     assertEquals(1, patch.originStartOffset());

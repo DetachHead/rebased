@@ -5,6 +5,7 @@ import com.intellij.credentialStore.kdbx.IncorrectMainPasswordException
 import com.intellij.notification.NotificationAction
 import com.intellij.notification.NotificationType
 import com.intellij.notification.SingletonNotificationManager
+import com.intellij.openapi.application.invokeAndWaitIfNeeded
 import com.intellij.openapi.options.ShowSettingsUtil
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.Messages
@@ -13,13 +14,19 @@ import com.intellij.openapi.util.NlsContexts.DialogMessage
 import com.intellij.openapi.util.NlsContexts.DialogTitle
 import com.intellij.openapi.util.NlsContexts.NotificationContent
 import com.intellij.openapi.util.NlsContexts.NotificationTitle
+import com.intellij.platform.ide.progress.ModalTaskOwner
+import com.intellij.platform.ide.progress.TaskCancellation
+import com.intellij.platform.ide.progress.runWithModalProgressBlocking
 import com.intellij.ui.components.JBPasswordField
 import com.intellij.ui.components.dialog
 import com.intellij.ui.dsl.builder.COLUMNS_MEDIUM
 import com.intellij.ui.dsl.builder.columns
 import com.intellij.ui.dsl.builder.panel
 import com.intellij.util.SmartList
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.awt.Component
+import javax.swing.JComponent
 import javax.swing.JPasswordField
 
 internal val NOTIFICATION_MANAGER by lazy { SingletonNotificationManager("Password Safe", NotificationType.ERROR) }
@@ -33,18 +40,26 @@ internal class CredentialStoreUiServiceImpl : CredentialStoreUiService {
     }
   }
 
+  // A caller can run in a background thread under a modal progress (IJPL-255686).
+  // Show the dialog on the EDT.
   override fun showChangeMainPasswordDialog(contextComponent: Component?,
                                             setNewMainPassword: (current: CharArray, new: CharArray) -> Boolean): Boolean =
-    doShowChangeMasterPasswordDialog(contextComponent, setNewMainPassword)
+    invokeAndWaitIfNeeded {
+      doShowChangeMasterPasswordDialog(contextComponent, setNewMainPassword)
+    }
 
   override fun showRequestMainPasswordDialog(@DialogTitle title: String,
                                              @DialogMessage topNote: String?,
                                              contextComponent: Component?,
                                              @DialogMessage ok: (value: ByteArray) -> String?): Boolean =
-    doShowRequestMasterPasswordDialog(title, topNote, contextComponent, ok)
+    invokeAndWaitIfNeeded {
+      doShowRequestMasterPasswordDialog(title, topNote, contextComponent, ok)
+    }
 
   override fun showErrorMessage(parent: Component?, title: String, message: String) {
-    Messages.showErrorDialog(parent, message, title)
+    invokeAndWaitIfNeeded {
+      Messages.showErrorDialog(parent, message, title)
+    }
   }
 
   override fun openSettings(project: Project?) {
@@ -75,7 +90,7 @@ internal fun doShowRequestMasterPasswordDialog(@DialogTitle title: String,
     val value = checkIsEmpty(passwordField, errors)
     if (errors.isEmpty()) {
       val result = value!!.toByteArrayAndClear()
-      ok(result)?.let {
+      runUnderModalProgress(panel) { ok(result) }?.let {
         errors.add(ValidationInfo(it, passwordField))
       }
       if (!errors.isEmpty()) {
@@ -84,6 +99,20 @@ internal fun doShowRequestMasterPasswordDialog(@DialogTitle title: String,
     }
     errors
   }.showAndGet()
+}
+
+// The ok callback of the dialog decrypts and saves the database, and the main key encryption
+// can call an external process (gpg). The dialog invokes the callback on the EDT,
+// so move the work to the background (IJPL-255686).
+// The task is not cancellable: the blocking work cannot stop mid-way.
+private fun <T> runUnderModalProgress(component: JComponent, compute: () -> T): T {
+  return runWithModalProgressBlocking(ModalTaskOwner.component(component),
+                                      CredentialStoreBundle.message("progress.title.updating.keepass.database"),
+                                      TaskCancellation.nonCancellable()) {
+    withContext(Dispatchers.IO) {
+      compute()
+    }
+  }
 }
 
 private fun checkIsEmpty(field: JPasswordField, errors: MutableList<ValidationInfo>): CharArray? {
@@ -120,7 +149,7 @@ internal fun doShowChangeMasterPasswordDialog(contextComponent: Component?,
 
     if (errors.isEmpty()) {
       try {
-        if (setNewMasterPassword(current!!, new!!)) {
+        if (runUnderModalProgress(panel) { setNewMasterPassword(current!!, new!!) }) {
           return@dialog errors
         }
       }

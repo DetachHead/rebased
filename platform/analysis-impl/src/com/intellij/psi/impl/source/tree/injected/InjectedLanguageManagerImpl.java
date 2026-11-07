@@ -54,7 +54,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-import static com.intellij.openapi.diagnostic.LoggerKt.rethrowControlFlowException;
+import static com.intellij.diagnostic.ControlFlowExceptionsKt.rethrowControlFlowException;
 import static com.intellij.openapi.project.DumbService.getDumbAwareExtensions;
 import static java.util.Collections.singletonList;
 

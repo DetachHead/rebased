@@ -20,7 +20,7 @@ class ShowFileStructurePopupCommand(text: String, line: Int) : AbstractCommand(t
     val actionCallback: ActionCallback = ActionCallbackProfilerStopper()
     ApplicationManager.getApplication().invokeAndWait(Context.current().wrap(Runnable {
       val project = context.getProject()
-      var fileEditor = FileEditorManager.getInstance(project).getSelectedEditor()
+      var fileEditor = FileEditorManager.getInstance(project).selectedEditor
       //fallback for the remote case to avoid changing the default monolith behavior
       if (fileEditor == null) {
         val editors = FileEditorManager.getInstance(project).selectedEditorWithRemotes

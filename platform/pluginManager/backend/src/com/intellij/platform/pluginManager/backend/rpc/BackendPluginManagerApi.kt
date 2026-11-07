@@ -14,12 +14,16 @@ import com.intellij.ide.plugins.marketplace.PluginReviewComment
 import com.intellij.ide.plugins.marketplace.PluginSearchResult
 import com.intellij.ide.plugins.marketplace.SetEnabledStateResult
 import com.intellij.ide.plugins.newui.DefaultUiPluginManagerController
+import com.intellij.ide.plugins.newui.CustomPluginRepository
 import com.intellij.ide.plugins.newui.PluginInstallationState
+import com.intellij.ide.plugins.newui.PluginSource
 import com.intellij.openapi.application.EDT
 import com.intellij.openapi.extensions.PluginId
-import com.intellij.openapi.updateSettings.impl.PluginUpdateSourceId
+import com.intellij.openapi.updateSettings.impl.PluginUpdateSource
 import com.intellij.openapi.updateSettings.impl.UpdateSettings
 import com.intellij.platform.pluginManager.shared.rpc.PluginManagerApi
+import com.intellij.platform.pluginManager.shared.rpc.CustomPluginRepositoryLoadResultDto
+import com.intellij.platform.pluginManager.shared.rpc.PluginInventoryDto
 import com.intellij.platform.project.ProjectId
 import com.intellij.platform.project.findProjectOrNull
 import kotlinx.coroutines.Dispatchers
@@ -28,6 +32,14 @@ import org.jetbrains.annotations.ApiStatus
 
 @ApiStatus.Internal
 class BackendPluginManagerApi : PluginManagerApi {
+  override suspend fun getPluginInventory(): PluginInventoryDto {
+    val snapshot = DefaultUiPluginManagerController.getPluginInventory()
+    return PluginInventoryDto(
+      runtimePlugins = snapshot.runtimePlugins.map { entry -> PluginDto.fromModel(entry.model, true) },
+      stagedPlugins = snapshot.stagedPlugins.map { entry -> PluginDto.fromModel(entry.model, true) },
+    )
+  }
+
   override suspend fun getPlugins(): List<PluginDto> {
     return DefaultUiPluginManagerController.getPlugins().map { PluginDto.fromModel(it) }
   }
@@ -134,6 +146,20 @@ class BackendPluginManagerApi : PluginManagerApi {
     }
   }
 
+  override suspend fun getCustomPluginRepositoryIds(): List<String> {
+    return DefaultUiPluginManagerController.getCustomPluginRepositories().map { it.id }
+  }
+
+  override suspend fun loadCustomPluginRepository(repositoryId: String): CustomPluginRepositoryLoadResultDto {
+    val repository = CustomPluginRepository(repositoryId, PluginSource.LOCAL)
+    val result = DefaultUiPluginManagerController.loadCustomPluginRepository(repository)
+    return CustomPluginRepositoryLoadResultDto(
+      plugins = result.plugins.map { PluginDto.fromModel(it) },
+      error = result.error,
+      httpStatusCode = result.httpStatusCode,
+    )
+  }
+
   override suspend fun enableRequiredPlugins(sessionId: String, pluginId: PluginId): Set<PluginId> {
     return DefaultUiPluginManagerController.enableRequiredPlugins(sessionId, pluginId)
   }
@@ -189,6 +215,10 @@ class BackendPluginManagerApi : PluginManagerApi {
     return DefaultUiPluginManagerController.getAllPluginsTags()
   }
 
+  override suspend fun getMarketplaceTagCounts(): Map<String, Int> {
+    return DefaultUiPluginManagerController.getMarketplaceTagCounts()
+  }
+
   override suspend fun getAllVendors(): Set<String> {
     return DefaultUiPluginManagerController.getAllVendors()
   }
@@ -223,19 +253,31 @@ class BackendPluginManagerApi : PluginManagerApi {
     return DefaultUiPluginManagerController.isPluginEnabled(pluginId)
   }
 
-  override suspend fun getPluginUpdateSource(sessionId: String, pluginId: PluginId): PluginUpdateSourceId? {
-    return DefaultUiPluginManagerController.getPluginUpdateSourceId(sessionId, pluginId)
+  override suspend fun getPendingPluginUpdateSource(sessionId: String, pluginId: PluginId): PluginUpdateSource? {
+    return DefaultUiPluginManagerController.getPendingPluginUpdateSource(sessionId, pluginId)
   }
 
-  override suspend fun setPendingPluginUpdateSourceInSession(sessionId: String, pluginId: PluginId, pluginUpdateSource: PluginUpdateSourceId?) {
+  override suspend fun getPendingPluginUpdateSources(sessionId: String, pluginIds: List<PluginId>): Map<PluginId, PluginUpdateSource> {
+    return DefaultUiPluginManagerController.getPendingPluginUpdateSources(sessionId, pluginIds)
+  }
+
+  override suspend fun setPendingPluginUpdateSourceInSession(sessionId: String, pluginId: PluginId, pluginUpdateSource: PluginUpdateSource?) {
     DefaultUiPluginManagerController.setPendingPluginUpdateSourceInSession(sessionId, pluginId, pluginUpdateSource)
   }
 
-  override suspend fun persistPluginUpdateSource(sessionId: String, pluginId: PluginId, pluginUpdateSource: PluginUpdateSourceId?) {
+  override suspend fun persistPluginUpdateSource(sessionId: String, pluginId: PluginId, pluginUpdateSource: PluginUpdateSource?) {
     DefaultUiPluginManagerController.persistPluginUpdateSource(sessionId, pluginId, pluginUpdateSource)
   }
 
   override suspend fun isPluginUpdateSourceVisibleInUI(): Boolean {
     return DefaultUiPluginManagerController.isPluginUpdateSourceVisibleInUI()
+  }
+
+  override suspend fun isMissingUpdateSourceWarningEnabled(): Boolean {
+    return DefaultUiPluginManagerController.isMissingUpdateSourceWarningEnabled()
+  }
+
+  override suspend fun getAllPluginUpdateSources(): List<PluginUpdateSource> {
+    return DefaultUiPluginManagerController.getAllPluginUpdateSources()
   }
 }

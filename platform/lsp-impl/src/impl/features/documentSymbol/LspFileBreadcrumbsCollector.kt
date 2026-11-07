@@ -10,6 +10,7 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.platform.lsp.impl.LspClientImpl
 import com.intellij.platform.lsp.impl.LspClientManagerImpl
+import com.intellij.platform.lsp.impl.supportsDocumentSymbol
 import com.intellij.platform.lsp.util.getOffsetInDocument
 import com.intellij.ui.components.breadcrumbs.Crumb
 import com.intellij.ui.components.breadcrumbs.StickyLineInfo

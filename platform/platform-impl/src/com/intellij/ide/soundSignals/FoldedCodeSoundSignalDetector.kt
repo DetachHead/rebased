@@ -1,0 +1,35 @@
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+package com.intellij.ide.soundSignals
+
+import com.intellij.openapi.editor.CustomFoldRegion
+import com.intellij.openapi.editor.Editor
+import com.intellij.openapi.editor.FoldRegion
+import com.intellij.openapi.editor.ex.FoldingModelEx
+
+internal class FoldedCodeSoundSignalDetector : EditorSoundSignalDetector {
+  private val foldedLine = EditorSoundSignal(IdeSoundSignals.FOLDED_LINE)
+  private val foldedCaret = EditorSoundSignal(IdeSoundSignals.FOLDED_CARET, lineCounterpart = IdeSoundSignals.FOLDED_LINE)
+
+  override val signals: Collection<SoundSignal> = listOf(IdeSoundSignals.FOLDED_LINE, IdeSoundSignals.FOLDED_CARET)
+
+  override fun detect(editor: Editor, line: Int, caretOffset: Int): Set<EditorSoundSignal> {
+    val foldingModel = editor.foldingModel as? FoldingModelEx ?: return emptySet()
+    val document = editor.document
+    val lineStart = document.getLineStartOffset(line)
+    val lineEnd = document.getLineEndOffset(line)
+    val result = mutableSetOf<EditorSoundSignal>()
+    if (foldingModel.getRegionsOverlappingWith(lineStart, lineEnd).any { isFoldedCode(it) }) {
+      result += foldedLine
+    }
+    if (foldingModel.getRegionsOverlappingWith(caretOffset, caretOffset).any { isFoldedCode(it) }) {
+      result += foldedCaret
+    }
+    return result
+  }
+
+  private fun isFoldedCode(region: FoldRegion): Boolean =
+    region.isValid &&
+    !region.isExpanded &&
+    region !is CustomFoldRegion &&
+    region.placeholderText.isNotEmpty()
+}

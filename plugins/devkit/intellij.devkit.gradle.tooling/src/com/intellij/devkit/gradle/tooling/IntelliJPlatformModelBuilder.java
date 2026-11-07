@@ -1,8 +1,10 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.devkit.gradle.tooling;
 
+import com.intellij.gradle.toolingExtension.util.GradleVersionUtil;
 import org.gradle.api.Project;
 import org.gradle.api.Task;
+import org.gradle.api.provider.Provider;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -30,12 +32,15 @@ public final class IntelliJPlatformModelBuilder extends AbstractModelBuilderServ
     "org.jetbrains.intellij.platform.gradle.extensions.IntelliJPlatformDependencyConfiguration";
   private static final String INTELLIJ_PLATFORM_TYPE_CLASS = "org.jetbrains.intellij.platform.gradle.IntelliJPlatformType";
   private static final String DUMP_PRODUCTS_RELEASES_TASK_NAME = "dumpProductsReleases";
+  private static final String DUMP_BUNDLED_PLUGINS_TASK_NAME = "dumpBundledPlugins";
+  private static final String DUMP_BUNDLED_MODULES_TASK_NAME = "dumpBundledModules";
+  private static final String INITIALIZE_INTELLIJ_PLATFORM_PLUGIN_TASK_NAME = "initializeIntellijPlatformPlugin";
   private static final String GRADLE_ACTION_CLASS = "org.gradle.api.Action";
   private static final String PRODUCT_CODE_GETTER = "getCode";
 
   @Override
   public boolean canBuild(@Nullable String modelName) {
-    return IntelliJPlatformGradleModel.class.getName().equals(modelName);
+    return GradleVersionUtil.isCurrentGradleAtLeast("9.0.0") && IntelliJPlatformGradleModel.class.getName().equals(modelName);
   }
 
   @Override
@@ -47,21 +52,86 @@ public final class IntelliJPlatformModelBuilder extends AbstractModelBuilderServ
     Object extension = project.getDependencies().getExtensions().findByName(INTELLIJ_PLATFORM_EXTENSION_NAME);
     if (extension == null) return null;
 
+    Set<String> taskNames = new LinkedHashSet<>(project.getGradle().getStartParameter().getTaskNames());
+
     Task dumpTask = project.getTasks().findByName(DUMP_PRODUCTS_RELEASES_TASK_NAME);
     if (dumpTask != null) {
-      Set<String> taskNames = new LinkedHashSet<>(project.getGradle().getStartParameter().getTaskNames());
       taskNames.add(dumpTask.getPath());
-      project.getGradle().getStartParameter().setTaskNames(taskNames);
     }
 
+    Task dumpBundledPluginsTask = project.getTasks().findByName(DUMP_BUNDLED_PLUGINS_TASK_NAME);
+    if (dumpBundledPluginsTask != null) {
+      taskNames.add(dumpBundledPluginsTask.getPath());
+    }
+
+    Task dumpBundledModulesTask = project.getTasks().findByName(DUMP_BUNDLED_MODULES_TASK_NAME);
+    if (dumpBundledModulesTask != null) {
+      taskNames.add(dumpBundledModulesTask.getPath());
+    }
+
+    Task initializeTask = project.getTasks().findByName(INITIALIZE_INTELLIJ_PLATFORM_PLUGIN_TASK_NAME);
+    if (initializeTask != null) {
+      taskNames.add(initializeTask.getPath());
+    }
+
+    project.getGradle().getStartParameter().setTaskNames(taskNames);
+
     try {
+      @NotNull Map<String, String> dependencyHelperProductCodes = loadDependencyHelperProductCodes(extension.getClass());
+      @Nullable String productReleasesFile = dumpTask == null ? null : dumpTask.getOutputs().getFiles().getSingleFile().getAbsolutePath();
+      @Nullable String bundledPluginsFile = dumpBundledPluginsTask == null ? null : dumpBundledPluginsTask.getOutputs().getFiles().getSingleFile().getAbsolutePath();
+      @Nullable String bundledModulesFile = dumpBundledModulesTask == null ? null : dumpBundledModulesTask.getOutputs().getFiles().getSingleFile().getAbsolutePath();
+      @NotNull String currentPluginVersion = readCurrentPluginVersion(initializeTask);
+      @NotNull String latestPluginVersion = readLatestPluginVersion(initializeTask, currentPluginVersion);
+
       return new IntelliJPlatformGradleModelImpl(
-        loadDependencyHelperProductCodes(extension.getClass()),
-        dumpTask == null ? null : dumpTask.getOutputs().getFiles().getSingleFile().getAbsolutePath()
+        dependencyHelperProductCodes,
+        productReleasesFile,
+        bundledPluginsFile,
+        bundledModulesFile,
+        currentPluginVersion,
+        latestPluginVersion
       );
     }
     catch (ReflectiveOperationException exception) {
       throw new IllegalStateException(exception);
+    }
+  }
+
+  private static @NotNull String readCurrentPluginVersion(@Nullable Task task) {
+    if (task == null) return "0.0.0";
+    try {
+      return readProvider(task, "getPluginVersion");
+    }
+    catch (ReflectiveOperationException | RuntimeException exception) {
+      return "0.0.0";
+    }
+  }
+
+  private static @NotNull String readProvider(@NotNull Task task, @NotNull String getterName)
+    throws ReflectiveOperationException {
+    Object value = task.getClass().getMethod(getterName).invoke(task);
+    if (!(value instanceof Provider<?>)) {
+      throw new IllegalStateException(getterName + " did not return a Gradle provider");
+    }
+    Object resolvedValue = ((Provider<?>)value).getOrNull();
+    if (resolvedValue == null) {
+      throw new IllegalStateException(getterName + " returned a provider without a value");
+    }
+    return resolvedValue.toString();
+  }
+
+  /**
+   * The plugin resolves the latest version from a remote repository.
+   * A failure must not drop the whole model, so the current version is used instead.
+   */
+  private static @NotNull String readLatestPluginVersion(@Nullable Task task, @NotNull String currentPluginVersion) {
+    if (task == null) return currentPluginVersion;
+    try {
+      return readProvider(task, "getLatestPluginVersion");
+    }
+    catch (ReflectiveOperationException | RuntimeException exception) {
+      return currentPluginVersion;
     }
   }
 

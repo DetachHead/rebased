@@ -17,7 +17,7 @@ interface ExternalSystemProjectAware {
    * These property is read each time after [reloadProject] gets called, new file was added
    * or [ExternalSystemProjectListener.onSettingsFilesListChange] event happened.
    */
-  @get:RequiresBackgroundThread
+  @get:RequiresBackgroundThread(generateAssertion = false /* IJPL-115548 */)
   val settingsFiles: Set<String>
 
   fun subscribe(listener: ExternalSystemProjectListener, parentDisposable: Disposable)
@@ -94,8 +94,8 @@ interface ExternalSystemProjectAware {
    * For example, if project caches invalidated, if settings files are changed or from the editor floating toolbar.
    *
    * Note: The auto-sync will be automatically re-scheduled in several cases like auto-sync settings changed,
-   * project settings files changed, etc. However, it can be re-scheduled after any custom event using
-   * the [ExternalSystemProjectTracker.scheduleChangeProcessing] function.
+   * project settings files changed, etc. Also, it can be re-scheduled after any custom event using
+   * the [ExternalSystemProjectTracker.markDirty] function.
    */
   @ApiStatus.Experimental
   fun isDisabledReload(context: ExternalSystemProjectReloadContext): Boolean = false
@@ -109,8 +109,8 @@ interface ExternalSystemProjectAware {
    * For example, if project caches invalidated or if settings files are changed.
    *
    * Note: The auto-sync will be automatically re-scheduled in several cases like auto-sync settings changed,
-   * project settings files changed, etc. However, it can be re-scheduled after any custom event using
-   * the [ExternalSystemProjectTracker.scheduleChangeProcessing] function.
+   * project settings files changed, etc. Also, it can be re-scheduled after any custom event using
+   * the [ExternalSystemProjectTracker.markDirty] function.
    */
   @ApiStatus.Experimental
   fun isDisabledAutoReload(context: ExternalSystemProjectReloadContext): Boolean = false

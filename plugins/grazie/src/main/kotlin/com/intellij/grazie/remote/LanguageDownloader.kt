@@ -1,6 +1,7 @@
 // Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.grazie.remote
 
+import com.intellij.diagnostic.rethrowControlFlowException
 import com.intellij.grazie.GrazieConfig
 import com.intellij.grazie.GrazieDynamic
 import com.intellij.grazie.GraziePlugin
@@ -9,6 +10,7 @@ import com.intellij.grazie.ide.ui.components.dsl.msg
 import com.intellij.grazie.jlanguage.Lang
 import com.intellij.grazie.remote.GrazieRemote.allAvailableLocally
 import com.intellij.grazie.remote.GrazieRemote.getLanguagesBasedOnUserAgreement
+import com.intellij.grazie.remote.GrazieRemote.isAvailableLocally
 import com.intellij.openapi.application.EDT
 import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.application.asContextElement
@@ -23,6 +25,8 @@ import com.intellij.util.io.ZipUtil
 import com.intellij.util.lang.UrlClassLoader
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import org.jetbrains.annotations.ApiStatus
 import java.nio.file.Files
@@ -30,6 +34,7 @@ import kotlin.io.path.copyTo
 
 @Suppress("DialogTitleCapitalization")
 internal object LanguageDownloader {
+  private val mutex = Mutex()
 
   @Deprecated("Use downloadAsync(Collection<Lang>, Project) instead", replaceWith = ReplaceWith("downloadAsync(listOf(lang), project)"))
   @ApiStatus.ScheduledForRemoval
@@ -46,7 +51,7 @@ internal object LanguageDownloader {
       val filteredLanguages = withContext(Dispatchers.EDT + ModalityState.any().asContextElement()) {
         getLanguagesBasedOnUserAgreement(languages, project)
       }
-      if (languages.isEmpty()) return@launch
+      if (filteredLanguages.isEmpty()) return@launch
       withBackgroundProgress(project, msg("grazie.settings.proofreading.languages.download"), true) {
         startDownloading(filteredLanguages)
       }
@@ -54,18 +59,25 @@ internal object LanguageDownloader {
   }
 
   suspend fun startDownloading(languages: Collection<Lang>) {
-    withContext(Dispatchers.IO) {
+    mutex.withLock {
+      val missingLanguages = languages.filterNot { isAvailableLocally(it) }
+      if (missingLanguages.isEmpty()) return@withLock
+
       try {
-        performDownload(languages)
+        withContext(Dispatchers.IO) {
+          performDownload(missingLanguages)
+        }
       }
       catch (exception: Throwable) {
-        withContext(Dispatchers.EDT + ModalityState.any().asContextElement()) {
-          promptToSelectLanguageBundleManually(languages)
-        }
+        rethrowControlFlowException(exception)
         thisLogger().warn(exception)
+        val installed = withContext(Dispatchers.EDT + ModalityState.any().asContextElement()) {
+          promptToSelectLanguageBundleManually(missingLanguages)
+        }
+        if (!installed) return@withLock
       }
+      performGrazieUpdate(missingLanguages)
     }
-    performGrazieUpdate(languages)
   }
 
   private fun runDownload(languages: Collection<Lang>) {

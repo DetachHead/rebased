@@ -79,6 +79,8 @@ private fun isTrafficLightExists(editor: Editor): Boolean {
 
 private fun checkTrafficLightRenderer() = java.lang.Boolean.getBoolean("is.test.traffic.light")
 
+private fun isDumbModeHighlightingFinal() = java.lang.Boolean.getBoolean(CodeAnalysisStateListener.DUMB_MODE_HIGHLIGHTING_IS_FINAL_PROPERTY)
+
 private val LOG = logger<WaitForFinishedCodeAnalysis>()
 class WaitForFinishedCodeAnalysis(text: String, line: Int) : PerformanceCommandCoroutineAdapter(text, line) {
   companion object {
@@ -100,6 +102,14 @@ class WaitForFinishedCodeAnalysis(text: String, line: Int) : PerformanceCommandC
 
 @Service(Service.Level.PROJECT)
 class CodeAnalysisStateListener(val project: Project, val cs: CoroutineScope) {
+  companion object {
+    /**
+     * A product that holds the project in dumb mode on purpose, such as JetBrains Light, highlights in dumb mode only.
+     * When this system property is `true`, a daemon pass that finishes in dumb mode counts as the complete highlighting.
+     */
+    const val DUMB_MODE_HIGHLIGHTING_IS_FINAL_PROPERTY: String = "performance.testing.dumb.mode.highlighting.is.final"
+  }
+
   private val stateLock = Any()
   private val filesYetToStartHighlighting = ConcurrentHashMap<VirtualFile, Unit>()
   private val sessions = ConcurrentHashMap<TextEditor, ExceptionWithTime>()
@@ -151,7 +161,7 @@ class CodeAnalysisStateListener(val project: Project, val cs: CoroutineScope) {
   /**
    * @throws TimeoutException when stopped due to provided [timeout]
    */
-  @RequiresBackgroundThread
+  @RequiresBackgroundThread(generateAssertion = false /* IJPL-115548 */)
   suspend fun waitAnalysisToFinish(timeout: Duration = 5.minutes, throws: Boolean = false, logsError: Boolean = true) {
     if (EDT.isCurrentThreadEdt()) {
       throw AssertionError("waitAnalysisToFinish should not be called from EDT otherwise there will be freezes")
@@ -251,7 +261,7 @@ class CodeAnalysisStateListener(val project: Project, val cs: CoroutineScope) {
 
   fun registerDaemonStarted(fileEditors: Collection<TextEditor>) {
     val errors = mutableListOf<AssertionError>()
-    val isStartedInDumbMode = runReadAction { DumbService.isDumb(project) }
+    val isStartedInDumbMode = !isDumbModeHighlightingFinal() && runReadAction { DumbService.isDumb(project) }
     synchronized(stateLock) {
       for (editor in fileEditors) {
         val previousSessionStartTrace = sessions.put(editor, ExceptionWithTime.createForAnalysisStart(editor, isStartedInDumbMode))
@@ -290,7 +300,7 @@ class CodeAnalysisStateListener(val project: Project, val cs: CoroutineScope) {
     }
 
     companion object {
-      @RequiresReadLock
+      @RequiresReadLock(generateAssertion = false /* IJPL-115548 */)
       fun create(editor: TextEditor, project: Project, isCancelled: Boolean, isFinishedInDumbMode: Boolean): HighlightedEditor {
         if (!UIUtil.isShowing(editor.getComponent())) {
           LOG.info("Creating invisible editor ${editor.description}")
@@ -382,8 +392,7 @@ class CodeAnalysisStateListener(val project: Project, val cs: CoroutineScope) {
     try {
       ReadAction.run<Throwable> {
         LOG.info("Analyzer status for ${editor.description}\n ${
-          TrafficLightRenderer(project,
-                               editor.editor.document).use { it.daemonCodeAnalyzerStatus }
+          TrafficLightRenderer(project, editor.editor).use { it.daemonCodeAnalyzerStatus }
         }")
       }
     }
@@ -448,7 +457,7 @@ internal class WaitForFinishedCodeAnalysisListener(private val project: Project)
     if (worthy.isEmpty()) return
 
     val highlightedEditors: Map<TextEditor, CodeAnalysisStateListener.HighlightedEditor> = runReadAction {
-      val isFinishedInDumbMode = DumbService.isDumb(project)
+      val isFinishedInDumbMode = !isDumbModeHighlightingFinal() && DumbService.isDumb(project)
       worthy.associateWith {
         CodeAnalysisStateListener.HighlightedEditor.create(it,
                                                            project,

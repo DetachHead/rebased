@@ -263,7 +263,9 @@ fun getCanBeConfiguredModules(project: Project, configurator: KotlinProjectConfi
         if (!isUnitTestMode()) {
             progressIndicator?.let {
                 it.checkCanceled()
-                it.fraction = index * 1.0 / projectModules.size
+                if (!it.isIndeterminate) {
+                    it.fraction = index * 1.0 / projectModules.size
+                }
                 it.text2 = KotlinProjectConfigurationBundle.message("lookup.module.0.configuration.progress.text", module.baseModule.name)
             }
         }

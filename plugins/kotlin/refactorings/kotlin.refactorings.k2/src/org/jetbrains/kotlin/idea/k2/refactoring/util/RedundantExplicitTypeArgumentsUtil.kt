@@ -3,13 +3,11 @@ package org.jetbrains.kotlin.idea.k2.refactoring.util
 
 import com.intellij.psi.PsiDocumentManager
 import com.intellij.psi.util.PsiTreeUtil
-import com.intellij.psi.util.isAncestor
 import com.intellij.psi.util.parentOfType
 import org.jetbrains.kotlin.analysis.api.KaImplementationDetail
 import org.jetbrains.kotlin.analysis.api.KaSession
-import org.jetbrains.kotlin.analysis.api.components.KaDiagnosticCheckerFilter
-import org.jetbrains.kotlin.analysis.api.components.collectDiagnostics
 import org.jetbrains.kotlin.analysis.api.diagnostics.KaDiagnosticWithPsi
+import org.jetbrains.kotlin.analysis.api.diagnostics.diagnostics
 import org.jetbrains.kotlin.analysis.api.fir.diagnostics.KaFirDiagnostic
 import org.jetbrains.kotlin.analysis.api.projectStructure.copyOrigin
 import org.jetbrains.kotlin.analysis.api.resolution.function
@@ -158,15 +156,15 @@ private fun areAllTypesEqual(
 
 context(_: KaSession)
 private fun hasNewDiagnostics(originalCallExpression: KtCallExpression, newCallExpression: KtCallExpression): Boolean {
-    val newDiagnostics = newCallExpression.nestedDiagnostics
-    if (newDiagnostics.isEmpty()) return false
+    val newDiagnosticsCount = newCallExpression.nestedDiagnostics.count()
+    if (newDiagnosticsCount == 0) return false
 
-    val oldDiagnostics = originalCallExpression.nestedDiagnostics
+    val oldDiagnosticsCount = originalCallExpression.nestedDiagnostics.count()
 
     // Diagnostics cannot be compared directly since they have only identity equals/hashCode
     // Also, original call expression and new call expression files have a different set of psi instances since
     // they effectively in different files
-    return newDiagnostics.size != oldDiagnostics.size
+    return newDiagnosticsCount != oldDiagnosticsCount
 }
 
 @OptIn(KaImplementationDetail::class)
@@ -174,18 +172,15 @@ context(session: KaSession)
 private fun restoreTypes(typePointers: List<KaTypePointer<KaType>>): List<KaType>? =
     typePointers.map { it.restore(session) ?: return null }
 
-// TODO: when KT-63221 is fixed use `diagnostics(KaDiagnosticCheckerFilter.ONLY_COMMON_CHECKERS)` to reduce resolve and avoid psi checks
 context(_: KaSession)
-private val KtCallExpression.nestedDiagnostics: List<KaDiagnosticWithPsi<*>>
-    get() = containingKtFile
-        .collectDiagnostics(KaDiagnosticCheckerFilter.ONLY_COMMON_CHECKERS)
-        .filter { diagnostic ->
+private val KtCallExpression.nestedDiagnostics: Sequence<KaDiagnosticWithPsi<*>>
+    get() = diagnostics().filter { diagnostic ->
             when (diagnostic) {
                 is KaFirDiagnostic.UnresolvedReference,
                 is KaFirDiagnostic.BuilderInferenceStubReceiver,
                 is KaFirDiagnostic.ImplicitNothingReturnType,
                 is KaFirDiagnostic.AmbiguousContextArgument
-                    -> isAncestor(diagnostic.psi, strict = false)
+                    -> true
 
                 else -> false
             }

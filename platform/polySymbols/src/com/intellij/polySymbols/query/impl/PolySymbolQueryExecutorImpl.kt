@@ -3,7 +3,7 @@ package com.intellij.polySymbols.query.impl
 
 import com.intellij.model.Pointer
 import com.intellij.openapi.application.ApplicationManager
-import com.intellij.openapi.diagnostic.rethrowControlFlowException
+import com.intellij.diagnostic.rethrowControlFlowException
 import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.progress.ProgressManager
 import com.intellij.openapi.util.RecursionManager
@@ -390,7 +390,7 @@ class PolySymbolQueryExecutorImpl(
       result
     }
 
-  @RequiresReadLock
+  @RequiresReadLock(generateAssertion = false /* IJPL-115548 */)
   private fun <T, P : PolySymbolQueryParams> runQuery(
     path: List<PolySymbolQualifiedName>,
     params: P,

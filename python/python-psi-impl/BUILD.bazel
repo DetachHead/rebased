@@ -1,7 +1,18 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//build:compiler-options.bzl", "create_kotlinc_options")
 load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
+### auto-generated section `dev intellij.python.psi.impl` start
+content_module_jar(module = ":psi-impl")
+### auto-generated section `dev intellij.python.psi.impl` end
+
 ### auto-generated section `build intellij.python.psi.impl` start
+create_kotlinc_options(
+    name = "custom_psi-impl",
+    warn = "error",
+    x_warning_level = ["DEPRECATION:warning"],
+)
+
 jvm_library(
     name = "psi-impl",
     srcs = glob(
@@ -14,6 +25,7 @@ jvm_library(
         ],
         allow_empty = True,
     ),
+    kotlinc_opts = ":custom_psi-impl",
     module_name = "intellij.python.psi.impl",
     resource_strip_prefix = "resources",
     resources = glob(
@@ -66,13 +78,12 @@ jvm_library(
         "//libraries/hdr-histogram",
         "//libraries/kotlinx/collections-immutable:libraries-kotlinx-collections-immutable",
         "//python/python-requirements/backend",
+        "//python/python-pyproject:pyproject",
         "//plugins/toml",
         "//plugins/toml/core",
         "//libraries/markdown",
     ],
 )
-
-content_module_jar(module = ":psi-impl")
 
 jvm_library(
     name = "psi-impl_test_lib",
@@ -81,6 +92,7 @@ jvm_library(
         [],
         allow_empty = True,
     ),
+    kotlinc_opts = ":custom_psi-impl",
     module_name = "intellij.python.psi.impl",
     visibility = ["//visibility:public"],
     exports = [
@@ -133,6 +145,7 @@ jvm_library(
         "//libraries/hdr-histogram:hdr-histogram_test_lib",
         "//libraries/kotlinx/collections-immutable:libraries-kotlinx-collections-immutable_test_lib",
         "//python/python-requirements/backend:backend_test_lib",
+        "//python/python-pyproject:pyproject_test_lib",
         "//plugins/toml:toml_test_lib",
         "//plugins/toml/core:core_test_lib",
         "//libraries/markdown:markdown_test_lib",

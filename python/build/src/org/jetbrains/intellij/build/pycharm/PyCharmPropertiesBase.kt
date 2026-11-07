@@ -21,7 +21,6 @@ abstract class PyCharmPropertiesBase(enlargeWelcomeScreen: Boolean) : JetBrainsP
       additionalVmOptions += "-Dwelcome.screen.defaultWidth=1000"
       additionalVmOptions += "-Dwelcome.screen.defaultHeight=720"
     }
-    reassignAltClickToMultipleCarets = true
     useSplash = true
     buildCrossPlatformDistribution = true
     mavenArtifacts.additionalModules = mavenArtifacts.additionalModules.addingAll(listOf(
@@ -37,7 +36,7 @@ abstract class PyCharmPropertiesBase(enlargeWelcomeScreen: Boolean) : JetBrainsP
       persistentListOf("intellij.java.plugin"))
   }
 
-  override suspend fun copyAdditionalFiles(targetDir: Path, context: BuildContext) {
+  override fun copyAdditionalFiles(targetDir: Path, context: BuildContext) {
     zipSourcesOfModules(
       modules = listOf("intellij.python.community", "intellij.python.psi"),
       targetFile = Path.of("$targetDir/lib/src/pycharm-openapi-src.zip"),

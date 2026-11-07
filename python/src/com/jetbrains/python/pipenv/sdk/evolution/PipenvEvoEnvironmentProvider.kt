@@ -4,7 +4,9 @@ package com.jetbrains.python.pipenv.sdk.evolution
 import com.intellij.openapi.projectRoots.Sdk
 import com.intellij.python.community.common.tools.ToolId
 import com.intellij.python.community.impl.pipenv.PipEnvPyTool
-import com.intellij.python.pytools.PyTool
+import com.intellij.python.community.impl.pipenv.common.icons.PythonCommunityImplPipenvCommonIcons
+import com.intellij.python.pytools.backend.PyTool
+import com.intellij.python.sdk.backend.PythonInterpreter
 import com.intellij.python.sdk.backend.evolution.DiscoveredVenv
 import com.intellij.python.sdk.backend.evolution.EvoPyProject
 import com.intellij.python.sdk.backend.evolution.EvoToolContext
@@ -24,6 +26,7 @@ import com.jetbrains.python.sdk.add.v2.FileSystem
 import com.jetbrains.python.sdk.add.v2.PathHolder
 import com.jetbrains.python.sdk.configuration.PIPENV_TOOL_ID
 import com.intellij.python.sdk.backend.resolvePythonBinary
+import com.jetbrains.python.sdk.add.v2.FileSystemWithEel
 import com.jetbrains.python.sdk.pipenv.PIP_FILE
 import com.jetbrains.python.sdk.pipenv.createPipenvSdk
 import com.jetbrains.python.sdk.pipenv.pipfileRequiresPython
@@ -52,14 +55,16 @@ import com.jetbrains.python.sdk.flavors.PythonSdkFlavor
  */
 internal class PipenvEvoEnvironmentProvider : PyToolEvoEnvironmentProvider() {
   override val tool: PyTool get() = PipEnvPyTool.getInstance()
+  override val label: String get() = com.intellij.python.sdk.backend.PySdkBundle.message("evolution.node.label.pipenv")
+  override val icon get() = PythonCommunityImplPipenvCommonIcons.Pipenv
   override val toolId: ToolId get() = PIPENV_TOOL_ID
 
   /** An interpreter of this node's environments carries this flavor, which is what names this node as the active one. */
   override val sdkFlavor: Class<out PythonSdkFlavor<*>> get() = PyPipEnvSdkFlavor::class.java
 
-  override suspend fun loadSections(pyProject: EvoPyProject, fileSystem: FileSystem<PathHolder.Eel>, discovered: List<DiscoveredVenv>): EvoLoadResultDto {
-    val projectDir = pyProject.baseDir
-    val envRoot = existingEnvRoot(projectDir, fileSystem)
+  override suspend fun loadSections(context: EvoToolContext, discovered: List<DiscoveredVenv>): EvoLoadResultDto {
+    val projectDir = context.workspace.baseDir
+    val envRoot = existingEnvRoot(projectDir, context.fileSystem)
                   // Nothing to adopt: offer to create the one environment pipenv allows. The section carries no label
                   // because only pipenv knows where the environment will go, and a guessed heading would be wrong as
                   // often as it is right. `addNewEnvSpec` supplies the base-Python choice.
@@ -91,7 +96,7 @@ internal class PipenvEvoEnvironmentProvider : PyToolEvoEnvironmentProvider() {
    * so in a project without one it can answer with an unrelated environment belonging to a directory above — the user's
    * home included. That is the same trap `setupPipEnv` avoids by writing an empty `Pipfile` before it runs pipenv.
    */
-  private suspend fun existingEnvRoot(projectDir: Path, fileSystem: FileSystem<PathHolder.Eel>): Path? {
+  private suspend fun existingEnvRoot(projectDir: Path, fileSystem: FileSystemWithEel): Path? {
     if (!projectDir.resolve(PIP_FILE).exists()) return null
     // `pipenv --venv` exits non-zero when the project has no environment, which arrives here as a null.
     val stdout = runPipEnv(fileSystem = fileSystem, dirPath = projectDir, "--venv").getOrNull() ?: return null
@@ -101,8 +106,8 @@ internal class PipenvEvoEnvironmentProvider : PyToolEvoEnvironmentProvider() {
   }
 
   /** Adopts the project's existing pipenv environment as a pipenv-typed SDK. */
-  override suspend fun createSdkForExistingEnv(context: EvoToolContext, homePath: Path): PyResult<Sdk> =
-    createPipenvSdk(context.pyProject.baseDir, PathHolder.Eel(homePath), context.fileSystem)
+  override suspend fun createSdkForExistingEnv(context: EvoToolContext, homePath: Path): PyResult<PythonInterpreter> =
+    createPipenvSdk(context.workspace.moduleOrProject, context.workspace.baseDir, PathHolder.Eel(homePath), context.fileSystem)
 
   /**
    * Creates the project's pipenv environment from the base Python in `token`, then assigns its SDK.
@@ -110,10 +115,11 @@ internal class PipenvEvoEnvironmentProvider : PyToolEvoEnvironmentProvider() {
    * `folder` and `name` are unused: pipenv chooses both the location and the name itself — see [addNewEnvSpec].
    * Packages are not installed, matching the other nodes: the user asked for an interpreter, not for a sync.
    */
-  override suspend fun createSdkForNewEnv(context: EvoToolContext, ref: PyInterpreterRef.CreateEnv): PyResult<Sdk> {
+  override suspend fun createSdkForNewEnv(context: EvoToolContext, ref: PyInterpreterRef.CreateEnv): PyResult<PythonInterpreter> {
     val pipenvExecutable = executableOrNull(context.fileSystem) ?: return toolMissing()
     return setupPipEnvSdkWithProgressReport(
-      moduleBasePath = context.pyProject.baseDir,
+      moduleOrProject = context.workspace.moduleOrProject,
+      moduleBasePath = context.workspace.baseDir,
       basePythonBinaryPath = PathHolder.Eel(Path.of(ref.token)),
       fileSystem = context.fileSystem,
       pipenvExecutable = pipenvExecutable,
@@ -131,11 +137,11 @@ internal class PipenvEvoEnvironmentProvider : PyToolEvoEnvironmentProvider() {
    * `[requires] python_version` is a real input: `pipenv install` with no `--python` picks the interpreter from it.
    */
   override suspend fun addNewEnvSpec(context: EvoToolContext, section: EvoSectionDto): EvoAddNewDto? {
-    val options = context.systemPythonOptions(pipfileRequiresPython(context.pyProject.baseDir))
+    val options = context.systemPythonOptions(pipfileRequiresPython(context.workspace.baseDir))
                     .takeIf { it.isNotEmpty() } ?: return null
-    val baseDir = context.pyProject.baseDir
+    val baseDir = context.workspace.baseDir
     return EvoAddNewDto(
-      name = baseDir.fileName?.toString() ?: tool.presentableName,
+      name = baseDir.fileName?.toString() ?: label,
       path = "",
       options = options,
       nameEditable = false,

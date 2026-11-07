@@ -8,44 +8,24 @@
 - <init>(java.util.List,java.util.List):V
 - f:getModuleIds():java.util.List
 - f:getPluginIds():java.util.List
-*f:com.intellij.ide.plugins.PluginDetailsService
-- *sf:Companion:com.intellij.ide.plugins.PluginDetailsService$Companion
-- <init>():V
-- f:findDetails(com.intellij.openapi.extensions.PluginId):com.intellij.ide.plugins.PluginDetailsService$PluginDetails
-- f:getActivePlugins():kotlin.sequences.Sequence
-- *sf:getInstance():com.intellij.ide.plugins.PluginDetailsService
-- f:isBuiltIn(com.intellij.openapi.extensions.PluginId):Z
-- f:isDisabled(com.intellij.openapi.extensions.PluginId):Z
-- f:isLoaded(com.intellij.openapi.extensions.PluginId):Z
-*f:com.intellij.ide.plugins.PluginDetailsService$Companion
-- f:getInstance():com.intellij.ide.plugins.PluginDetailsService
-*:com.intellij.ide.plugins.PluginDetailsService$ModuleDependencyInfo
 *f:com.intellij.ide.plugins.PluginDetailsService$ModuleDependencyInfo$OnModule
 - com.intellij.ide.plugins.PluginDetailsService$ModuleDependencyInfo
 - f:getName():java.lang.String
 *f:com.intellij.ide.plugins.PluginDetailsService$ModuleDependencyInfo$OnPlugin
 - com.intellij.ide.plugins.PluginDetailsService$ModuleDependencyInfo
 - f:getPluginId():com.intellij.openapi.extensions.PluginId
-*f:com.intellij.ide.plugins.PluginDetailsService$PluginDetails
-- f:getChangeNotes():java.lang.String
-- f:getDependencies():java.util.Collection
-- f:getDescription():java.lang.String
-- f:getId():com.intellij.openapi.extensions.PluginId
-- f:getModules():java.util.Collection
-- f:getName():java.lang.String
-- f:getReleaseDate():java.time.LocalDate
-- f:getReleaseVersion():I
-- f:getVendor():com.intellij.ide.plugins.PluginDetailsService$PluginVendorInfo
-- f:getVersion():java.lang.String
-- f:isBuiltIn():Z
-- f:isLicenseOptional():Z
-*f:com.intellij.ide.plugins.PluginDetailsService$PluginModuleInfo
-- f:getName():java.lang.String
-*f:com.intellij.ide.plugins.PluginDetailsService$PluginVendorInfo
-- f:getEmail():java.lang.String
-- f:getName():java.lang.String
-- f:getOrganization():java.lang.String
-- f:getUrl():java.lang.String
+*f:com.intellij.ide.plugins.PluginPermissionJavaShim
+- sf:INSTANCE:com.intellij.ide.plugins.PluginPermissionJavaShim
+- sf:withPermission(com.intellij.ide.plugins.PluginPermissionRequest,kotlin.jvm.functions.Function1):java.util.concurrent.CompletableFuture
+*f:com.intellij.ide.plugins.PluginPermissionNotGrantedException
+- java.lang.RuntimeException
+- <init>(java.lang.String):V
+*:com.intellij.ide.plugins.PluginPermissionRequest
+*:com.intellij.ide.plugins.PluginPermissionService
+- *sf:Companion:com.intellij.ide.plugins.PluginPermissionService$Companion
+- a:withPermission-0E7RQCE(com.intellij.ide.plugins.PluginPermissionRequest,kotlin.jvm.functions.Function2,kotlin.coroutines.Continuation):java.lang.Object
+*f:com.intellij.ide.plugins.PluginPermissionService$Companion
+- f:getInstance():com.intellij.ide.plugins.PluginPermissionService
 *c:com.intellij.lang.impl.TokenSequence
 - com.intellij.lexer.TokenList
 - asLexer():com.intellij.lexer.Lexer
@@ -89,6 +69,7 @@ a:com.intellij.psi.impl.PsiDocumentManagerBase
 - com.intellij.openapi.Disposable
 - com.intellij.openapi.editor.event.DocumentListener
 - com.intellij.psi.PsiDocumentManager
+- *:allowIsolatedCommits(com.intellij.openapi.editor.Document,java.util.function.Supplier):java.lang.Object
 - *:getPsiFile(com.intellij.openapi.editor.Document,com.intellij.codeInsight.multiverse.CodeInsightContext):com.intellij.psi.PsiFile
 *:com.intellij.psi.impl.PsiDocumentTransactionListenerBackgroundable
 - com.intellij.psi.impl.PsiDocumentTransactionListener
@@ -136,4 +117,5 @@ a:com.intellij.psi.impl.source.tree.RecursiveTreeElementWalkingVisitor
 - com.intellij.openapi.util.UserDataHolderBase
 - <init>():V
 - p:changeUserMap(com.intellij.util.keyFMap.KeyFMap,com.intellij.util.keyFMap.KeyFMap):Z
+- liveVersionChanged(J):V
 - p:setUserMap(com.intellij.util.keyFMap.KeyFMap):V

@@ -2,6 +2,10 @@
 class ScrollController {
   #lastOffset = 0;
   #scrollFinished = true;
+  #targetSourceOffset = 0;
+  #isFrameRequested = false;
+  #followY = null;
+  #lastFrameTime = 0;
   // #nextScrollElement = null;
 
   constructor() {
@@ -183,6 +187,123 @@ class ScrollController {
     }
     this.currentScrollElement = element;
     this.#doScroll(element, smooth);
+  }
+
+  scrollToSourceOffset(offset) {
+    this.#targetSourceOffset = offset;
+    if (this.#isFrameRequested) {
+      return;
+    }
+    this.#isFrameRequested = true;
+    this.#lastFrameTime = performance.now();
+    requestAnimationFrame(time => this.#followFrame(time));
+  }
+
+  #followFrame(time) {
+    const target = this.#sourceOffsetToY(this.#targetSourceOffset);
+    if (target === null) {
+      this.#isFrameRequested = false;
+      return;
+    }
+    if (this.#followY !== null && Math.abs(window.scrollY - this.#followY) > 1) {
+      this.#followY = null;
+    }
+    const current = this.#followY ?? window.scrollY;
+    const elapsed = Math.min(Math.max(time - this.#lastFrameTime, 0), 100);
+    this.#lastFrameTime = time;
+    const next = current + (target - current) * (1 - Math.exp(-elapsed / ScrollController.#FOLLOW_TIME_MS));
+    const isDone = Math.abs(target - next) < 0.5;
+    this.#followY = isDone ? null : next;
+    this.currentScrollElement = null;
+    window.scrollTo({ top: isDone ? target : next, behavior: "instant" });
+    if (isDone) {
+      this.#isFrameRequested = false;
+      return;
+    }
+    requestAnimationFrame(nextTime => this.#followFrame(nextTime));
+  }
+
+  static #FOLLOW_TIME_MS = 40;
+
+  #sourceOffsetToY(offset) {
+    let node = document.body.firstElementChild;
+    const range = this.#rangeOf(node);
+    if (!range) {
+      return null;
+    }
+    let start = { offset: range.from, y: 0 };
+    let end = { offset: range.to, y: document.documentElement.scrollHeight };
+    while (node !== null) {
+      const children = this.#positionedChildren(node, start, end);
+      if (children.length === 0) {
+        break;
+      }
+      if (getComputedStyle(children[0].element).display.startsWith("inline")) {
+        [start, end] = ScrollController.#inlineSegment(children, offset, start, end);
+        break;
+      }
+      let container = null;
+      for (const child of children) {
+        const box = child.element.getBoundingClientRect();
+        const top = box.top + window.scrollY;
+        const bottom = box.bottom + window.scrollY;
+        if (offset < child.from) {
+          end = { offset: child.from, y: top };
+          break;
+        }
+        if (offset <= child.to) {
+          container = child.element;
+          if (child.from > start.offset) {
+            start = { offset: child.from, y: top };
+          }
+          if (child.to < end.offset) {
+            end = { offset: child.to, y: bottom };
+          }
+          break;
+        }
+        start = { offset: child.to, y: bottom };
+      }
+      node = container;
+    }
+    const length = end.offset - start.offset;
+    const fraction = length > 0 ? Math.min(Math.max((offset - start.offset) / length, 0), 1) : 0;
+    return start.y + fraction * Math.max(end.y - start.y, 0);
+  }
+
+  static #inlineSegment(children, offset, start, end) {
+    let previous = start;
+    for (const child of children) {
+      const rects = child.element.getClientRects();
+      if (rects.length === 0) {
+        continue;
+      }
+      const top = rects[0].top + window.scrollY;
+      if (child.from > offset) {
+        return [previous, { offset: child.from, y: top }];
+      }
+      previous = { offset: child.from, y: top };
+    }
+    return [previous, end];
+  }
+
+  #positionedChildren(node, start, end) {
+    const result = [];
+    for (let child = node.firstElementChild; child !== null; child = child.nextElementSibling) {
+      const range = this.#rangeOf(child);
+      if (!range || range.to < start.offset || range.from > end.offset || child.getClientRects().length === 0) {
+        continue;
+      }
+      result.push({ element: child, from: range.from, to: range.to });
+    }
+    return result;
+  }
+
+  #rangeOf(node) {
+    const offsets = this.getNodeOffsets(node);
+    if (!offsets) {
+      return null;
+    }
+    return { from: Number(offsets[0]), to: Number(offsets[1]) };
   }
 
   static #throttle(callback, limit) {

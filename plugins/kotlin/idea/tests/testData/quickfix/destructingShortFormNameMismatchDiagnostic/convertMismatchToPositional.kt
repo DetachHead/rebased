@@ -1,0 +1,11 @@
+// "Convert to positional destructuring syntax with square brackets" "true"
+// COMPILER_ARGUMENTS: -Xname-based-destructuring=name-mismatch
+// WITH_STDLIB
+
+data class User(val name: String, val age: Int)
+
+fun test(user: User) {
+    val (<caret>n, age) = user
+}
+
+// FUS_QUICKFIX_NAME: org.jetbrains.kotlin.idea.codeinsights.impl.base.quickFix.ConvertToPositionalDestructuringFix

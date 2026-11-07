@@ -19,6 +19,8 @@ import org.jetbrains.kotlin.analysis.api.types.type
 import org.jetbrains.kotlin.asJava.toLightClass
 import org.jetbrains.kotlin.idea.actions.createKotlinFileFromTemplate
 import org.jetbrains.kotlin.idea.base.analysis.api.utils.shortenReferences
+import org.jetbrains.kotlin.idea.base.psi.addModifierKeyword
+import org.jetbrains.kotlin.idea.base.psi.addSuperType
 import org.jetbrains.kotlin.idea.base.psi.copied
 import org.jetbrains.kotlin.idea.base.psi.replaced
 import org.jetbrains.kotlin.idea.base.util.quoteIfNeeded
@@ -173,11 +175,15 @@ private fun getElementsToMove(
 
     analyze(originalClass) {
         for (superTypeListEntry in originalClass.superTypeListEntries) {
+            if (superTypeListEntry in superInterfacesToMove) {
+                elementsToMove[superTypeListEntry] = null
+                continue
+            }
             val superType = superTypeListEntry.typeReference?.type ?: continue
             val superSymbol = superType.expandedSymbol ?: continue
             val superClass = superSymbol.psi as? KtClass ?: continue
 
-            if ((!isExtractInterface && !superClass.isInterface()) || superClass in superInterfacesToMove) {
+            if (!isExtractInterface && !superClass.isInterface()) {
                 elementsToMove[superTypeListEntry] = null
             }
         }
@@ -212,7 +218,7 @@ private fun createClass(
 
     val shouldBeAbstract = extractInfo.memberInfos.any { it.isToAbstract }
     if (!extractInfo.isInterface) {
-        newClass.addModifier(if (shouldBeAbstract) KtTokens.ABSTRACT_KEYWORD else KtTokens.OPEN_KEYWORD)
+        newClass.addModifierKeyword(if (shouldBeAbstract) KtTokens.ABSTRACT_KEYWORD else KtTokens.OPEN_KEYWORD)
     }
 
     if (typeParameters.isNotEmpty()) {
@@ -252,10 +258,10 @@ private fun createClass(
         } else {
             superClassEntry
         }
-        newClass.addSuperTypeListEntry(entryToAdd)
+        newClass.addSuperType(entryToAdd)
         shortenReferences(superClassEntry.replaced(newSuperTypeListEntry))
     } else {
-        shortenReferences(originalClass.addSuperTypeListEntry(newSuperTypeListEntry))
+        shortenReferences(originalClass.addSuperType(newSuperTypeListEntry))
     }
 
     shortenReferences(newClass)

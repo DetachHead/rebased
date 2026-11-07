@@ -49,15 +49,6 @@ private val INLINED_LIBRARY_MODULES: Set<String> = setOf(
 )
 
 private val CORE: PersistentMap<String, String> = persistentHashMapOf(
-  "intellij.platform.jewel.foundation" to "jewel-foundation",
-  "intellij.platform.jewel.markdown.core" to "jewel-markdown-core",
-  "intellij.platform.jewel.ui" to "jewel-ui",
-  "intellij.platform.jewel.markdown.extensions.gfmTables" to "jewel-markdown-extensions-gfm-tables",
-  "intellij.platform.jewel.markdown.extensions.gfmStrikethrough" to "jewel-markdown-extensions-gfm-strikethrough",
-  "intellij.platform.jewel.markdown.extensions.autolink" to "jewel-markdown-extensions-autolink",
-  "intellij.platform.jewel.markdown.extensions.gfmAlerts" to "jewel-markdown-extensions-gfm-alerts",
-  "intellij.platform.jewel.markdown.extensions.images" to "jewel-markdown-extensions-images",
-  "intellij.platform.jewel.markdown.extensions.frontMatter" to "jewel-markdown-extensions-front-matter",
 )
 
 private val NOT_PUBLISHED: Set<String> = setOf(
@@ -65,28 +56,11 @@ private val NOT_PUBLISHED: Set<String> = setOf(
   "intellij.platform.jewel.markdown.ideLafBridgeStyling",
 )
 
-private val transitiveJewelDependencies = persistentHashMapOf(
-  "jewel-foundation" to emptySet(),
-  "jewel-ui" to emptySet(),
-  "jewel-decorated-window" to setOf("jewel-foundation", "jewel-ui"),
-  "jewel-markdown-core" to setOf("jewel-foundation"),
-  "jewel-markdown-extensions-autolink" to setOf("jewel-foundation", "jewel-ui"),
-  "jewel-markdown-extensions-front-matter" to setOf("jewel-foundation", "jewel-ui"),
-  "jewel-markdown-extensions-gfm-alerts" to setOf("jewel-foundation", "jewel-ui"),
-  "jewel-markdown-extensions-gfm-strikethrough" to setOf("jewel-foundation", "jewel-ui"),
-  "jewel-markdown-extensions-gfm-tables" to setOf("jewel-foundation", "jewel-ui"),
-  "jewel-markdown-extensions-images" to setOf("jewel-foundation", "jewel-ui"),
-  "jewel-int-ui-standalone" to setOf("jewel-foundation"),
-  "jewel-int-ui-decorated-window" to setOf("jewel-foundation", "jewel-ui", "jewel-int-ui-standalone"),
-  "jewel-markdown-int-ui-standalone-styling" to setOf("jewel-foundation", "jewel-ui"),
+private val transitiveJewelDependencies = persistentHashMapOf<String, Set<String>>(
 )
 
 internal object JewelMavenArtifacts {
   internal val STANDALONE: PersistentMap<String, String> = persistentHashMapOf(
-    "intellij.platform.jewel.markdown.intUiStandaloneStyling" to "jewel-markdown-int-ui-standalone-styling",
-    "intellij.platform.jewel.intUi.decoratedWindow" to "jewel-int-ui-decorated-window",
-    "intellij.platform.jewel.intUi.standalone" to "jewel-int-ui-standalone",
-    "intellij.platform.jewel.decoratedWindow" to "jewel-decorated-window",
   )
 
   private val ALL: PersistentMap<String, String> = CORE + STANDALONE

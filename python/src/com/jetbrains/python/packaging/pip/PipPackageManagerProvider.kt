@@ -2,7 +2,7 @@
 package com.jetbrains.python.packaging.pip
 
 import com.intellij.openapi.project.Project
-import com.intellij.openapi.projectRoots.Sdk
+import com.intellij.python.sdk.backend.PythonInterpreter
 import com.jetbrains.python.packaging.management.PythonPackageManager
 import com.jetbrains.python.packaging.management.PythonPackageManagerProvider
 import org.jetbrains.annotations.ApiStatus
@@ -10,7 +10,6 @@ import org.jetbrains.annotations.ApiStatus
 @ApiStatus.Experimental
 @ApiStatus.Internal
 class PipPackageManagerProvider : PythonPackageManagerProvider {
-  override fun createPackageManagerForSdk(project: Project, sdk: Sdk): PythonPackageManager {
-    return PipPythonPackageManager(project, sdk)
-  }
+  override fun createPackageManager(project: Project, interpreter: PythonInterpreter): PythonPackageManager =
+    PipPythonPackageManager(project, interpreter)
 }

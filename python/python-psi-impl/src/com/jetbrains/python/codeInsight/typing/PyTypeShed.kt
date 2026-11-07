@@ -174,9 +174,9 @@ object PyTypeShed {
       val head = name.firstComponent ?: return true
       val languageLevels = stdlibNamesAvailableOnlyInSubsetOfSupportedLanguageLevels[head] ?: return true
       val currentLanguageLevel = PythonRuntimeService.getInstance().getLanguageLevelForSdk(sdk)
-      return currentLanguageLevel.isAtLeast(languageLevels.first) && languageLevels.second.let {
-        it == null || it.isAtLeast(currentLanguageLevel)
-      }
+      val maxLanguageLevel = languageLevels.second
+      return currentLanguageLevel.isAtLeast(languageLevels.first) &&
+             (maxLanguageLevel == null || maxLanguageLevel.isAtLeast(currentLanguageLevel))
     }
     return isInThirdPartyLibraries(root)
   }

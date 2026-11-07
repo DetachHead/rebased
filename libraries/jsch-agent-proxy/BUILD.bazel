@@ -1,6 +1,13 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
 load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
+### auto-generated section `dev intellij.libraries.jsch.agent.proxy` start
+content_module_jar(
+    libraries = ["@lib//:libraries-jsch-agent-proxy-jsch-agent-proxy"],
+    module = ":jsch-agent-proxy",
+)
+### auto-generated section `dev intellij.libraries.jsch.agent.proxy` end
+
 ### auto-generated section `build intellij.libraries.jsch.agent.proxy` start
 jvm_library(
     name = "jsch-agent-proxy",
@@ -16,11 +23,6 @@ jvm_library(
     visibility = ["//visibility:public"],
     exports = ["@lib//:libraries-jsch-agent-proxy-jsch-agent-proxy"],
     runtime_deps = ["@lib//:libraries-jsch-agent-proxy-jsch-agent-proxy"],
-)
-
-content_module_jar(
-    libraries = ["@lib//:libraries-jsch-agent-proxy-jsch-agent-proxy"],
-    module = ":jsch-agent-proxy",
 )
 
 jvm_library(
@@ -43,7 +45,6 @@ exports_files(
     [
         "intellij.libraries.jsch.agent.proxy.iml",
         "resources/intellij.libraries.jsch.agent.proxy.xml",
-        "module-content.yaml",
     ],
     visibility = ["//visibility:public"],
 )

@@ -7,6 +7,7 @@ import com.intellij.util.IncorrectOperationException;
 import com.intellij.util.concurrency.annotations.RequiresBackgroundThread;
 import com.intellij.util.concurrency.annotations.RequiresReadLock;
 import org.jetbrains.annotations.ApiStatus.Experimental;
+import org.jetbrains.annotations.ApiStatus.OverrideOnly;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -35,10 +36,15 @@ public interface Navigatable {
 
   /**
    * Open an editor and select/navigate to the object there if possible.
-   * Just do nothing if navigation is not possible like in case of a package
+   * Does nothing if navigation is not possible like in case of a package
+   * <p>
+   * The platform calls this method when it executes a raw navigation request.
+   * Submit navigation through {@link com.intellij.platform.ide.navigation.NavigationService#requestNavigate}.
+   * Always prefer implementing {@link #navigationRequest()} whenever possible.
    *
    * @param requestFocus {@code true} if focus requesting is necessary
    */
+  @OverrideOnly
   default void navigate(boolean requestFocus) {
     throw new IncorrectOperationException(
       "Must not call `navigate(boolean)` if `canNavigate()` returns `false`, " +

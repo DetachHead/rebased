@@ -17,6 +17,9 @@ import java.nio.file.Path
 
 private val PYTHON_ENVIRONMENT_RESULT_KEY = Key.create<PyResult<PythonEnvironment>>("PYTHON_ENVIRONMENT_RESULT")
 
+/** The result [enrichLocalPythonSdkWithHomeInfo] cached for this SDK, or `null`. Does no I/O. */
+internal fun Sdk.cachedPythonEnvironmentResult(): PyResult<PythonEnvironment>? = getUserData(PYTHON_ENVIRONMENT_RESULT_KEY)
+
 /**
  * Internal cache primitive backing [PythonInterpreter]; call [pythonInterpreter] from outside this file.
  *
@@ -28,7 +31,7 @@ private val PYTHON_ENVIRONMENT_RESULT_KEY = Key.create<PyResult<PythonEnvironmen
  *
  * @param forceRefresh re-detect even if a cached result already exists.
  */
-@RequiresBackgroundThread
+@RequiresBackgroundThread(generateAssertion = false /* IJPL-115548 */)
 internal fun Sdk.enrichLocalPythonSdkWithHomeInfo(forceRefresh: Boolean = false): PyResult<PythonEnvironment>? {
   if (!isPythonSdk(this) || isRemote(this)) return null
   if (!forceRefresh) {

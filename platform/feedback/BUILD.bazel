@@ -1,6 +1,10 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
 load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
+### auto-generated section `dev intellij.platform.feedback` start
+content_module_jar(module = ":feedback")
+### auto-generated section `dev intellij.platform.feedback` end
+
 ### auto-generated section `build intellij.platform.feedback` start
 jvm_library(
     name = "feedback",
@@ -21,7 +25,6 @@ jvm_library(
     deps = [
         # do not sort,
         "//platform/core-api:core",
-        "//platform/execution",
         "//platform/projectModel-api:projectModel",
         "//platform/util",
         "//platform/editor-ui-api:editor-ui",
@@ -42,8 +45,6 @@ jvm_library(
     ],
 )
 
-content_module_jar(module = ":feedback")
-
 jvm_library(
     name = "feedback_test_lib",
     testonly = True,
@@ -57,7 +58,6 @@ jvm_library(
         # do not sort,
         ":feedback",
         "//platform/core-api:core_test_lib",
-        "//platform/execution:execution_test_lib",
         "//platform/projectModel-api:projectModel_test_lib",
         "//platform/util:util_test_lib",
         "//platform/editor-ui-api:editor-ui_test_lib",
@@ -84,7 +84,6 @@ exports_files(
     [
         "intellij.platform.feedback.iml",
         "resources/intellij.platform.feedback.xml",
-        "module-content.yaml",
     ],
     visibility = ["//visibility:public"],
 )

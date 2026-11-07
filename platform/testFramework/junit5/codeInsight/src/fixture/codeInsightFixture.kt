@@ -17,9 +17,14 @@ import com.intellij.testFramework.fixtures.impl.CodeInsightTestFixtureImpl
 import com.intellij.testFramework.fixtures.impl.TempDirTestFixtureImpl
 import com.intellij.testFramework.junit5.fixture.TestContext
 import com.intellij.testFramework.junit5.fixture.TestFixture
+import com.intellij.testFramework.junit5.fixture.moduleFixture
+import com.intellij.testFramework.junit5.fixture.pathInProjectFixture
+import com.intellij.testFramework.junit5.fixture.projectFixture
+import com.intellij.testFramework.junit5.fixture.tempPathFixture
 import com.intellij.testFramework.junit5.fixture.testFixture
 import org.jetbrains.annotations.TestOnly
 import java.nio.file.Path
+import kotlin.io.path.Path
 import kotlin.io.path.exists
 import kotlin.io.path.pathString
 
@@ -113,6 +118,42 @@ fun <T: CodeInsightTestFixture> codeInsightFixture(
     codeInsightFixture.tearDown()
   }
 }
+
+/**
+ * Creates a [Project] fixture that is ready for [codeInsightFixture].
+ *
+ * The project is opened in a temporary directory.
+ * It has one module, and the module uses the project directory as its content and source root.
+ * Use it with the [codeInsightFixture] overload that takes only the project fixture:
+ *
+ * ```kotlin
+ * companion object {
+ *   private val projectFixture = codeInsightProjectFixture()
+ * }
+ *
+ * private val myFixture by codeInsightFixture(projectFixture)
+ * ```
+ *
+ * Declare it in a companion object to share one project between the tests of a class.
+ * Declare it as an instance property to get a new project for each test.
+ */
+@TestOnly
+fun codeInsightProjectFixture(): TestFixture<Project> = testFixture("codeInsightProjectFixture") {
+  val pathFixture = tempPathFixture()
+  val projectFixture = projectFixture(pathFixture, openAfterCreation = true)
+  projectFixture.moduleFixture(pathFixture, addPathToSourceRoot = true).init()
+  initialized(projectFixture.init()) {}
+}
+
+/**
+ * Creates a [CodeInsightTestFixture] that uses the directory of the [projectFixture] project as its temporary directory.
+ *
+ * Use it with [codeInsightProjectFixture]. The project must contain at least one module.
+ * Declare the result as an instance property, so that each test gets its own [CodeInsightTestFixture].
+ */
+@TestOnly
+fun codeInsightFixture(projectFixture: TestFixture<Project>): TestFixture<CodeInsightTestFixture> =
+  codeInsightFixture(projectFixture, projectFixture.pathInProjectFixture(Path("")))
 
 private fun getTestDataPathString(context: TestContext): String {
   val rootPath = context.findAnnotation(TestDataPath::class.java)?.value?.removePrefix($$"$PROJECT_ROOT/") ?: ""

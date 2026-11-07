@@ -1,6 +1,7 @@
 // Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.idea.maven.execution
 
+import com.intellij.debugger.engine.AsyncStacksUtils
 import com.intellij.execution.configurations.ParametersList
 import com.intellij.execution.runners.ExecutionEnvironment
 import com.intellij.idea.TestFor
@@ -33,6 +34,7 @@ import org.jetbrains.idea.maven.fixtures.ExecutionInfo
 import org.jetbrains.idea.maven.fixtures.checkUpdatingExcludedFoldersAfterExecution
 import org.jetbrains.idea.maven.fixtures.debugMavenRunConfiguration
 import org.jetbrains.idea.maven.fixtures.execute
+import org.jetbrains.idea.maven.fixtures.runMavenRunConfiguration
 import org.jetbrains.idea.maven.fixtures.toggleScriptsRegistryKey
 import org.jetbrains.idea.maven.project.MavenInSpecificPath
 import org.jetbrains.idea.maven.project.MavenWrapper
@@ -250,8 +252,7 @@ class ScriptMavenExecutionTest(mavenVersion: String, modelVersion: String) {
     val debugOpts = debugExecInfo.stdout.lines().singleOrNull { it.startsWith("MAVEN_OPTS") }
     assertNotNull(debugOpts, debugExecInfo.toString())
     assertTrue(debugOpts!!.contains("-agentlib:jdwp=transport=dt_socket"), debugOpts)
-    // maven.use.scripts.debug.agent = true is set to `true` by default
-    assertTrue(debugOpts.contains("debugger-agent.jar"), debugOpts)
+    assertEquals(AsyncStacksUtils.isAgentAvailable(), debugOpts.contains("debugger-agent.jar"), debugOpts)
   }
 
 
@@ -275,6 +276,59 @@ class ScriptMavenExecutionTest(mavenVersion: String, modelVersion: String) {
     assertTrue(executionInfo.stdout.contains(wrapperOutput), "Should run wrapper")
     assertTrue(executionInfo.stdout.contains("FOOOOO=BAAAAAAR"), "Should pass env variables in run configuration  but stdout: ${executionInfo.stdout}")
 
+  }
+
+  @Test
+  @TestFor(issues = ["IDEA-380329"])
+  fun testShouldInheritEnvVariablesAndVmOptionsFromProjectSettings() = runBlocking {
+    maven.importProjectAsync("""
+         <groupId>test</groupId>
+         <artifactId>project</artifactId>
+         <version>1</version>
+         """
+    )
+    createFakeProjectWrapper()
+    maven.mavenGeneralSettings.mavenHomeType = MavenWrapper
+    MavenRunner.getInstance(maven.project).settings.also {
+      it.environmentProperties = mapOf("FOOOOO" to "BAAAAAAR")
+      it.setVmOptions("-XMyJavaParameter")
+    }
+
+    val executionInfo = maven.runMavenRunConfiguration(MavenRunnerParameters(
+      true, maven.projectPath.toCanonicalPath(),
+      null as String?,
+      mutableListOf("verify"), emptyList()))
+
+    assertTrue(executionInfo.stdout.contains(wrapperOutput), "Should run wrapper")
+    assertTrue(executionInfo.stdout.contains("FOOOOO=BAAAAAAR"),
+               "Should pass the env variables from the project settings, but stdout: ${executionInfo.stdout}")
+    shouldContainOption(executionInfo, "-XMyJavaParameter")
+  }
+
+  @Test
+  @TestFor(issues = ["IDEA-380329"])
+  fun testShouldKeepVmOptionsWhenTheEnvironmentDefinesMavenOpts() = runBlocking {
+    maven.importProjectAsync("""
+         <groupId>test</groupId>
+         <artifactId>project</artifactId>
+         <version>1</version>
+         """
+    )
+    createFakeProjectWrapper()
+    maven.mavenGeneralSettings.mavenHomeType = MavenWrapper
+
+    val executionInfo = maven.execute(params = MavenRunnerParameters(
+      true, maven.projectPath.toCanonicalPath(),
+      null as String?,
+      mutableListOf("verify"), emptyList()),
+                                settings = MavenRunnerSettings().also {
+                                  it.environmentProperties = mapOf("MAVEN_OPTS" to "-XFromTheEnvironment")
+                                  it.setVmOptions("-XMyJavaParameter")
+                                })
+
+    assertTrue(executionInfo.stdout.contains(wrapperOutput), "Should run wrapper")
+    shouldContainOption(executionInfo, "-XFromTheEnvironment")
+    shouldContainOption(executionInfo, "-XMyJavaParameter")
   }
 
   @Test

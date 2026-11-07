@@ -11,11 +11,11 @@ jvm_library(
     resource_strip_prefix = "resources",
     resources = glob(
         ["resources/**/*"],
+        exclude = ["resources/**/icon-robots.txt"],
     ),
     visibility = ["//visibility:public"],
     runtime_deps = [
         # do not sort,
-        "//java/ide-resources",
         "//platform/platform-impl:ide-impl",
         "//idea/customization/min",
         "//idea/customization/base",
@@ -36,7 +36,6 @@ jvm_library(
     runtime_deps = [
         # do not sort,
         ":customization",
-        "//java/ide-resources:ide-resources_test_lib",
         "//platform/platform-impl:ide-impl_test_lib",
         "//idea/customization/min:min_test_lib",
         "//idea/customization/base:base_test_lib",

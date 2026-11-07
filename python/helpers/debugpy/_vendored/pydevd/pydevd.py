@@ -152,7 +152,7 @@ from _pydevd_bundle.pydevd_collect_bytecode_info import collect_try_except_info,
 from _pydevd_bundle.pydevd_suspended_frames import SuspendedFramesManager
 from socket import SHUT_RDWR
 from _pydevd_bundle.pydevd_api import PyDevdAPI
-from _pydevd_bundle.pydevd_timeout import TimeoutTracker
+from _pydevd_bundle.pydevd_timeout import TimeoutTracker, cancel_pending_interrupt_on_this_thread
 from _pydevd_bundle.pydevd_thread_lifecycle import suspend_all_threads, mark_thread_suspended, suspend_threads_lock
 
 if PYDEVD_USE_SYS_MONITORING:
@@ -421,6 +421,21 @@ class AbstractSingleNotificationBehavior(object):
                     pydev_log.info("Sending suspend notification after timeout.")
                     thread_id, thread = next(iter(self._suspended_thread_id_to_thread.items()))
                     self.send_suspend_notification(thread_id, thread, CMD_THREAD_SUSPEND)
+            elif self._pause_requested:
+                # No thread reached a trace callback within the timeout: it is likely
+                # blocked in a native or I/O call (e.g. a blocking read) that pydevd
+                # cannot interrupt. Warn the user instead of leaving the pause request
+                # looking like it silently did nothing.
+                pydev_log.info("Pause requested but no thread suspended after timeout.")
+                py_db = self._py_db()
+                if py_db is not None:
+                    py_db.writer.add_command(
+                        py_db.cmd_factory.make_warning_message(
+                            "Pause did not stop the process: it may be blocked in a native or "
+                            "I/O call (e.g. a blocking read) that the debugger cannot interrupt. "
+                            "It will stop the next time it executes Python code."
+                        )
+                    )
 
     def on_thread_suspend(self, thread_id, thread, stop_reason):
         with self._lock:
@@ -614,8 +629,12 @@ class PyDB(object):
         # Callback used to interrupt an in-progress debug console evaluation on request
         # (e.g. Ctrl+C in the debug console). It is set while a repl evaluate runs on the
         # thread executing it and cleared afterwards. Calling it raises a KeyboardInterrupt
-        # in that thread (see pydevd_timeout.create_interrupt_this_thread_callback). This is
-        # the DAP counterpart of the old CMD_INTERRUPT_DEBUG_CONSOLE command.
+        # in that thread (see
+        # pydevd_timeout.create_interrupt_this_thread_by_ident_callback). This is the DAP
+        # counterpart of the old CMD_INTERRUPT_DEBUG_CONSOLE command.
+        # The lock guards the slot only. A requester calls the callback outside the lock,
+        # because the callback raises a KeyboardInterrupt on the thread which runs the
+        # evaluation, and that thread takes this lock to clear the callback.
         self._console_interrupt_callback = None
         self._console_interrupt_lock = thread.allocate_lock()
 
@@ -719,6 +738,7 @@ class PyDB(object):
         self.is_files_filter_enabled = self._exclude_filters_enabled or self._is_libraries_filter_enabled
         self.show_return_values = False
         self.remove_return_values_flag = False
+        self.stop_on_failed_tests = False
         self.redirect_output = False
         # Note that besides the `redirect_output` flag, we also need to consider that someone
         # else is already redirecting (i.e.: debugpy).
@@ -1298,6 +1318,14 @@ class PyDB(object):
             self.plugin = PluginManager(self)
         return self.plugin
 
+    def set_unit_tests_debugging_mode(self):
+        self.stop_on_failed_tests = True
+
+    def is_test_item_or_set_up_caller(self, trace):
+        from _pydevd_bundle.pydevd_utils import is_test_item_or_set_up_caller
+
+        return is_test_item_or_set_up_caller(self, trace)
+
     def in_project_scope(self, frame, absolute_filename=None):
         """
         Note: in general this method should not be used (apply_files_filter should be used
@@ -1821,13 +1849,22 @@ class PyDB(object):
 
     def set_console_interrupt_callback(self, callback):
         """
-        Registers (or clears, when ``callback`` is ``None``) the callback used to interrupt
-        the debug console evaluation that is currently running. Must be created on the thread
-        that runs the evaluation so it can target it (see
-        pydevd_timeout.create_interrupt_this_thread_callback).
+        Registers the callback used to interrupt the debug console evaluation that is
+        currently running. Must be created on the thread that runs the evaluation so it can
+        target it (see pydevd_timeout.create_interrupt_this_thread_by_ident_callback). Call
+        clear_console_interrupt_callback when the evaluation ends.
         """
         with self._console_interrupt_lock:
             self._console_interrupt_callback = callback
+
+    def clear_console_interrupt_callback(self):
+        """
+        Unregisters the console interrupt callback and drops an interrupt which was requested
+        but not delivered yet. Must be called on the thread that ran the evaluation.
+        """
+        with self._console_interrupt_lock:
+            self._console_interrupt_callback = None
+        cancel_pending_interrupt_on_this_thread()
 
     def interrupt_console_evaluation(self):
         """
@@ -1839,7 +1876,23 @@ class PyDB(object):
             callback = self._console_interrupt_callback
         if callback is None:
             return False
+
+        # Outside the lock, because this raises a KeyboardInterrupt on the thread which runs the
+        # evaluation, and that thread takes the lock to clear the callback.
         callback()
+
+        with self._console_interrupt_lock:
+            evaluation_ended = self._console_interrupt_callback is None
+
+        if evaluation_ended:
+            # The evaluation ended while this interrupt was delivered, so nothing will raise the
+            # KeyboardInterrupt that was just scheduled. Drop it: left pending, it lands on a
+            # later frame of that thread and takes the debug session down. Every order of the two
+            # threads is covered, because the evaluation clears the callback before it drops a
+            # pending interrupt of its own.
+            callback.cancel()
+            return False
+
         return True
 
     def process_internal_commands(self, process_thread_ids: Optional[tuple]=None):

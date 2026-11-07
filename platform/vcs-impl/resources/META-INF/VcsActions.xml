@@ -43,6 +43,7 @@
     <action id="Vcs.VcsClone" class="com.intellij.openapi.wm.impl.welcomeScreen.GetFromVersionControlAction">
       <synonym key="action.Vcs.VcsClone.text.synonym1"/>
       <synonym key="action.Vcs.VcsClone.text.synonym2"/>
+      <override-text place="ProjectWidgetPopup"/>
     </action>
     <group class="com.intellij.openapi.vcs.actions.VcsActionGroup" id="VcsGroup" searchable="false"/>
     <action id="Vcs.UpdateProject" class="com.intellij.openapi.vcs.update.CommonUpdateProjectAction" icon="AllIcons.Actions.CheckOut">
@@ -682,11 +683,10 @@
       <add-to-group group-id="Internal"/>
     </group>
     <!-- upstream this is defined in the java plugin for some insane reason so we move it here in rebased -->
-    <action id="ProjectFromVersionControl" class="com.intellij.openapi.wm.impl.welcomeScreen.GetFromVersionControlAction">
-      <override-text place="ProjectWidgetPopup"/>
+    <reference ref="Vcs.VcsClone">
       <add-to-group group-id="NewProjectOrModuleGroup"/>
       <add-to-group group-id="ProjectWidget.Actions" anchor="after" relative-to-action="OpenFile"/>
-    </action>
+    </reference>
   </actions>
 
   <actions resource-bundle="messages.VcsBundle">

@@ -8,8 +8,10 @@ import com.intellij.ide.nls.NlsMessages
 import com.intellij.ide.plugins.marketplace.MarketplaceRequests
 import com.intellij.ide.plugins.marketplace.statistics.PluginManagerUsageCollector
 import com.intellij.ide.plugins.marketplace.statistics.enums.InstallationSourceEnum
+import com.intellij.ide.plugins.newui.PluginInstallationProgressSink
 import com.intellij.ide.plugins.newui.PluginUiModel
 import com.intellij.ide.plugins.newui.PluginUiModelAdapter
+import com.intellij.ide.plugins.newui.withDownloadProgressSink
 import com.intellij.notification.NotificationGroup
 import com.intellij.notification.NotificationGroupManager
 import com.intellij.notification.NotificationType
@@ -19,12 +21,13 @@ import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.diagnostic.debug
 import com.intellij.openapi.extensions.PluginId
+import com.intellij.openapi.progress.ProcessCanceledException
 import com.intellij.openapi.progress.ProgressIndicator
 import com.intellij.openapi.progress.runBlockingCancellable
 import com.intellij.openapi.ui.MessageDialogBuilder
 import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.updateSettings.impl.PluginDownloader
-import com.intellij.openapi.updateSettings.impl.PluginUpdateSourceId
+import com.intellij.openapi.updateSettings.impl.PluginUpdateSource
 import com.intellij.openapi.updateSettings.impl.createRepository
 import com.intellij.openapi.util.ActionCallback
 import com.intellij.openapi.util.Ref
@@ -48,6 +51,7 @@ class PluginInstallOperation(
   private val myCustomReposPlugins: Collection<PluginUiModel>,
   private val myIndicator: ProgressIndicator,
   private val myPluginEnabler: PluginEnabler,
+  private val myProgressSink: PluginInstallationProgressSink = PluginInstallationProgressSink.NONE,
 ) {
   private var mySuccess = true
   private val myDependant: MutableSet<PluginInstallCallbackData> = HashSet()
@@ -69,6 +73,7 @@ class PluginInstallOperation(
     customReposPlugins.map { PluginUiModelAdapter(it) },
     indicator,
     pluginEnabler,
+    PluginInstallationProgressSink.NONE,
   )
 
   init {
@@ -107,7 +112,7 @@ class PluginInstallOperation(
   val isRestartRequired: Boolean
     get() = myRestartRequired
 
-  @RequiresBackgroundThread
+  @RequiresBackgroundThread(generateAssertion = false /* IJPL-115548 */)
   fun run() {
     updateUrls()
     mySuccess = prepareToInstall(myPluginsToInstall, MutablePluginInstallationModel())
@@ -119,8 +124,8 @@ class PluginInstallOperation(
   val installedDependentPlugins: Set<PluginInstallCallbackData>
     get() = myDependant
 
-  internal val dependentPluginUpdateSourceIds: Map<PluginId, PluginUpdateSourceId>
-    field: MutableMap<PluginId, PluginUpdateSourceId> = HashMap()
+  internal val dependentPluginUpdateSources: Map<PluginId, PluginUpdateSource>
+    field: MutableMap<PluginId, PluginUpdateSource> = HashMap()
 
   val isShownErrors: Boolean
     get() = myShownErrors
@@ -159,7 +164,7 @@ class PluginInstallOperation(
     }
   }
 
-  @RequiresBackgroundThread
+  @RequiresBackgroundThread(generateAssertion = false /* IJPL-115548 */)
   private fun prepareToInstall(pluginsToInstall: List<PluginUiModel>, installModel: MutablePluginInstallationModel): Boolean {
     for (plugin in pluginsToInstall) {
       installModel.assumeInstalled(plugin)
@@ -182,7 +187,7 @@ class PluginInstallOperation(
     return result
   }
 
-  @RequiresBackgroundThread
+  @RequiresBackgroundThread(generateAssertion = false /* IJPL-115548 */)
   @Throws(IOException::class)
   private fun prepareToInstallWithCallback(
     pluginNode: PluginUiModel,
@@ -215,7 +220,7 @@ class PluginInstallOperation(
     }
   }
 
-  @RequiresBackgroundThread
+  @RequiresBackgroundThread(generateAssertion = false /* IJPL-115548 */)
   @Throws(IOException::class)
   private fun prepareToInstall(
     pluginNode: PluginUiModel,
@@ -236,7 +241,10 @@ class PluginInstallOperation(
       previousVersion,
     )
 
-    val prepared = downloader.prepareToInstall(myIndicator, pluginNode.pluginId == myPendingUpdateToReplace)
+    val prepared = downloader.prepareToInstall(
+      myIndicator.withDownloadProgressSink(myProgressSink),
+      pluginNode.pluginId == myPendingUpdateToReplace,
+    )
     if (prepared) {
       val descriptor = downloader.descriptor as PluginMainDescriptor
       if (!checkMissingDependencies(descriptor, installModel)) {
@@ -268,7 +276,7 @@ class PluginInstallOperation(
         }
       }
       myDependant.add(PluginInstallCallbackData(downloader.getFilePath(), descriptor, !allowNoRestart))
-      dependentPluginUpdateSourceIds[downloader.id] = createRepository(downloader.uiModel)
+      dependentPluginUpdateSources[downloader.id] = createRepository(downloader.uiModel)
       val node = pluginNode.getDescriptor()
       if (node is PluginNode) {
         node.status = PluginNode.Status.DOWNLOADED
@@ -463,7 +471,7 @@ class PluginInstallOperation(
     return true
   }
 
-  @RequiresBackgroundThread
+  @RequiresBackgroundThread(generateAssertion = false /* IJPL-115548 */)
   private fun prepareDependencies(
     pluginNode: IdeaPluginDescriptor,
     dependencies: MutableList<PluginUiModel>,
@@ -479,6 +487,7 @@ class PluginInstallOperation(
     try {
       val result = Ref(false)
 
+      val scheduledDependencies = ArrayList<PluginUiModel>()
       ApplicationManager.getApplication().invokeAndWait({
         synchronized(ourInstallLock) {
           val pluginsState = InstalledPluginsState.getInstance()
@@ -508,6 +517,7 @@ class PluginInstallOperation(
             for (dependency in dependenciesToShow) {
               createInstallCallback(dependency)
             }
+            dependencies.filterTo(scheduledDependencies) { it.pluginId in dependenciesToShow }
             result.set(true)
           }
           else {
@@ -524,13 +534,21 @@ class PluginInstallOperation(
               for (dependency in dependenciesToShow) {
                 createInstallCallback(dependency)
               }
+              dependencies.filterTo(scheduledDependencies) { it.pluginId in dependenciesToShow }
             }
           }
         }
       }, ModalityState.any())
 
+      if (scheduledDependencies.isNotEmpty()) {
+        myProgressSink.dependenciesScheduled(scheduledDependencies)
+      }
+
       return dependencies.isEmpty() ||
              result.get() && prepareToInstall(dependencies, installModel)
+    }
+    catch (c: ProcessCanceledException) {
+      throw c
     }
     catch (_: Exception) {
       return false

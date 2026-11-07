@@ -2,7 +2,6 @@
 package com.intellij.openapi.editor.impl.view
 
 import com.intellij.openapi.editor.impl.EditorImpl
-import com.intellij.ui.scale.JBUIScale.scale
 import java.awt.Graphics2D
 import java.awt.RenderingHints
 import java.awt.geom.Path2D
@@ -160,6 +159,13 @@ internal class SelectionVisualModel(
   private val selectionBg get() = editor.selectionModel.textAttributes.backgroundColor
   private val lines = LineSet()
 
+  /*
+   * Drop the cached selection rectangles
+   * Called when the change might have caused cached rectangles outside
+   * the visible area to become invalid (for example, font size changes)
+   */
+  fun reset() = lines.items.clear()
+
   fun paintBlock(block: Rectangle2D) {
     val yStart = block.y - yShift
     val singleton = SelectionLine(AxisBounds(yStart, yStart + block.height))
@@ -215,7 +221,7 @@ internal class SelectionVisualModel(
   ) {
     val (top, bottom) = line.boundsY
     val (left, right) = block
-    val radius = scale((lineHeight.toDouble() / 6.0).toFloat()).toDouble()
+    val radius = lineHeight / 6.0
     val precision = 2 * radius
 
     val above = lines.lineAbove(line)

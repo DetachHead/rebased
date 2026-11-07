@@ -39,7 +39,7 @@ import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.runReadActionBlocking
 import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.logger
-import com.intellij.openapi.diagnostic.rethrowControlFlowException
+import com.intellij.diagnostic.rethrowControlFlowException
 import com.intellij.openapi.progress.CeProcessCanceledException
 import com.intellij.openapi.progress.ProcessCanceledException
 import com.intellij.openapi.project.IndexNotReadyException
@@ -145,11 +145,17 @@ internal class ActionUpdater @JvmOverloads constructor(
   private var edtCallsCount: Int = 0 // used only in EDT
   private var edtWaitNanos: Long = 0 // used only in EDT
 
+  /**
+   * The class names of the actions whose EDT block took the read lock in this session.
+   * [Utils.expandActionGroupSuspend] reports them when the fast track was skipped.
+   */
+  internal val edtLockRequiringActions: MutableSet<String> = ConcurrentHashMap.newKeySet()
+
   init {
     checkRecursiveUpdateSession()
   }
 
-  @RequiresEdt
+  @RequiresEdt(generateAssertion = false /* IJPL-115548 */)
   fun applyPresentationChanges() {
     for ((action, copy) in updatedPresentations) {
       val orig = presentationFactory.getPresentation(action)
@@ -200,6 +206,9 @@ internal class ActionUpdater @JvmOverloads constructor(
           }
         }
       }
+    }
+    if (isRWLockRequired) {
+      opElement.action?.let { edtLockRequiringActions.add(it.javaClass.name) }
     }
     return computeOnEdt(opElement, updateThread == ActionUpdateThread.EDT, isRWLockRequired) {
       call()
@@ -305,7 +314,7 @@ internal class ActionUpdater @JvmOverloads constructor(
   /**
    * Returns actions from the given and nested non-popup groups that are visible after updating
    */
-  @RequiresBackgroundThread
+  @RequiresBackgroundThread(generateAssertion = false /* IJPL-115548 */)
   suspend fun expandActionGroup(group: ActionGroup): List<AnAction> {
     edtCallsCount = 0
     edtWaitNanos = 0
@@ -320,7 +329,11 @@ internal class ActionUpdater @JvmOverloads constructor(
         group, dataContext, place, uiKind, presentationFactory, asUpdateSession()) {
         removeUnnecessarySeparators(doExpandActionGroup(group, false))
       }
-      computeOnEdt(group.toString(), isLockRequired(group)) {
+      val isRWLockRequired = isLockRequired(group)
+      if (isRWLockRequired) {
+        edtLockRequiringActions.add(group.javaClass.name)
+      }
+      computeOnEdt(group.toString(), isRWLockRequired) {
         applyPresentationChanges()
       }
       return result
@@ -550,13 +563,23 @@ internal class ActionUpdater @JvmOverloads constructor(
     if (roots.isEmpty()) return@flow
     val set = HashSet<AnAction>()
     val queue = ArrayDeque(roots)
+    // Update all the children before a skipped operation is rethrown.
+    // An interceptor can collect data in each update, e.g., the backend action ids in a split mode.
+    var skipOperation: SkipOperation? = null
     while (!queue.isEmpty()) {
       val first = queue.removeFirst()
       if (!set.add(first)) continue
-      val children = tree(first)
+      val children = try {
+        tree(first)
+      }
+      catch (ex: SkipOperation) {
+        if (skipOperation == null) skipOperation = ex
+        continue
+      }
       if (children.isNullOrEmpty()) emit(first)
       else children.reversed().forEach(queue::addFirst)
     }
+    skipOperation?.let { throw it }
   }
 
   suspend fun presentation(action: AnAction): Presentation {

@@ -11,8 +11,8 @@ import java.util.List;
 
 public abstract class OverridingTester extends LightJavaCodeInsightFixtureTestCase {
   @Override
-  protected String getBasePath() {
-    return TestUtils.getTestDataPath() + "overriding/";
+  protected String getTestDataPath() {
+    return TestUtils.getAbsoluteTestDataPath() + "overriding/";
   }
 
   public void doTest() {

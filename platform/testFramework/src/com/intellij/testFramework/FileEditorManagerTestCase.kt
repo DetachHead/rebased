@@ -15,8 +15,9 @@ import com.intellij.openapi.fileEditor.impl.FileEditorProviderManagerImpl
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.util.JDOMUtil
 import com.intellij.openapi.util.io.FileUtil
-import com.intellij.openapi.vfs.LocalFileSystem
+import com.intellij.openapi.vfs.StandardFileSystems
 import com.intellij.openapi.vfs.VirtualFile
+import com.intellij.openapi.vfs.VirtualFileManager
 import com.intellij.platform.ide.progress.runWithModalProgressBlocking
 import com.intellij.platform.util.coroutines.childScope
 import com.intellij.testFramework.common.runAll
@@ -33,6 +34,13 @@ private val CUSTOM_PROJECT_DESCRIPTOR = object : LightProjectDescriptor() {
   }
 }
 
+/**
+ * A JUnit 3 base class that replaces the project [FileEditorManager] with a fresh [FileEditorManagerImpl].
+ */
+@Deprecated(
+  "Write a JUnit 5 test with `projectFixture().fileEditorManagerFixture()` from `com.intellij.testFramework.junit5.fixture`. " +
+  "The fixture gives the same manager replacement, the dock-container check, and the editor-history cleanup."
+)
 abstract class FileEditorManagerTestCase : BasePlatformTestCase() {
   @JvmField
   protected var manager: FileEditorManagerImpl? = null
@@ -73,7 +81,7 @@ abstract class FileEditorManagerTestCase : BasePlatformTestCase() {
 
   protected fun getFile(path: String): VirtualFile {
     val fullPath = testDataPath + path
-    val file = LocalFileSystem.getInstance().refreshAndFindFileByPath(fullPath)
+    val file = StandardFileSystems.local().refreshAndFindFileByPath(fullPath)
     assertNotNull("Can't find $fullPath", file)
     return file!!
   }
@@ -81,7 +89,7 @@ abstract class FileEditorManagerTestCase : BasePlatformTestCase() {
   protected fun createTempFile(path: String, content: ByteArray): VirtualFile {
     val io = Path.of(FileUtil.getTempDirectory(), path)
     io.write(content)
-    val file = LocalFileSystem.getInstance().refreshAndFindFileByNioFile(io)
+    val file = VirtualFileManager.getInstance().refreshAndFindFileByNioPath(io)
     assertNotNull("Can't find $io", file)
     return file!!
   }

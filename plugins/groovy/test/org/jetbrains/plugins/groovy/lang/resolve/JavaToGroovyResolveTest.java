@@ -16,8 +16,8 @@ import org.jetbrains.plugins.groovy.util.TestUtils;
 
 public class JavaToGroovyResolveTest extends GroovyResolveTestCase {
   @Override
-  protected String getBasePath() {
-    return TestUtils.getTestDataPath() + "resolve/javaToGroovy/";
+  protected String getTestDataPath() {
+    return TestUtils.getAbsoluteTestDataPath() + "resolve/javaToGroovy/";
   }
 
   public void testField1() throws Exception {

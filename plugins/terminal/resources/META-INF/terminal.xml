@@ -1,4 +1,5 @@
 <idea-plugin>
+  <resource-bundle>messages.TerminalBundle</resource-bundle>
   <extensions defaultExtensionNs="com.intellij">
     <toolWindow id="Terminal" anchor="bottom" icon="com.intellij.terminal.icons.TerminalIcons.OpenTerminal_13x13"
                 factoryClass="org.jetbrains.plugins.terminal.TerminalToolWindowFactory"
@@ -40,7 +41,7 @@
     <registryKey key="terminal.new.ui.reworked" defaultValue="false"
                  description="No-op, use Terminal Engine option in Terminal settings instead"/>
 
-    <registryKey key="terminal.use.ghostty.emulator" defaultValue="false"
+    <registryKey key="terminal.use.ghostty.emulator" defaultValue="true"
                  description="Experimental: drive the reworked terminal session with the Ghostty VT emulator instead of JediTerm, unless specified explicitly. Requires the bundled libghostty-vt native library."/>
 
     <registryKey key="terminal.new.ui.option.visible" defaultValue="false"
@@ -68,16 +69,20 @@
                   Open a new terminal after enabling this option to take effect."/>
     <registryKey key="terminal.generic.hyperlinks.for.relative.path" defaultValue="true"
                  description="Show generic file hyperlinks for relative paths in the reworked terminal. Requires enabled `terminal.generic.hyperlinks`."/>
+    <registryKey key="terminal.generic.hyperlinks.in.consoles" defaultValue="true"
+                 description="Show invisible file hyperlinks for absolute paths in consoles outside the terminal, such as the Run and Debug consoles."/>
+    <registryKey key="terminal.hyperlinks.on.hover" defaultValue="true"
+                 description="Compute invisible file hyperlinks in the reworked terminal only for the line under the mouse pointer.
+                  When disabled, they are computed for every output line. Open a new terminal after changing this option to take effect."/>
     <registryKey key="terminal.minimal.document.edits" defaultValue="true"
                  description="When updating the terminal document, try to perform minimal edits,
                   to preserve range markers (hyperlink highlighters) over unchanged lines so they blink less.
                   When disabled, the changed range is always replaced in a single edit."/>
-    <registryKey key="terminal.ai.inline.completion.enabled" defaultValue="false"
+    <registryKey key="terminal.ai.inline.completion.enabled" defaultValue="true"
                  description="Whether Terminal AI Inline Completion is enabled and visible in the settings"/>
     <registryKey key="terminal.prefer.image.path.paste.over.text" defaultValue="true"
                  description="When pasting in the terminal, prefer inserting an image path if it is available in the clipboard
                   even if text representation is available."/>
-    <consoleFilterProvider implementation="org.jetbrains.plugins.terminal.hyperlinks.filter.TerminalGenericFileFilterProvider"/>
 
     <experimentalFeature id="terminal.shell.command.handling" percentOfUsers="100"/>
     <terminal.shellCommandHandler implementation="org.jetbrains.plugins.terminal.RunAnythingTerminalBridge"/>
@@ -160,6 +165,8 @@
                     interface="org.jetbrains.plugins.terminal.startup.ShellExecOptionsCustomizer" dynamic="true"/>
     <extensionPoint qualifiedName="org.jetbrains.plugins.terminal.shellExecOptionsCustomizerDisabler"
                     interface="org.jetbrains.plugins.terminal.startup.ShellExecOptionsCustomizerDisabler" dynamic="true"/>
+    <extensionPoint qualifiedName="org.jetbrains.plugins.terminal.workingDirectoryCustomizer" dynamic="true"
+                    interface="org.jetbrains.plugins.terminal.startup.TerminalWorkingDirectoryCustomizer"/>
     <!--suppress DeprecatedClassUsageInspection -->
     <extensionPoint qualifiedName="org.jetbrains.plugins.terminal.localTerminalCustomizer"
                     interface="org.jetbrains.plugins.terminal.LocalTerminalCustomizer" dynamic="true"/>

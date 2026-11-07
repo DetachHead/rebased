@@ -10,6 +10,10 @@ jps_test(
 )
 ### skip generation section `test intellij.python.mcp.tests`
 
+### auto-generated section `dev intellij.python.mcp` start
+content_module_jar(module = ":mcp")
+### auto-generated section `dev intellij.python.mcp` end
+
 ### auto-generated section `build intellij.python.mcp` start
 jvm_library(
     name = "mcp",
@@ -44,8 +48,6 @@ jvm_library(
         "//python/python-uv/backend",
     ],
 )
-
-content_module_jar(module = ":mcp")
 
 jvm_library(
     name = "mcp_test_lib",
@@ -121,14 +123,14 @@ jvm_library(
     deps = [
         # do not sort,
         "@lib//:kotlin-stdlib",
-        "//libraries/junit5-jupiter",
-        "//libraries/junit5-jupiter:junit5-jupiter_test_lib",
+        "//libraries/junit6-jupiter",
+        "//libraries/junit6-jupiter:junit6-jupiter_test_lib",
         "//libraries/kotlin/test-assertions-core-jvm:libraries-kotlinTestAssertionsCoreJvm",
         "//libraries/kotlin/test-assertions-core-jvm:libraries-kotlinTestAssertionsCoreJvm_test_lib",
         "//platform/testFramework/junit5",
         "//platform/testFramework/junit5:junit5_test_lib",
-        "//libraries/junit5",
-        "//libraries/junit5:junit5_test_lib",
+        "//libraries/junit6",
+        "//libraries/junit6:junit6_test_lib",
     ],
 )
 ### auto-generated section `build intellij.python.mcp.tests` end

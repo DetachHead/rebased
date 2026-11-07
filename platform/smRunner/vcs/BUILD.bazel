@@ -1,5 +1,4 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
-load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.platform.smRunner.vcs` start
 jvm_library(
@@ -39,12 +38,12 @@ jvm_library(
         "//platform/util/progress",
         "//platform/util:util-ui",
         "//platform/lang-impl",
+        "//platform/buildView",
         "//platform/execution",
+        "//platform/consoleView",
         "//platform/testRunner",
     ],
 )
-
-content_module_jar(module = ":vcs")
 
 jvm_library(
     name = "vcs_test_lib",
@@ -76,7 +75,9 @@ jvm_library(
         "//platform/util/progress:progress_test_lib",
         "//platform/util:util-ui_test_lib",
         "//platform/lang-impl:lang-impl_test_lib",
+        "//platform/buildView:buildView_test_lib",
         "//platform/execution:execution_test_lib",
+        "//platform/consoleView:consoleView_test_lib",
         "//platform/testRunner:testRunner_test_lib",
     ],
 )
@@ -87,7 +88,6 @@ exports_files(
     [
         "intellij.platform.smRunner.vcs.iml",
         "resources/intellij.platform.smRunner.vcs.xml",
-        "module-content.yaml",
     ],
     visibility = ["//visibility:public"],
 )

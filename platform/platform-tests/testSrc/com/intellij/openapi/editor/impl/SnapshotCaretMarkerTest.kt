@@ -4,6 +4,7 @@ package com.intellij.openapi.editor.impl
 import com.intellij.openapi.application.EDT
 import com.intellij.openapi.editor.EditorFactory
 import com.intellij.openapi.editor.LogicalPosition
+import com.intellij.openapi.editor.VisualPosition
 import com.intellij.openapi.editor.impl.marker.UsePMarkerImplementation
 import com.intellij.testFramework.common.timeoutRunBlocking
 import com.intellij.testFramework.junit5.TestApplication
@@ -67,13 +68,18 @@ class SnapshotCaretMarkerTest {
   }
 
   @Test
-  @UsePMarkerImplementation(false)
-  fun `disabled snapshot marker implementation uses caret marker trees`(): Unit = timeoutRunBlocking {
-    val usesSnapshotStorage = withEditor("abc") { editor ->
-      editor.caretModel.isUsingSnapshotMarkerStorage
+  fun `edit after a virtual caret keeps its position`(): Unit = timeoutRunBlocking {
+    val position = withEditor("abc\nccccc") { editor ->
+      editor.isColumnMode = true
+      val caret = editor.caretModel.primaryCaret
+      caret.moveToVisualPosition(VisualPosition(0, 4))
+
+      editor.document.replaceString(6, 8, "CC")
+
+      caret.visualPosition
     }
 
-    assertThat(usesSnapshotStorage).isFalse()
+    assertThat(position).isEqualTo(VisualPosition(0, 4))
   }
 
   private suspend fun <T> withEditor(text: String, action: suspend (EditorImpl) -> T): T {

@@ -12,6 +12,10 @@ jps_test(
 
 ### skip generation section `test intellij.platform.jewel.ideLafBridge.tests`
 
+### auto-generated section `dev intellij.platform.jewel.ideLafBridge` start
+content_module_jar(module = ":ide-laf-bridge")
+### auto-generated section `dev intellij.platform.jewel.ideLafBridge` end
+
 ### auto-generated section `build intellij.platform.jewel.ideLafBridge` start
 create_kotlinc_options(
     name = "custom_ide-laf-bridge",
@@ -64,7 +68,6 @@ jvm_library(
         "//platform/platform-api:ide",
         "//platform/platform-impl:ide-impl",
         "//platform/ide-core",
-        "//libraries/jna",
         "//libraries/skiko",
         "//platform/core-ui",
         "//platform/util:util-ui",
@@ -72,8 +75,6 @@ jvm_library(
         "//platform/editor-ui-ex:editor-ex",
     ],
 )
-
-content_module_jar(module = ":ide-laf-bridge")
 
 jvm_library(
     name = "ide-laf-bridge_test_lib",
@@ -109,24 +110,11 @@ jvm_library(
         "//platform/platform-api:ide_test_lib",
         "//platform/platform-impl:ide-impl_test_lib",
         "//platform/ide-core:ide-core_test_lib",
-        "//libraries/jna:jna_test_lib",
         "//libraries/skiko:skiko_test_lib",
         "//platform/core-ui:core-ui_test_lib",
         "//platform/util:util-ui_test_lib",
         "//libraries/compose-foundation-desktop:compose-foundation-desktop_test_lib",
         "//platform/editor-ui-ex:editor-ex_test_lib",
-        "//libraries/compose-foundation-desktop-junit",
-        "//libraries/compose-foundation-desktop-junit:compose-foundation-desktop-junit_test_lib",
-        "//platform/testFramework",
-        "//platform/testFramework:testFramework_test_lib",
-        "//java/testFramework",
-        "//java/testFramework:testFramework_test_lib",
-        "//plugins/textmate",
-        "//plugins/textmate:textmate_test_lib",
-        "//plugins/textmate/plugin",
-        "//plugins/textmate/plugin:plugin_test_lib",
-        "//libraries/mockk/jvm",
-        "//libraries/mockk/jvm:jvm_test_lib",
     ],
 )
 ### auto-generated section `build intellij.platform.jewel.ideLafBridge` end
@@ -136,7 +124,6 @@ exports_files(
     [
         "intellij.platform.jewel.ideLafBridge.iml",
         "src/main/resources/intellij.platform.jewel.ideLafBridge.xml",
-        "module-content.yaml",
     ],
     visibility = ["//visibility:public"],
 )
@@ -169,6 +156,7 @@ jvm_library(
         "//platform/jewel/ui",
         "//libraries/compose-foundation-desktop",
     ],
+    runtime_deps = ["//xml/plugin"],
 )
 
 jvm_library(
@@ -204,6 +192,7 @@ jvm_library(
         # do not sort,
         ":ideLafBridge-tests",
         "//platform/platform-impl:ide-impl_test_lib",
+        "//xml/plugin:plugin_test_lib",
     ],
     deps = [
         # do not sort,

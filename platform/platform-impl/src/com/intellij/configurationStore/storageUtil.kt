@@ -30,7 +30,7 @@ import com.intellij.openapi.util.NlsContexts
 import com.intellij.openapi.util.NlsSafe
 import com.intellij.openapi.util.text.HtmlBuilder
 import com.intellij.openapi.util.text.HtmlChunk
-import com.intellij.openapi.vfs.LocalFileSystem
+import com.intellij.openapi.vfs.StandardFileSystems
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.platform.ide.CoreUiCoroutineScopeHolder
 import com.intellij.util.io.createDirectories
@@ -38,15 +38,11 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.jetbrains.annotations.ApiStatus.Internal
-import org.jetbrains.annotations.TestOnly
 import java.io.IOException
 import java.nio.file.Path
 import kotlin.io.path.invariantSeparatorsPathString
 
 const val NOTIFICATION_GROUP_ID: String = "Load Error"
-
-@TestOnly
-var DEBUG_LOG: String? = null
 
 @Internal
 fun doNotify(macros: MutableSet<@NlsSafe String>, project: Project, substitutorToStore: Map<TrackingPathMacroSubstitutor, IComponentStore>) {
@@ -157,13 +153,13 @@ private fun collect(
 
 @Internal
 fun getOrCreateVirtualFile(file: Path, requestor: StorageManagerFileWriteRequestor): VirtualFile {
-  var virtualFile = LocalFileSystem.getInstance().refreshAndFindFileByPath(file.invariantSeparatorsPathString)
+  var virtualFile = StandardFileSystems.local().refreshAndFindFileByPath(file.invariantSeparatorsPathString)
   if (virtualFile == null) {
     val parentFile = file.parent
     parentFile.createDirectories()
 
     // need refresh if the directory has just been created
-    val parentVirtualFile = LocalFileSystem.getInstance().refreshAndFindFileByPath(parentFile.invariantSeparatorsPathString)
+    val parentVirtualFile = StandardFileSystems.local().refreshAndFindFileByPath(parentFile.invariantSeparatorsPathString)
                             ?: throw IOException(ProjectBundle.message("project.configuration.save.file.not.found", parentFile))
 
     virtualFile = runAsWriteActionIfNeeded {
@@ -202,8 +198,3 @@ class UnknownMacroNotification(
     }
   }
 }
-
-/** Used in constructed configuration store events to trigger VFS content reloading for files updated via NIO. */
-@Internal
-@JvmField
-val RELOADING_STORAGE_WRITE_REQUESTOR: StorageManagerFileWriteRequestor = object : StorageManagerFileWriteRequestor { }

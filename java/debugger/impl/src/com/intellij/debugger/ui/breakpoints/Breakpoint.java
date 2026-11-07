@@ -47,7 +47,6 @@ import com.intellij.execution.process.ProcessOutputType;
 import com.intellij.execution.ui.ConsoleViewContentType;
 import com.intellij.icons.AllIcons;
 import com.intellij.java.JavaPluginDisposable;
-import com.intellij.openapi.application.AccessToken;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.project.IndexNotReadyException;
@@ -63,7 +62,6 @@ import com.intellij.psi.PsiElement;
 import com.intellij.ui.AppUIUtil;
 import com.intellij.ui.classFilter.ClassFilter;
 import com.intellij.util.ObjectUtils;
-import com.intellij.util.SlowOperations;
 import com.intellij.util.ThreeState;
 import com.intellij.util.concurrency.AppExecutorUtil;
 import com.intellij.util.containers.ContainerUtil;
@@ -203,7 +201,7 @@ public abstract class Breakpoint<P extends JavaBreakpointProperties> implements 
 
   @Override
   public boolean isObsolete() {
-    return myXBreakpoint instanceof XBreakpointBase && ((XBreakpointBase<?, ?, ?>)myXBreakpoint).isDisposed();
+    return myXBreakpoint instanceof XBreakpointBase<?, ?, ?> base && base.isDisposed();
   }
 
   /**
@@ -231,12 +229,12 @@ public abstract class Breakpoint<P extends JavaBreakpointProperties> implements 
   }
 
   public boolean isRemoveAfterHit() {
-    return myXBreakpoint instanceof XLineBreakpoint && ((XLineBreakpoint<?>)myXBreakpoint).isTemporary();
+    return myXBreakpoint instanceof XLineBreakpoint<?> breakpoint && breakpoint.isTemporary();
   }
 
   public void setRemoveAfterHit(boolean value) {
-    if (myXBreakpoint instanceof XLineBreakpoint) {
-      ((XLineBreakpoint<?>)myXBreakpoint).setTemporary(value);
+    if (myXBreakpoint instanceof XLineBreakpoint<?> breakpoint) {
+      breakpoint.setTemporary(value);
     }
   }
 
@@ -401,7 +399,7 @@ public abstract class Breakpoint<P extends JavaBreakpointProperties> implements 
     if (getProperties().isTRACING_END() && Registry.is("debugger.call.tracing")) {
       CallTracer.get(debugProcess).stop(event.thread());
     }
-    if (isLogEnabled() || isLogExpressionEnabled() || isLogStack()) {
+    if (isLogEnabled() || isLogExpressionEnabled() || isLogStack() || isThreadDumpCaptureEnabled()) {
       getBreakpointManager().beforeLoggingBreakpoint(context.getSuspendContext());
       StringBuilder buf = new StringBuilder();
       if (myXBreakpoint.isLogMessage()) {
@@ -458,6 +456,10 @@ public abstract class Breakpoint<P extends JavaBreakpointProperties> implements 
           navigationStack = null;
         }
         printLoggingBreakpointMessage(this, debugProcess, msg, navigationStack);
+      }
+
+      if (isThreadDumpCaptureEnabled()) {
+        BreakpointThreadDumpCaptureHandler.getInstance(getProject()).captureAsyncAndNotify(this, context.getSuspendContext());
       }
     }
     if (isRemoveAfterHit()) {
@@ -772,6 +774,11 @@ public abstract class Breakpoint<P extends JavaBreakpointProperties> implements 
 
   protected boolean isLogStack() {
     return myXBreakpoint.isLogStack();
+  }
+
+  protected boolean isThreadDumpCaptureEnabled() {
+    return myXBreakpoint instanceof XBreakpointBase<?, ?, ?> breakpoint && breakpoint.getThreadDumpCapturePolicy() != null &&
+           BreakpointThreadDumpCapture.isAvailable();
   }
 
   protected boolean isLogExpressionEnabled() {

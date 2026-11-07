@@ -1,8 +1,10 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.platform.ide.nonModalWelcomeScreen.rightTab
 
+import com.intellij.ui.EditorNotificationPanel
 import com.intellij.ui.InlineBanner
 import com.intellij.ui.JBColor
+import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.StartupUiUtil.drawImage
 import org.jetbrains.annotations.ApiStatus
 import java.awt.Graphics
@@ -16,5 +18,18 @@ open class WelcomeScreenBanner(private val imageLight: () -> Image, private val 
     val dst = Rectangle(width, height)
     val src = Rectangle(image.getWidth(this), image.getHeight(this))
     drawImage(g, image, dst, src, null, null)
+  }
+}
+
+@ApiStatus.Internal
+open class WelcomeScreenBannerComponent : InlineBanner(status = EditorNotificationPanel.Status.InfoMuted) {
+  override fun setBounds(x: Int, y: Int, width: Int, height: Int) {
+    val newWidth = JBUI.scale(380)
+    if (newWidth < width) {
+      super.setBounds(x + (width - newWidth) / 2, y, newWidth, height)
+    }
+    else {
+      super.setBounds(x, y, width, height)
+    }
   }
 }

@@ -13,8 +13,8 @@ public class DeepestSuperMethodsTest extends OverridingTester {
 
 
   @Override
-  protected String getBasePath() {
-    return super.getBasePath() + "deepestSuperMethods";
+  protected String getTestDataPath() {
+    return super.getTestDataPath() + "deepestSuperMethods";
   }
 
   @Override

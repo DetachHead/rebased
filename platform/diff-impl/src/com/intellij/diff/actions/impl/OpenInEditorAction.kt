@@ -10,17 +10,14 @@ import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.actionSystem.DataContext
 import com.intellij.openapi.actionSystem.ex.ActionUtil.copyFrom
-import com.intellij.openapi.application.EDT
-import com.intellij.openapi.components.serviceAsync
+import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.project.DumbAware
 import com.intellij.openapi.project.Project
 import com.intellij.platform.ide.navigation.NavigationOptions
-import com.intellij.platform.ide.navigation.NavigationService
-import com.intellij.platform.ide.navigation.NavigationTaskCoordinator
 import com.intellij.platform.ide.navigation.RequestedEditor
+import com.intellij.platform.ide.navigation.requestNavigate
 import com.intellij.pom.Navigatable
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 
 open class OpenInEditorAction : EditSourceAction(), DumbAware, ActionPromoter {
   init {
@@ -82,10 +79,12 @@ open class OpenInEditorAction : EditSourceAction(), DumbAware, ActionPromoter {
     fun openEditor(project: Project, navigatables: Array<Navigatable>, callback: Runnable?) {
       val targets = navigatables.toList()
       val options = NavigationOptions.requestFocus().requestedEditor(RequestedEditor.None)
-      NavigationTaskCoordinator.getInstance(project).dispatchNavigation {
-        if (project.serviceAsync<NavigationService>().navigate(targets, options) && callback != null) {
-          withContext(Dispatchers.EDT) {
-            callback.run()
+      val modalityState = ModalityState.defaultModalityState()
+      val result = requestNavigate(project, targets, options)
+      if (callback != null) {
+        result.thenAccept { handled ->
+          if (handled) {
+            ApplicationManager.getApplication().invokeLater(callback, modalityState, project.disposed)
           }
         }
       }

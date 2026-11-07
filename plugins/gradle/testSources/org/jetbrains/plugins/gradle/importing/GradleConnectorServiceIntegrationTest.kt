@@ -1,12 +1,15 @@
-// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.plugins.gradle.importing
 
 import com.intellij.openapi.externalSystem.model.task.ExternalSystemTaskId
+import com.intellij.openapi.externalSystem.model.task.ExternalSystemTaskNotificationListener
 import com.intellij.openapi.externalSystem.model.task.ExternalSystemTaskType.EXECUTE_TASK
 import com.intellij.openapi.externalSystem.util.ExternalSystemApiUtil
 import kotlinx.coroutines.runBlocking
 import org.assertj.core.api.Assertions.assertThat
+import org.gradle.tooling.GradleConnector
 import org.gradle.tooling.ProjectConnection
+import org.jetbrains.plugins.gradle.service.execution.GradleExecutionContextImpl
 import org.jetbrains.plugins.gradle.service.execution.GradleExecutionHelper
 import org.jetbrains.plugins.gradle.settings.GradleExecutionSettings
 import org.junit.Test
@@ -41,9 +44,17 @@ class GradleConnectorServiceIntegrationTest : GradleImportingTestCase() {
   }
 
   private fun requestConnection(projectPath: String, executionSettings: GradleExecutionSettings): ProjectConnection {
-    val taskId = ExternalSystemTaskId.create(externalSystemId, EXECUTE_TASK, myProject)
-    return GradleExecutionHelper.execute(projectPath, executionSettings, taskId, null, null) { it }
+    val context = GradleExecutionContextImpl(
+      projectPath = projectPath,
+      taskId = ExternalSystemTaskId.create(externalSystemId, EXECUTE_TASK, myProject),
+      settings = executionSettings,
+      listener = ExternalSystemTaskNotificationListener.NULL_OBJECT,
+      cancellationToken = GradleConnector.newCancellationTokenSource().token()
+    )
+    return GradleExecutionHelper.execute(context) { it }
   }
+
+  override fun assumeGradleVersion() {}
 
   companion object {
     /** It's sufficient to run the test against single gradle version. */

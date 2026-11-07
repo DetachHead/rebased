@@ -1,6 +1,7 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.editor;
 
+import com.intellij.codeInsight.multiverse.EditorContextManager;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.actionSystem.DataProvider;
 import com.intellij.openapi.editor.colors.EditorColorsScheme;
@@ -16,9 +17,9 @@ import com.intellij.openapi.util.ProperTextRange;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.openapi.util.UserDataHolder;
 import com.intellij.openapi.vfs.VirtualFile;
-import com.intellij.psi.PsiDocumentManager;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
+import kotlinx.coroutines.CoroutineScope;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.ApiStatus.Obsolete;
 import org.jetbrains.annotations.NotNull;
@@ -320,7 +321,8 @@ public interface Editor extends UserDataHolder {
     int startY = visualLineToY(visualLine);
     int startOffset = visualPositionToOffset(new VisualPosition(visualLine, 0));
     FoldRegion foldRegion = getFoldingModel().getCollapsedRegionAtOffset(startOffset);
-    int endY = startY + (foldRegion instanceof CustomFoldRegion ? ((CustomFoldRegion)foldRegion).getHeightInPixels() : getLineHeight());
+    int height = foldRegion instanceof CustomFoldRegion custom ? custom.getHeightInPixels() : getLineHeight();
+    int endY = startY + height;
     return new int[]{startY, endY};
   }
 
@@ -491,6 +493,12 @@ public interface Editor extends UserDataHolder {
     return 0;
   }
 
+  @ApiStatus.Experimental
+  @ApiStatus.Internal
+  default @NotNull CoroutineScope getCoroutineScope() {
+    return EditorCoroutineScopeService.defaultScope(getProject());
+  }
+
   /**
    * Adapts editor to a {@link ModNavigator} interface, so
    * the code that wants to update editor position can work uniformly
@@ -513,7 +521,7 @@ public interface Editor extends UserDataHolder {
 
       @Override
       public @NotNull PsiFile getPsiFile() {
-        return Objects.requireNonNull(PsiDocumentManager.getInstance(getProject()).getPsiFile(getDocument()));
+        return Objects.requireNonNull(EditorContextManager.getPsiFileForEditor(Editor.this, getProject()));
       }
 
       @Override

@@ -7,7 +7,7 @@ import com.intellij.execution.process.CapturingProcessHandler
 import com.intellij.execution.wsl.WslPath
 import com.intellij.lang.LangBundle
 import com.intellij.openapi.diagnostic.logger
-import com.intellij.openapi.diagnostic.rethrowControlFlowException
+import com.intellij.diagnostic.rethrowControlFlowException
 import com.intellij.openapi.projectRoots.Sdk
 import com.intellij.openapi.roots.ui.configuration.SdkPopupBuilder
 import com.intellij.openapi.util.NlsContexts

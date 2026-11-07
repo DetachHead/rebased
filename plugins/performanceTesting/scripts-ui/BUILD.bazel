@@ -1,4 +1,6 @@
 load("@community//build:tests-options.bzl", "jps_test")
+load("@community//platform/build-scripts/bazel-rules:ij_plugin.bzl", "ij_plugin")
+load("@jps_dynamic_deps_community//:targets.bzl", "dev_dist_plugin")
 load("@rules_jvm//:jvm.bzl", "jvm_library")
 
 jps_test(
@@ -9,6 +11,16 @@ jps_test(
 )
 
 ### skip generation section `test intellij.performanceTesting.ui.tests`
+
+### auto-generated section `dev intellij.performanceTesting.ui` start
+dev_dist_plugin(
+    descriptor = "resources/META-INF/plugin.xml",
+    jars = {
+        "lib/performanceTesting-ui.jar": ["intellij.performanceTesting.ui"],
+    },
+    main_module = "intellij.performanceTesting.ui",
+)
+### auto-generated section `dev intellij.performanceTesting.ui` end
 
 ### auto-generated section `build intellij.performanceTesting.ui` start
 jvm_library(
@@ -70,13 +82,17 @@ jvm_library(
         "//platform/platform-impl:ide-impl_test_lib",
         "//platform/ide-core:ide-core_test_lib",
         "//platform/core-ui:core-ui_test_lib",
-        "//platform/testFramework",
-        "//platform/testFramework:testFramework_test_lib",
         "//platform/forms_rt:java-guiForms-rt_test_lib",
         "//libraries/kotlinx/collections-immutable:libraries-kotlinx-collections-immutable_test_lib",
         "//platform/util/concurrency:concurrency_test_lib",
         "//platform/util:util-ui_test_lib",
     ],
+)
+
+ij_plugin(
+    name = "ui_plugin",
+    descriptor_module = ":ui",
+    visibility = ["//visibility:public"],
 )
 ### auto-generated section `build intellij.performanceTesting.ui` end
 
@@ -155,8 +171,6 @@ jvm_library(
         "//libraries/lucene.common:lucene.common_test_lib",
         "//libraries/junit4",
         "//libraries/junit4:junit4_test_lib",
-        "//libraries/misc/plugin",
-        "//libraries/misc/plugin:plugin_test_lib",
     ],
 )
 ### auto-generated section `build intellij.performanceTesting.ui.tests` end

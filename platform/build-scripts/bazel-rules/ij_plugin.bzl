@@ -9,6 +9,7 @@ load("@rules_java//java/common:java_common.bzl", "java_common")
 load("@rules_jvm//:jvm.bzl", _jvm_platform_transition = "jvm_platform_transition", _scrubbed_host_platform_transition = "scrubbed_host_platform_transition")
 load("@rules_kotlin//kotlin/internal:defs.bzl", _KtJvmInfo = "KtJvmInfo")
 load("//platform/build-scripts/bazel-rules:ij_plugin_module.bzl", _PluginModuleInfo = "PluginModuleInfo")
+load(":content_module_jar.bzl", _module_output_jar = "module_output_jar")
 
 def _ij_plugin_impl(ctx):
     plugin_descriptor_module_info = _plugin_module_info(ctx.attr.descriptor_module)
@@ -27,8 +28,9 @@ def _ij_plugin_impl(ctx):
     since_build = _computeSinceBuild(ctx.attr.since_build, ide_build_number, use_exact_build_compatibility)
     until_build = _computeUntilBuild(ctx.attr.until_build, since_build, ide_build_number, ide_stability_level, use_exact_build_compatibility)
 
-    plugin_descriptor_jar = plugin_descriptor_module_info.all_output_jars[0]
-    inputs = [plugin_descriptor_jar]
+    inputs = []
+    plugin_descriptor_jars = plugin_descriptor_module_info.all_output_jars
+    inputs.extend(plugin_descriptor_jars)
 
     # Files are added to `args` as artifacts and not as strings, so their paths are rewritten when path mapping is enabled.
     args = ctx.actions.args()
@@ -49,11 +51,13 @@ def _ij_plugin_impl(ctx):
 
     args.add("--packed_modules")
     args.add(packed_modules_file)
-    args.add_all(
+    args.add_joined(
         "--descriptor_module",
-        [plugin_descriptor_jar],
-        format_each = plugin_descriptor_module_info.module_name + ":%s",
+        plugin_descriptor_jars,
+        format_joined = plugin_descriptor_module_info.module_name + ":%s",
+        join_with = ",",
     )
+    _add_non_classpath_data(args, inputs, plugin_descriptor_module_info)
     for content_module in ctx.attr.content_modules:
         content_module_info = _plugin_module_info(content_module)
         content_module_jars = content_module_info.all_output_jars
@@ -64,6 +68,12 @@ def _ij_plugin_impl(ctx):
             join_with = ",",
         )
         inputs.extend(content_module_jars)
+        _add_non_classpath_data(
+            args,
+            inputs,
+            content_module_info,
+            root_output_directory = "modules/" + content_module_info.module_name,
+        )
 
     java_runtime = ctx.attr._tool_java_runtime[java_common.JavaRuntimeInfo]
     ctx.actions.run(
@@ -97,10 +107,23 @@ def _plugin_module_info(target):
     if _PluginModuleInfo in target:
         return target[_PluginModuleInfo]
     kt_jvm_info = target[_KtJvmInfo]
+    module_jar = _module_output_jar(target)
+    if module_jar == None:
+        fail("%s has a module name ('%s') but produced no output jar" % (target.label, kt_jvm_info.module_name))
     return _PluginModuleInfo(
         module_name = kt_jvm_info.module_name,
-        all_output_jars = kt_jvm_info.all_output_jars,
+        all_output_jars = [module_jar],
+        non_classpath_data = [],
     )
+
+def _add_non_classpath_data(args, inputs, module_info, root_output_directory = ""):
+    for data in module_info.non_classpath_data:
+        relative_path = data.relative_path
+        if root_output_directory:
+            relative_path = root_output_directory + "/" + relative_path
+        args.add("--non_classpath_data")
+        args.add(data.file, format = relative_path + ":%s")
+        inputs.append(data.file)
 
 _build_number_from_file = "$build_number_from_file"
 

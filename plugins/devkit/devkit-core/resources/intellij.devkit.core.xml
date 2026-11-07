@@ -11,11 +11,12 @@
     <module name="intellij.java.ui"/>
     <module name="intellij.java.xml.dom.impl"/>
     <module name="intellij.json.backend"/>
+    <module name="intellij.jvm.analysis.impl"/>
     <module name="intellij.libraries.caffeine"/>
     <module name="intellij.libraries.fastutil"/>
     <module name="intellij.libraries.guava"/>
-    <module name="intellij.libraries.jackson"/>
-    <module name="intellij.libraries.jackson.databind"/>
+    <module name="intellij.libraries.jackson3"/>
+    <module name="intellij.libraries.jackson3.databind"/>
     <module name="intellij.libraries.jetbrains.annotations"/>
     <module name="intellij.libraries.kotlinx.collections.immutable"/>
     <module name="intellij.libraries.kotlinx.serialization.core"/>
@@ -28,26 +29,36 @@
     <module name="intellij.libraries.stream"/>
     <module name="intellij.libraries.xerces"/>
     <module name="intellij.platform.analysis"/>
+    <module name="intellij.platform.backend.workspace"/>
+    <module name="intellij.platform.buildData"/>
     <module name="intellij.platform.builtInServer"/>
+    <module name="intellij.platform.concurrency"/>
+    <module name="intellij.platform.consoleView"/>
     <module name="intellij.platform.core"/>
     <module name="intellij.platform.core.impl"/>
     <module name="intellij.platform.core.ui"/>
     <module name="intellij.platform.debugger.impl"/>
     <module name="intellij.platform.editor.ex"/>
     <module name="intellij.platform.editor.ui"/>
+    <module name="intellij.platform.eel.provider"/>
     <module name="intellij.platform.execution"/>
     <module name="intellij.platform.execution.impl"/>
     <module name="intellij.platform.ide"/>
     <module name="intellij.platform.ide.core"/>
     <module name="intellij.platform.ide.core.impl"/>
     <module name="intellij.platform.ide.impl"/>
+    <module name="intellij.platform.ide.internal"/>
+    <module name="intellij.platform.ide.observable"/>
     <module name="intellij.platform.ide.progress"/>
+    <module name="intellij.platform.ide.util.netty"/>
+    <module name="intellij.platform.ijent.community.buildConstants"/>
     <module name="intellij.platform.indexing"/>
     <module name="intellij.platform.jps.build"/>
     <module name="intellij.platform.lang"/>
     <module name="intellij.platform.lang.core"/>
     <module name="intellij.platform.lang.impl"/>
     <module name="intellij.platform.markdown.utils"/>
+    <module name="intellij.platform.projectFrame"/>
     <module name="intellij.platform.projectModel"/>
     <module name="intellij.platform.refactoring"/>
     <module name="intellij.platform.serviceContainer"/>
@@ -56,8 +67,12 @@
     <module name="intellij.platform.testRunner"/>
     <module name="intellij.platform.usageView"/>
     <module name="intellij.platform.usageView.impl"/>
+    <module name="intellij.platform.util.coroutines"/>
+    <module name="intellij.platform.util.progress"/>
+    <module name="intellij.platform.util.text.matching"/>
     <module name="intellij.platform.util.ui"/>
     <module name="intellij.platform.workspace.jps"/>
+    <module name="intellij.platform.workspace.storage"/>
     <module name="intellij.properties.backend"/>
     <module name="intellij.properties.backend.psi"/>
     <module name="intellij.spellchecker"/>
@@ -82,7 +97,6 @@
     <codeInsight.lineMarkerProvider language="UAST"
                                     implementationClass="org.jetbrains.idea.devkit.testAssistant.TestDataLineMarkerProvider"/>
     <fileEditorProvider implementation="org.jetbrains.idea.devkit.testAssistant.TestDataGroupEditorProvider"/>
-    <editorNotificationProvider implementation="org.jetbrains.idea.devkit.module.icons.GeneratedPluginIconNotificationProvider"/>
     <gotoRelatedProvider implementation="org.jetbrains.idea.devkit.testAssistant.TestDataAsRelatedFileProvider"/>
     <gotoRelatedProvider implementation="org.jetbrains.idea.devkit.testAssistant.TestCaseAsRelatedFileProvider"/>
     <gotoRelatedProvider implementation="org.jetbrains.idea.devkit.navigation.DescriptionInspectionGotoRelatedProvider"/>
@@ -131,8 +145,10 @@
     <fileBasedIndex implementation="org.jetbrains.idea.devkit.dom.index.IdeaPluginRegistrationIndex"/>
     <fileBasedIndex implementation="org.jetbrains.idea.devkit.dom.index.PluginIdModuleIndex"/>
     <fileBasedIndex implementation="org.jetbrains.idea.devkit.dom.index.PluginIdDependenciesIndex"/>
+    <fileBasedIndex implementation="org.jetbrains.idea.devkit.dom.index.PluginXIncludeIndex"/>
     <fileBasedIndex implementation="org.jetbrains.idea.devkit.dom.index.ExtensionPointIndex"/>
     <fileBasedIndex implementation="org.jetbrains.idea.devkit.dom.index.ExtensionPointClassIndex"/>
+    <fileBasedIndex implementation="org.jetbrains.idea.devkit.dom.index.ExtensionImplementationIndex"/>
 
     <editorTabTitleProvider implementation="org.jetbrains.idea.devkit.dom.ide.PluginDescriptorEditorTabTitleProvider"/>
     <useScopeEnlarger implementation="org.jetbrains.idea.devkit.dom.ide.PluginDescriptorUseScopeEnlarger"/>
@@ -285,6 +301,26 @@
                      enabledByDefault="false" level="ERROR"
                      implementationClass="org.jetbrains.idea.devkit.inspections.PluginXmlReferencesModuleReachabilityInspection"
                      key="inspection.plugin.xml.references.module.reachability.display.name"/>
+    <localInspection language="XML" shortName="JetBrainsInternalExtensionsUsage" applyToDialects="false"
+                     projectType="INTELLIJ_PLUGIN"
+                     groupPathKey="inspections.group.path" groupKey="inspections.group.descriptor"
+                     enabledByDefault="true" level="ERROR"
+                     implementationClass="org.jetbrains.idea.devkit.inspections.JetBrainsInternalExtensionsUsageInspection"
+                     key="inspection.jetbrains.internal.extensions.usage.display.name"/>
+    <localInspection language="XML" shortName="UnstableExtensionsUsage" applyToDialects="false"
+                     projectType="INTELLIJ_PLUGIN"
+                     groupPathKey="inspections.group.path" groupKey="inspections.group.descriptor"
+                     enabledByDefault="true" level="WEAK WARNING"
+                     implementationClass="org.jetbrains.idea.devkit.inspections.UnstableExtensionsUsageInspection"
+                     key="inspection.jetbrains.unstable.extensions.usage.display.name"/>
+    <localInspection language="UAST" shortName="JetBrainsInternalApiUsage"
+                     projectType="INTELLIJ_PLUGIN"
+                     groupPathKey="inspections.group.path" groupKey="inspections.group.code"
+                     enabledByDefault="true" level="ERROR"
+                     implementationClass="org.jetbrains.idea.devkit.inspections.JetBrainsInternalApiUsageInspection"
+                     key="inspections.jetbrains.internal.api.usage.display.name"/>
+    <codeInsight.unstableApiUsageFilter
+      implementation="org.jetbrains.idea.devkit.inspections.JetBrainsInternalApiUsageFilter"/>
 
     <localInspection language="JVM" shortName="ComponentNotRegistered"
                      projectType="INTELLIJ_PLUGIN"
@@ -615,6 +651,12 @@
                      enabledByDefault="true" level="WARNING"
                      implementationClass="org.jetbrains.idea.devkit.inspections.ApplicationServiceAsStaticFinalFieldOrPropertyInspection"/>
 
+    <localInspection language="UAST" shortName="PersistentStatePropertyNotSerialized" groupPathKey="inspections.group.path"
+                     projectType="INTELLIJ_PLUGIN"
+                     key="inspection.persistent.state.property.not.serialized.display.name" groupKey="inspections.group.code"
+                     enabledByDefault="true" level="WARNING"
+                     implementationClass="org.jetbrains.idea.devkit.inspections.PersistentStatePropertyNotSerializedInspection"/>
+
     <localInspection language="UAST" enabledByDefault="false" level="ERROR"
                      projectType="INTELLIJ_PLUGIN"
                      key="inspection.threading.concurrency.display.name"
@@ -721,6 +763,12 @@
                      implementationClass="org.jetbrains.idea.devkit.inspections.ContentModuleWithoutDedicatedJpsModuleInspection"
                      key="inspection.content.module.without.dedicated.jps.module.name"/>
 
+    <localInspection language="" projectType="INTELLIJ_PLUGIN"
+                     groupPathKey="inspections.group.path" groupKey="inspections.group.descriptor"
+                     enabledByDefault="true" level="WARNING"
+                     implementationClass="org.jetbrains.idea.devkit.inspections.ToolWindowStripeTitleInspection"
+                     key="inspection.tool.window.stripe.title.display.name"/>
+
     <localInspection language="XML" applyToDialects="false"
                      projectType="INTELLIJ_PLUGIN"
                      groupPathKey="inspections.group.path" groupKey="inspections.group.descriptor"
@@ -757,7 +805,34 @@
                      implementationClass="org.jetbrains.idea.devkit.inspections.eel.UseOptimizedEelFunctions"
                      groupPathKey="inspections.group.path"
                      groupKey="inspections.group.code"
-                     key="inspection.use.optimized.eel.functions.display.name"/>"
+                     key="inspection.use.optimized.eel.functions.display.name"/>
+
+    <localInspection language="UAST"
+                     projectType="INTELLIJ_PLUGIN"
+                     enabledByDefault="true"
+                     level="WARNING"
+                     implementationClass="org.jetbrains.idea.devkit.inspections.eel.TargetProcessBuilderInspection"
+                     groupPathKey="inspections.group.path"
+                     groupKey="inspections.group.code"
+                     key="inspection.target.process.builder.display.name"/>
+
+    <localInspection language="UAST"
+                     projectType="INTELLIJ_PLUGIN"
+                     enabledByDefault="true"
+                     level="WARNING"
+                     implementationClass="org.jetbrains.idea.devkit.inspections.eel.TargetGeneralCommandLineInspection"
+                     groupPathKey="inspections.group.path"
+                     groupKey="inspections.group.code"
+                     key="inspection.target.general.command.line.display.name"/>
+
+    <localInspection language="UAST"
+                     projectType="INTELLIJ_PLUGIN"
+                     enabledByDefault="true"
+                     level="WARNING"
+                     implementationClass="org.jetbrains.idea.devkit.inspections.eel.TargetSystemInfoInspection"
+                     groupPathKey="inspections.group.path"
+                     groupKey="inspections.group.code"
+                     key="inspection.target.system.info.display.name"/>
 
     <localInspection language="UAST" projectType="INTELLIJ_PLUGIN" enabledByDefault="true" level="WARNING" shortName="EventLogDescription"
                      groupPathKey="inspections.group.path" groupKey="inspections.group.code" key="inspections.event.log.description.display.name"
@@ -778,6 +853,9 @@
     <psi.referenceContributor language="UAST" implementation="org.jetbrains.idea.devkit.references.ActionOrGroupIdReferenceContributor"/>
     <referenceInjector implementation="org.jetbrains.idea.devkit.references.ActionOrGroupIdReferenceInjector"/>
     <referencesSearch implementation="org.jetbrains.idea.devkit.references.ActionWithoutIdReferencesQueryExecutor"/>
+
+    <platform.backend.documentation.psiTargetProvider order="before JavaPsiDocumentationTargetProvider"
+                                                      implementation="org.jetbrains.idea.devkit.references.IconFieldDocumentationTargetProvider"/>
 
     <psi.referenceContributor language="UAST"
                               implementation="org.jetbrains.idea.devkit.references.NotificationGroupIdReferenceContributor"/>
@@ -912,6 +990,7 @@
     <notificationGroup id="DevKit Errors" displayType="BALLOON" hideFromSettings="true"/>
     <notificationGroup id="Update from Sources" displayType="BALLOON" hideFromSettings="true"/>
     <notificationGroup id="testdata" displayType="BALLOON" bundle="messages.DevKitBundle" key="notification.group.testdata"/>
+    <notificationGroup id="editor-rendering-benchmark" displayType="NONE" hideFromSettings="true"/>
 
     <!-- Threading Model Helper -->
     <buildProcess.parametersProvider implementation="org.jetbrains.idea.devkit.threadingModelHelper.TMHBuildProcessParametersProvider"/>
@@ -932,8 +1011,6 @@
       language="UAST"/>
     <registryKey key="devkit.inlay.threading" defaultValue="false"
                  description="Experimental inlays for Threading Annotations"/>
-
-    <generatedSourcesFilter implementation="org.jetbrains.idea.devkit.devDist.DevDistResidueGeneratedSourcesFilter"/>
 
     <!-- INTERNAL -->
     <consoleFilterProvider implementation="org.jetbrains.idea.devkit.run.ModulePathFilterProvider"/>
@@ -1020,6 +1097,12 @@
                     beanClass="com.intellij.lang.LanguageExtensionPoint"
                     dynamic="true">
       <with attribute="implementationClass" implements="org.jetbrains.idea.devkit.inspections.CancellationCheckProvider"/>
+    </extensionPoint>
+    <extensionPoint qualifiedName="DevKit.lang.optimizedEelFunctionCallNameProvider"
+                    beanClass="com.intellij.lang.LanguageExtensionPoint"
+                    dynamic="true">
+      <with attribute="implementationClass"
+            implements="org.jetbrains.idea.devkit.inspections.eel.OptimizedEelFunctionCallNameProvider"/>
     </extensionPoint>
     <extensionPoint qualifiedName="DevKit.lang.cancellationCheckInLoopsFixProvider"
                     beanClass="com.intellij.lang.LanguageExtensionPoint"
@@ -1132,10 +1215,6 @@
       <add-to-group group-id="NewGroup" relative-to-action="CreateResourceBundle" anchor="before"/>
     </group>
 
-    <action id="NewRemoteDevModule" class="org.jetbrains.idea.devkit.actions.NewRemoteDevModuleAction" icon="AllIcons.Nodes.Module">
-      <add-to-group group-id="NewGroup" anchor="after" relative-to-action="NewDir"/>
-    </action>
-
     <action class="org.jetbrains.idea.devkit.actions.GenerateComponentExternalizationAction" id="GenerateExternalization">
       <add-to-group anchor="last" group-id="GenerateGroup"/>
     </action>
@@ -1148,8 +1227,157 @@
       <action id="DevKit.AnalyzePersistentSyntaxTreeOverhead" internal="true"
               class="org.jetbrains.idea.devkit.hprof.AnalyzePersistentSyntaxTreeOverheadAction"/>
       <action id="AnalyzeUnloadablePlugins" internal="true" class="org.jetbrains.idea.devkit.internal.AnalyzeUnloadablePluginsAction"/>
+      <action id="PluginPermissionServiceDemo" internal="true"
+              class="org.jetbrains.idea.devkit.plugins.PluginPermissionServiceDemoAction"/>
       <add-to-group group-id="Internal" anchor="last"/>
     </group>
+
+    <action id="ExceptionShowCaseAction" internal="true" class="org.jetbrains.idea.devkit.internal.ExceptionShowCaseAction">
+      <add-to-group group-id="Internal.Errors"/>
+    </action>
+    <action id="EditorRenderingBenchmarkAction" internal="true"
+            class="org.jetbrains.idea.devkit.internal.EditorRenderingBenchmarkAction">
+      <add-to-group group-id="Internal.Editor"/>
+    </action>
+    <action id="EditorAddCustomWrap" internal="true" class="org.jetbrains.idea.devkit.internal.AddCustomWrapAction">
+      <add-to-group group-id="Internal.Editor"/>
+    </action>
+    <action id="EditorRemoveCustomWrapsAtCaret" internal="true"
+            class="org.jetbrains.idea.devkit.internal.RemoveCustomWrapsAtCaretAction">
+      <add-to-group group-id="Internal.Editor"/>
+    </action>
+    <action id="ShowEditorHighlighterTokens" internal="true"
+            class="org.jetbrains.idea.devkit.internal.ShowEditorHighlighterTokensAction">
+      <add-to-group group-id="Internal.Editor"/>
+    </action>
+
+    <action id="DumpFocusableComponentHierarchyAction" internal="true"
+            class="org.jetbrains.idea.devkit.internal.focus.DumpFocusableComponentHierarchyAction"/>
+
+    <action id="ShowNotificationIconsDialogAction" internal="true"
+            class="org.jetbrains.idea.devkit.internal.ui.ShowNotificationIconsDialogAction">
+      <add-to-group group-id="Internal.UI"/>
+    </action>
+    <action id="NotificationTestAction" internal="true" class="org.jetbrains.idea.devkit.internal.ui.NotificationTestAction">
+      <add-to-group group-id="Internal.UI"/>
+    </action>
+    <action id="TestMessageBoxAction" internal="true" class="org.jetbrains.idea.devkit.internal.ui.TestMessageBoxAction">
+      <add-to-group group-id="Internal.UI"/>
+    </action>
+    <action id="ShowCountdownDialog" internal="true" class="org.jetbrains.idea.devkit.internal.ui.ShowCountdownDialogAction">
+      <add-to-group group-id="Internal.UI"/>
+    </action>
+    <action id="PlayTestSoundAction" internal="true" class="org.jetbrains.idea.devkit.internal.ui.PlayTestSoundAction">
+      <add-to-group group-id="Internal.UI"/>
+    </action>
+    <action id="ColorBlindnessTest" internal="true" class="org.jetbrains.idea.devkit.internal.ui.ColorBlindnessInternalAction">
+      <add-to-group group-id="Internal.UI"/>
+    </action>
+    <action id="UIDefaults" internal="true" class="org.jetbrains.idea.devkit.internal.ui.ShowUIDefaultsAction">
+      <abbreviation value="laf"/>
+      <add-to-group group-id="Internal.UI"/>
+    </action>
+    <action id="AddTestProcessAction" internal="true" class="org.jetbrains.idea.devkit.internal.ui.AddTestProcessAction">
+      <add-to-group group-id="Internal.UI"/>
+    </action>
+    <action id="AddRandomNamesTestProcessAction" internal="true"
+            class="org.jetbrains.idea.devkit.internal.ui.AddRandomNamesTestProcessAction">
+      <add-to-group group-id="Internal.UI"/>
+    </action>
+    <action id="AddManyTestProcesses" internal="true" class="org.jetbrains.idea.devkit.internal.ui.AddManyTestProcesses">
+      <add-to-group group-id="Internal.UI"/>
+    </action>
+    <action id="ShowCompressibleToolbarAction" internal="true"
+            class="org.jetbrains.idea.devkit.internal.ui.ShowCompressibleToolbarAction">
+      <add-to-group group-id="Internal.UI"/>
+    </action>
+    <action id="TestGestureAction" internal="true" class="org.jetbrains.idea.devkit.internal.ui.TestGestureAction">
+      <add-to-group group-id="Internal.UI"/>
+    </action>
+    <action id="ShowProgressTestDialogAction" internal="true"
+            class="org.jetbrains.idea.devkit.internal.ui.ShowProgressTestDialogAction">
+      <add-to-group group-id="Internal.UI"/>
+    </action>
+    <action id="ShowSouthPanelTestDialogAction" internal="true"
+            class="org.jetbrains.idea.devkit.internal.ui.ShowSouthPanelTestDialogAction">
+      <add-to-group group-id="Internal.UI"/>
+    </action>
+    <action id="TestTextFieldAction" internal="true" class="org.jetbrains.idea.devkit.internal.ui.TestTextFieldAction">
+      <add-to-group group-id="Internal.UI"/>
+    </action>
+
+    <action id="LabelSizeDemoAction" internal="true" class="org.jetbrains.idea.devkit.internal.ui.LabelSizeDemoAction">
+      <add-to-group group-id="Internal.UI.Demos"/>
+    </action>
+    <action id="JEditorPaneDemoAction" internal="true" class="org.jetbrains.idea.devkit.internal.ui.JEditorPaneDemoAction">
+      <add-to-group group-id="Internal.UI.Demos"/>
+    </action>
+    <action id="JBTabsDemo" internal="true" class="org.jetbrains.idea.devkit.internal.ui.JBTabsDemoAction">
+      <add-to-group group-id="Internal.UI.Demos"/>
+    </action>
+    <action id="TestTooltipsAction" internal="true" class="org.jetbrains.idea.devkit.internal.ui.TestTooltipsAction">
+      <add-to-group group-id="Internal.UI.Demos"/>
+    </action>
+    <action id="ToolbarDemo" internal="true" class="org.jetbrains.idea.devkit.internal.ui.ToolbarDemoAction">
+      <add-to-group group-id="Internal.UI.Demos"/>
+    </action>
+    <action id="TreeViewModelDemo" internal="true" class="org.jetbrains.idea.devkit.internal.ui.TreeViewModelDemoAction">
+      <add-to-group group-id="Internal.UI.Demos"/>
+    </action>
+
+    <group id="Internal.UI.Animation" internal="true" popup="true">
+      <action id="AnimationPanelTestAction" internal="true" class="org.jetbrains.idea.devkit.internal.ui.AnimationPanelTestAction"/>
+      <action id="AnimatorTestAction" class="org.jetbrains.idea.devkit.internal.ui.AnimatorTestAction"/>
+      <action id="EditorSkeletonFadeInSheet" internal="true"
+              class="org.jetbrains.idea.devkit.internal.ui.EditorSkeletonFadeInSheetAction"/>
+      <add-to-group group-id="Internal.UI.Ex"/>
+    </group>
+
+    <group id="Internal.UI.Focus" internal="true" popup="true">
+      <action id="FocusDebugger" internal="true" class="org.jetbrains.idea.devkit.internal.focus.FocusDebuggerAction"/>
+      <action id="FocusTracer" internal="true" class="org.jetbrains.idea.devkit.internal.focus.FocusTracesAction"/>
+      <action id="LogFocusRequests" class="org.jetbrains.idea.devkit.internal.ui.LogFocusRequestsAction"/>
+      <add-to-group group-id="Internal.UI.Ex"/>
+    </group>
+
+    <group id="Internal.UI.Icons" internal="true" popup="true">
+      <action id="RoundedIconTestAction" internal="true" class="org.jetbrains.idea.devkit.internal.ui.RoundedIconTestAction"/>
+      <action id="ProgressIconShowcaseAction" internal="true" class="org.jetbrains.idea.devkit.internal.ui.ProgressIconShowcaseAction"/>
+      <action id="IconScaleTestAction" internal="true" class="org.jetbrains.idea.devkit.internal.ui.ShowIconScaleTestAction"/>
+      <add-to-group group-id="Internal.UI.Ex"/>
+    </group>
+
+    <group id="Internal.UI.KotlinUiDsl" internal="true" popup="true">
+      <action id="GridLayoutTestAction" internal="true"
+              class="org.jetbrains.idea.devkit.internal.ui.gridLayoutTestAction.GridLayoutTestAction"/>
+      <add-to-group group-id="Internal.UI.Ex"/>
+    </group>
+
+    <action id="ComponentPanelTestAction" internal="true"
+            class="org.jetbrains.idea.devkit.internal.ui.componentPanelTestAction.ComponentPanelTestAction">
+      <add-to-group group-id="Internal.UI.Ex"/>
+    </action>
+    <action id="WrapLayoutTestAction" internal="true" class="org.jetbrains.idea.devkit.internal.ui.WrapLayoutTestAction">
+      <add-to-group group-id="Internal.UI.Ex"/>
+    </action>
+    <action id="GrayFilterConfig" internal="true" class="org.jetbrains.idea.devkit.internal.ui.GrayFilterConfig">
+      <add-to-group group-id="Internal.UI.Ex"/>
+    </action>
+    <action id="TextGrayFilterConfig" internal="true" class="org.jetbrains.idea.devkit.internal.ui.TextGrayFilterConfig">
+      <add-to-group group-id="Internal.UI.Ex"/>
+    </action>
+    <action id="MacMessagesTest" internal="true" class="org.jetbrains.idea.devkit.internal.validation.TestMacMessagesAction">
+      <add-to-group group-id="Internal.UI.Ex"/>
+    </action>
+    <action id="UnixInfoTest" internal="true" class="org.jetbrains.idea.devkit.internal.ui.UnixInfoTestAction">
+      <add-to-group group-id="Internal.UI.Ex"/>
+    </action>
+    <action id="TreeExpandAll" internal="true" class="org.jetbrains.idea.devkit.internal.tree.ExpandAll">
+      <add-to-group group-id="Internal.UI.Ex"/>
+    </action>
+    <action id="RulerGuide" internal="true" class="org.jetbrains.idea.devkit.internal.rulerguide.RulerGuideAction">
+      <add-to-group group-id="Internal.UI.Ex"/>
+    </action>
 
     <action id="TestData.Navigate" class="org.jetbrains.idea.devkit.testAssistant.NavigateToTestDataAction" use-shortcut-of="GotoRelated">
       <add-to-group anchor="last" group-id="TestTreePopupMenu"/>

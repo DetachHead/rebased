@@ -18,8 +18,8 @@ import org.junit.Assert;
 
 public class ResolveClassTest extends GroovyResolveTestCase {
   @Override
-  protected String getBasePath() {
-    return TestUtils.getTestDataPath() + "resolve/class/";
+  protected String getTestDataPath() {
+    return TestUtils.getAbsoluteTestDataPath() + "resolve/class/";
   }
 
   public void testInnerJavaClass() {

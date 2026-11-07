@@ -1,6 +1,7 @@
 // Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.psi.search
 
+import com.intellij.codeInsight.multiverse.EditorContextManager
 import com.intellij.find.FindModel
 import com.intellij.find.impl.FindInProjectExtension
 import com.intellij.ide.IdeBundle
@@ -34,7 +35,6 @@ import com.intellij.openapi.vfs.VfsUtilCore
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.openapi.wm.ToolWindowId
 import com.intellij.openapi.wm.ToolWindowManager
-import com.intellij.psi.PsiDocumentManager
 import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiFile
 import com.intellij.psi.search.scope.EditorSelectionLocalSearchScope
@@ -176,12 +176,12 @@ open class PredefinedSearchScopeProviderImpl : PredefinedSearchScopeProvider() {
         }
 
         val selectedTextEditor = withContext(Dispatchers.EDT + ModalityState.any().asContextElement()) {
-          FileEditorManager.getInstance(project).getSelectedTextEditor()
+          FileEditorManager.getInstance(project).selectedTextEditor
         }
 
         return readAction {
           val psiFile = selectedTextEditor?.let {
-            PsiDocumentManager.getInstance(project).getPsiFile(it.getDocument())
+            EditorContextManager.getPsiFileForEditor(it, project)
           }
           val currentFile = fillFromDataContext(dataContext, result, psiFile)
           val selectedFilesScope = getSelectedFilesScope(project, dataContext, currentFile)
@@ -201,11 +201,11 @@ open class PredefinedSearchScopeProviderImpl : PredefinedSearchScopeProvider() {
         addCommonScopes(result, project, suggestSearchInLibs, dataContext, showEmptyScopes)
 
         val selectedTextEditor = if (ApplicationManager.getApplication().isDispatchThread())
-          FileEditorManager.getInstance(project).getSelectedTextEditor()
+          FileEditorManager.getInstance(project).selectedTextEditor
         else null
 
         val psiFile = selectedTextEditor?.let {
-          PsiDocumentManager.getInstance(project).getPsiFile(it.getDocument())
+          EditorContextManager.getPsiFileForEditor(it, project)
         }
         val currentFile = fillFromDataContext(dataContext, result, psiFile)
         val selectedFilesScope = getSelectedFilesScope(project, dataContext, currentFile)
@@ -508,7 +508,7 @@ open class PredefinedSearchScopeProviderImpl : PredefinedSearchScopeProvider() {
         IdeDocumentHistory.getInstance(project).getChangedFiles()
       else
         JBIterable.from(EditorHistoryManager.getInstance(project).fileList)
-          .append(FileEditorManager.getInstance(project).getOpenFiles()).unique().toList()
+          .append(FileEditorManager.getInstance(project).openFiles).unique().toList()
 
       return if (files.isEmpty()) LocalSearchScope.EMPTY else GlobalSearchScope.filesScope(project, files, name)
     }

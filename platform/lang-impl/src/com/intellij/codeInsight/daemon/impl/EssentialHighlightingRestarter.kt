@@ -56,7 +56,7 @@ private suspend fun requestRestartToCompleteEssentialHighlighting(project: Proje
     return
   }
 
-  val openFiles = project.serviceIfCreated<FileEditorManager>()?.getOpenFiles()
+  val openFiles = project.serviceIfCreated<FileEditorManager>()?.openFiles
   if (openFiles.isNullOrEmpty()) {
     return
   }

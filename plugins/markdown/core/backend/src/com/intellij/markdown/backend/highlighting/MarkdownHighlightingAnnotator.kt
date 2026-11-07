@@ -7,12 +7,16 @@ import com.intellij.lang.annotation.HighlightSeverity
 import com.intellij.openapi.editor.colors.TextAttributesKey
 import com.intellij.openapi.project.DumbAware
 import com.intellij.openapi.util.TextRange
+import com.intellij.openapi.util.text.StringUtil
 import com.intellij.psi.PsiElement
 import com.intellij.psi.tree.IElementType
 import com.intellij.psi.tree.OuterLanguageElementType
+import com.intellij.psi.tree.TokenSet
+import com.intellij.psi.util.PsiTreeUtil
 import com.intellij.psi.util.elementType
 import com.intellij.psi.util.parents
 import com.intellij.psi.util.siblings
+import com.intellij.util.text.CharArrayUtil
 import org.intellij.plugins.markdown.highlighting.MarkdownHighlighterColors
 import org.intellij.plugins.markdown.highlighting.MarkdownSyntaxHighlighter
 import org.intellij.plugins.markdown.lang.MarkdownElementTypes
@@ -26,6 +30,7 @@ import org.intellij.plugins.markdown.util.isFootnoteLabelText
 
 @Suppress("RegExpRedundantEscape")
 private val FOOTNOTE_REF_IN_TEXT = Regex("""\[\^[^\]\n\t ]+]""")
+private val CITATION_KEY_IN_LABEL = Regex("""(?:^|[\s;,])-?@[\p{L}\p{N}_][\p{L}\p{N}_:.#$%&+?<>~/\-]*""")
 
 /**
  * Style keys to be applied to [PsiElement] with the following semantics:
@@ -34,6 +39,9 @@ private val FOOTNOTE_REF_IN_TEXT = Regex("""\[\^[^\]\n\t ]+]""")
  */
 private typealias HighlightingKeys = Set<TextAttributesKey>
 
+/** An alert is a blockquote with a title, so its lines get the blockquote background too. */
+private val BlockQuoteTypes = TokenSet.create(MarkdownElementTypes.BLOCK_QUOTE, MarkdownElementTypes.ALERT)
+
 internal class MarkdownHighlightingAnnotator : Annotator, DumbAware {
   private val syntaxHighlighter = MarkdownSyntaxHighlighter()
 
@@ -41,10 +49,105 @@ internal class MarkdownHighlightingAnnotator : Annotator, DumbAware {
     if (holder.isBatchMode()) return
     if (element.elementType is OuterLanguageElementType) return
 
+    annotateBlockQuoteLines(element, holder)
+    annotateBlockQuoteLastLineBreak(element, holder)
+    annotateInlineFootnoteMarker(element, holder)
+    if (annotateShortReferenceSyntax(element, holder)) return
     if (annotateFootnoteContinuationCodeLine(element, holder)) return
 
     val keys = collectHighlightingKeys(element) ?: return
     applyAnnotations(holder, element, keys)
+  }
+
+  /**
+   * Highlights each line of an outermost block quote from its first character to its line break.
+   * A range that holds the line break makes the editor paint the background up to the right edge.
+   * The line break after the last line is outside the quote, so [annotateBlockQuoteLastLineBreak] highlights it.
+   */
+  private fun annotateBlockQuoteLines(element: PsiElement, holder: AnnotationHolder) {
+    if (element.elementType !in BlockQuoteTypes || element.parents(withSelf = false).any { it.elementType in BlockQuoteTypes }) return
+    val contents = element.containingFile.viewProvider.contents
+    val quoteRange = element.textRange
+    var lineStart = quoteRange.startOffset
+    while (lineStart < quoteRange.endOffset) {
+      val lineBreak = StringUtil.indexOf(contents, '\n', lineStart, quoteRange.endOffset)
+      val lineEnd = if (lineBreak < 0) quoteRange.endOffset else lineBreak + 1
+      val start = CharArrayUtil.shiftForward(contents, lineStart, lineEnd, " \t")
+      if (start < lineEnd) {
+        holder.newSilentAnnotation(HighlightSeverity.INFORMATION)
+          .textAttributes(MarkdownHighlighterColors.BLOCK_QUOTE)
+          .range(TextRange(start, lineEnd))
+          .create()
+      }
+      lineStart = lineEnd
+    }
+  }
+
+  private fun annotateBlockQuoteLastLineBreak(element: PsiElement, holder: AnnotationHolder) {
+    if (element.firstChild != null || element.node.chars.firstOrNull() != '\n') return
+    val quote = PsiTreeUtil.prevLeaf(element)?.parents(withSelf = false)?.lastOrNull { it.elementType in BlockQuoteTypes }
+    if (quote?.textRange?.endOffset != element.textRange.startOffset) return
+    holder.newSilentAnnotation(HighlightSeverity.INFORMATION)
+      .textAttributes(MarkdownHighlighterColors.BLOCK_QUOTE)
+      .range(TextRange.from(element.textRange.startOffset, 1))
+      .create()
+  }
+
+  private fun annotateShortReferenceSyntax(element: PsiElement, holder: AnnotationHolder): Boolean {
+    val linkLabel = element.parentOfType(MarkdownElementTypes.LINK_LABEL, withSelf = true) ?: return false
+    val shortReferenceLink = linkLabel.parent?.takeIf { it.elementType == MarkdownElementTypes.SHORT_REFERENCE_LINK } ?: return false
+    val isInlineFootnote = isInlineFootnote(shortReferenceLink)
+    val highlightingKey = when {
+      isInlineFootnote -> MarkdownHighlighterColors.INLINE_FOOTNOTE
+      isCitationLabel(linkLabel.text) -> MarkdownHighlighterColors.CITATION
+      else -> return false
+    }
+
+    if (element == linkLabel) return true
+
+    val inheritedKeys = collectHighlightingKeys(element)
+    if (inheritedKeys != null) {
+      val keys = inheritedKeys.filterNot {
+        it == MarkdownHighlighterColors.LINK_LABEL || it == MarkdownHighlighterColors.REFERENCE_LINK
+      }.toSet() + highlightingKey
+      applyAnnotations(holder, element, keys)
+    }
+    return true
+  }
+
+  private fun annotateInlineFootnoteMarker(element: PsiElement, holder: AnnotationHolder) {
+    if (element.elementType != MarkdownTokenTypes.TEXT || !element.text.endsWith('^')) return
+    val shortReferenceLink = element.nextSibling?.takeIf {
+      it.elementType == MarkdownElementTypes.SHORT_REFERENCE_LINK
+    } ?: return
+    if (!isInlineFootnote(shortReferenceLink)) return
+
+    val markerStartOffset = element.textRange.endOffset - 1
+    holder.newSilentAnnotation(HighlightSeverity.INFORMATION)
+      .textAttributes(MarkdownHighlighterColors.INLINE_FOOTNOTE)
+      .range(TextRange(markerStartOffset, markerStartOffset + 1))
+      .create()
+  }
+
+  private fun isInlineFootnote(shortReferenceLink: PsiElement): Boolean {
+    val startOffset = shortReferenceLink.textRange.startOffset
+    if (startOffset == 0) return false
+
+    val contents = shortReferenceLink.containingFile.viewProvider.contents
+    if (contents[startOffset - 1] != '^') return false
+
+    var backslashCount = 0
+    var offset = startOffset - 2
+    while (offset >= 0 && contents[offset] == '\\') {
+      backslashCount++
+      offset--
+    }
+    return backslashCount % 2 == 0
+  }
+
+  private fun isCitationLabel(text: String): Boolean {
+    val labelText = text.removePrefix("[").removeSuffix("]")
+    return CITATION_KEY_IN_LABEL.containsMatchIn(labelText)
   }
 
   private fun annotateFootnoteContinuationCodeLine(element: PsiElement, holder: AnnotationHolder): Boolean {
@@ -83,6 +186,8 @@ internal class MarkdownHighlightingAnnotator : Annotator, DumbAware {
       else parents
         .asReversed()
         .filterNot { isImageLinkContent && it.elementType == MarkdownElementTypes.IMAGE }
+        // annotateBlockQuoteLines highlights whole lines, so the leaves do not repeat the block quote style
+        .filterNot { it.elementType == MarkdownElementTypes.BLOCK_QUOTE }
         .mapNotNullTo(linkedSetOf()) {
           it.primaryNonTextAttributesKey()
         }
@@ -167,9 +272,6 @@ internal class MarkdownHighlightingAnnotator : Annotator, DumbAware {
     return when {
       element.hasType(MarkdownTokenTypes.CODE_FENCE_CONTENT) && (element.parent as? MarkdownCodeFence)?.fenceLanguage != null -> {
         emptySet()
-      }
-      element.hasType(MarkdownTokenTypes.BLOCK_QUOTE) && element.parentOfType(MarkdownElementTypes.ALERT) != null -> {
-        setOf(MarkdownHighlighterColors.TEXT)
       }
       else -> null
     }

@@ -1,14 +1,15 @@
-// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.editor.impl;
 
 import com.intellij.openapi.editor.RangeMarker;
 import com.intellij.openapi.editor.ex.DocumentEx;
+import com.intellij.openapi.editor.ex.DocumentText;
 import com.intellij.openapi.editor.ex.LineIterator;
 import com.intellij.openapi.editor.ex.RangeMarkerEx;
 import com.intellij.openapi.util.UserDataHolderBase;
 import com.intellij.openapi.util.text.StringUtil;
-import com.intellij.util.ArrayUtilRt;
 import com.intellij.util.Processor;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 
 /**
@@ -17,9 +18,7 @@ import org.jetbrains.annotations.NotNull;
  */
 public class EditorTextFieldRendererDocument extends UserDataHolderBase implements DocumentEx {
   private final RangeMarkerTree<RangeMarkerEx> myRangeMarkers = new RangeMarkerTree<>(this);
-  private char[] myChars = ArrayUtilRt.EMPTY_CHAR_ARRAY;
-  private String myString = "";
-  private LineSet myLineSet = LineSet.createLineSet(myString);
+  private DocumentText myText = DocumentText.createText("");
 
   @Override
   public void setModificationStamp(long modificationStamp) {
@@ -33,22 +32,17 @@ public class EditorTextFieldRendererDocument extends UserDataHolderBase implemen
   @Override
   public void setText(@NotNull CharSequence text) {
     String s = StringUtil.convertLineSeparators(text.toString());
-    myChars = new char[s.length()];
-    s.getChars(0, s.length(), myChars, 0);
-    myString = new String(myChars);
-    myLineSet = LineSet.createLineSet(myString);
+    myText = DocumentText.createText(s);
   }
 
   @Override
   public int getLineSeparatorLength(int line) {
-    int separatorLength = myLineSet.getSeparatorLength(line);
-    assert separatorLength >= 0;
-    return separatorLength;
+    return myText.lineSeparatorLength(line);
   }
 
   @Override
   public @NotNull LineIterator createLineIterator() {
-    return myLineSet.createIterator();
+    return myText.lineIterator();
   }
 
   @Override
@@ -76,27 +70,27 @@ public class EditorTextFieldRendererDocument extends UserDataHolderBase implemen
 
   @Override
   public @NotNull CharSequence getImmutableCharSequence() {
-    return myString;
+    return myText.chars();
   }
 
   @Override
-  public char @NotNull [] getChars() { return myChars; }
+  public int getLineCount() {
+    return myText.lineCount();
+  }
 
   @Override
-  public int getLineCount() { return myLineSet.findLineIndex(myChars.length) + 1; }
+  public int getLineNumber(int offset) {
+    return myText.lineNumber(offset);
+  }
 
   @Override
-  public int getLineNumber(int offset) { return myLineSet.findLineIndex(offset); }
-
-  @Override
-  public int getLineStartOffset(int line) { return myChars.length == 0 ? 0 : myLineSet.getLineStart(line); }
+  public int getLineStartOffset(int line) {
+    return myText.lineStartOffset(line);
+  }
 
   @Override
   public int getLineEndOffset(int line) {
-    if (getTextLength() == 0 && line == 0) return 0;
-    int result = myLineSet.getLineEnd(line) - getLineSeparatorLength(line);
-    assert result >= 0;
-    return result;
+    return myText.lineEndOffset(line);
   }
 
   @Override
@@ -134,8 +128,14 @@ public class EditorTextFieldRendererDocument extends UserDataHolderBase implemen
     throw new UnsupportedOperationException("Not implemented");
   }
 
+  @ApiStatus.Internal
+  @Override
+  public @NotNull DocumentText getDocText() {
+    return myText;
+  }
+
   @Override
   public String toString() {
-    return "EditorTextFieldRendererDocument{myLength = "+ myChars.length + "; " + "myRangeMarkers = " + myRangeMarkers.size() +"}";
+    return "EditorTextFieldRendererDocument{myLength = "+ myText.length() + "; " + "myRangeMarkers = " + myRangeMarkers.size() +"}";
   }
 }

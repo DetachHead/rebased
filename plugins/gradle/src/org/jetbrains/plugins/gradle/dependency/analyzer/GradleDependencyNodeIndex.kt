@@ -5,7 +5,7 @@ import com.intellij.build.SyncViewManager
 import com.intellij.gradle.toolingExtension.impl.model.dependencyGraphModel.GradleDependencyNodeDeserializer
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
-import com.intellij.openapi.diagnostic.rethrowControlFlowException
+import com.intellij.diagnostic.rethrowControlFlowException
 import com.intellij.openapi.externalSystem.model.execution.ExternalSystemTaskExecutionSettings
 import com.intellij.openapi.externalSystem.model.project.dependencies.DependencyScopeNode
 import com.intellij.openapi.externalSystem.service.execution.ExternalSystemRunConfiguration

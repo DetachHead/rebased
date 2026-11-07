@@ -3,18 +3,40 @@
 package com.intellij.mcpserver.toolsets
 
 import com.intellij.mcpserver.GeneralMcpToolsetTestBase
+import com.intellij.mcpserver.toolsets.general.McpNavigationItemLocation
+import com.intellij.mcpserver.toolsets.general.McpNavigationItemMapper
+import com.intellij.mcpserver.toolsets.general.SEARCH_TIMEOUT_PARTIAL_RESULT_REASON
 import com.intellij.mcpserver.toolsets.general.SearchToolset
+import com.intellij.mcpserver.toolsets.general.withSearchTimeoutOverride
 import com.intellij.mcpserver.util.awaitExternalChangesAndIndexing
 import com.intellij.mcpserver.util.INDEXING_PARTIAL_RESULT_REASON
+import com.intellij.navigation.ChooseByNameContributor
+import com.intellij.navigation.ItemPresentation
+import com.intellij.navigation.NavigationItem
+import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.edtWriteAction
 import com.intellij.openapi.project.DumbService
+import com.intellij.openapi.project.Project
 import com.intellij.openapi.projectRoots.ProjectJdkTable
 import com.intellij.openapi.roots.ModuleRootModificationUtil
+import com.intellij.openapi.util.io.IoTestUtil
+import com.intellij.openapi.util.io.NioFiles
+import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.openapi.vfs.VirtualFile
+import com.intellij.openapi.vfs.newvfs.NewVirtualFile
+import com.intellij.platform.backend.workspace.toVirtualFileUrl
+import com.intellij.platform.backend.workspace.workspaceModel
 import com.intellij.testFramework.DumbModeTestUtils
+import com.intellij.testFramework.junit5.TestDisposable
 import com.intellij.testFramework.junit5.fixture.pathInProjectFixture
 import com.intellij.testFramework.junit5.fixture.sourceRootFixture
 import com.intellij.testFramework.junit5.fixture.virtualFileFixture
+import com.intellij.util.indexing.testEntities.ExcludedKindFileSetTestContributor
+import com.intellij.util.indexing.testEntities.ExcludedTestEntity
+import com.intellij.util.indexing.testEntities.NonIndexableKindFileSetTestContributor
+import com.intellij.util.indexing.testEntities.NonIndexableTestEntity
+import com.intellij.workspaceModel.core.fileIndex.impl.WorkspaceFileIndexImpl
+import com.intellij.workspaceModel.ide.NonPersistentEntitySource
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.Serializable
@@ -25,10 +47,16 @@ import kotlinx.serialization.json.buildJsonObject
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 import java.nio.file.Files
+import java.nio.file.Path
 import kotlin.io.path.Path
+import kotlin.io.path.invariantSeparatorsPathString
+import kotlin.time.Duration
 
 class SearchToolsetTest : GeneralMcpToolsetTestBase() {
   private val json = Json { ignoreUnknownKeys = true }
+
+  @TestDisposable
+  private lateinit var testDisposable: Disposable
 
   private val searchFile by sourceRootFixture.virtualFileFixture(
     "se_unique_search_file_7c2f.txt",
@@ -109,6 +137,9 @@ class SearchToolsetTest : GeneralMcpToolsetTestBase() {
   private val pathExcludedDirName = "se_paths_excluded_dir_9f3b"
   private val pathExcludedFileName = "se_paths_excluded_file_9f3b.txt"
 
+  private val nonIndexableDirName = "se_non_indexable_dir_6b4f"
+  private val nonIndexableFileName = "se_non_indexable_file_6b4f.txt"
+
   private fun parseResult(text: String?): SearchResult {
     val payload = text ?: error("Tool call result should include text content")
     return json.decodeFromString(SearchResult.serializer(), payload)
@@ -129,6 +160,67 @@ class SearchToolsetTest : GeneralMcpToolsetTestBase() {
       listOf(excludedDir.url)
     )
     excludedFile
+  }
+
+  /**
+   * Creates an excluded directory the way a real `out/` folder appears: on disk, with [populate] adding its content before
+   * the VFS learns about it, registered as an excluded folder by URL, and only then resolved through a non-recursive refresh
+   * of the parent. The result is a VFS record whose children are not cached. That is the only state in which the excluded walk
+   * lists the disk instead of the cached children, so the "leaves no VFS records" assertions are meaningful.
+   *
+   * The order matters. A directory created through the VFS (see [createExcludedFile]) is marked as fully loaded. A directory
+   * discovered by a refresh under an indexable root gets its whole subtree preloaded and marked complete by
+   * `TransientChildScanner`; the scanner skips a directory that is already excluded, which keeps the record shallow.
+   */
+  private suspend fun createExcludedDirOnDisk(excludedDirName: String, populate: (Path) -> Unit): VirtualFile {
+    val rootDir = sourceRootFixture.get().virtualFile
+    val excludedDirPath = rootDir.toNioPath().resolve(excludedDirName)
+    Files.createDirectories(excludedDirPath)
+    populate(excludedDirPath)
+    return edtWriteAction {
+      ModuleRootModificationUtil.updateExcludedFolders(
+        moduleFixture.get(),
+        rootDir,
+        emptyList(),
+        listOf("${rootDir.url}/$excludedDirName")
+      )
+      LocalFileSystem.getInstance().refreshAndFindFileByNioFile(excludedDirPath)
+      ?: error("Excluded directory is not visible to the VFS: $excludedDirPath")
+    }
+  }
+
+  private fun assertChildrenNotCached(directory: VirtualFile) {
+    assertThat((directory as NewVirtualFile).allChildrenCached())
+      .describedAs("children of %s must not be cached, otherwise the excluded walk reads the cache instead of the disk", directory.path)
+      .isFalse()
+  }
+
+  private fun assertNotCached(path: Path) {
+    assertThat(LocalFileSystem.getInstance().findFileByPathIfCached(path.invariantSeparatorsPathString))
+      .describedAs("the excluded walk must not create a VFS record for %s", path)
+      .isNull()
+  }
+
+  /**
+   * Creates a file under a content root that is not indexable.
+   * The file is visible to content iteration but absent from [com.intellij.psi.search.FilenameIndex].
+   */
+  private suspend fun createNonIndexableFile(): VirtualFile {
+    WorkspaceFileIndexImpl.EP_NAME.point.registerExtension(NonIndexableKindFileSetTestContributor(), testDisposable)
+    val nonIndexableDir = edtWriteAction {
+      val projectRoot = sourceRootFixture.get().virtualFile.parent
+      projectRoot.findChild(nonIndexableDirName) ?: projectRoot.createChildDirectory(this, nonIndexableDirName)
+    }
+    val workspaceModel = project.workspaceModel
+    val nonIndexableDirUrl = nonIndexableDir.toVirtualFileUrl(workspaceModel.getVirtualFileUrlManager())
+    workspaceModel.update("add non-indexable root") { storage ->
+      storage.addEntity(NonIndexableTestEntity(nonIndexableDirUrl, NonPersistentEntitySource))
+    }
+    return edtWriteAction {
+      nonIndexableDir.findChild(nonIndexableFileName) ?: nonIndexableDir.createChildData(this, nonIndexableFileName).also {
+        it.setBinaryContent("Non-indexable file content".toByteArray())
+      }
+    }
   }
 
   private suspend fun createFileInSubdir1(directoryName: String, fileName: String, content: String): VirtualFile = edtWriteAction {
@@ -302,6 +394,135 @@ class SearchToolsetTest : GeneralMcpToolsetTestBase() {
     ) { actualResult ->
       val filePaths = parseResult(actualResult.textContent.text).filePaths()
       assertThat(filePaths).anyMatch { it.contains(fileName) }
+    }
+  }
+
+  @Test
+  fun search_file_excluded_walk_leaves_no_vfs_records() = runBlocking(Dispatchers.Default) {
+    val nestedDirName = "se_excluded_nested_dir_e4b1"
+    val fileName = "se_excluded_nested_file_e4b1.txt"
+    val excludedDir = createExcludedDirOnDisk("se_excluded_disk_dir_e4b1") { dir ->
+      val nestedDir = Files.createDirectories(dir.resolve(nestedDirName))
+      Files.writeString(nestedDir.resolve(fileName), "Excluded nested file content e4b1")
+    }
+    DumbService.getInstance(project).waitForSmartMode()
+    val nestedDirPath = excludedDir.toNioPath().resolve(nestedDirName)
+    val nestedFilePath = nestedDirPath.resolve(fileName)
+    assertChildrenNotCached(excludedDir)
+
+    testMcpTool(
+      SearchToolset::search_file.name,
+      buildJsonObject {
+        put("q", JsonPrimitive("**/$fileName"))
+        put("includeExcluded", JsonPrimitive(true))
+      }
+    ) { actualResult ->
+      val filePaths = parseResult(actualResult.textContent.text).filePaths()
+      assertThat(filePaths).anyMatch { it.endsWith("$nestedDirName/$fileName") }
+    }
+
+    assertNotCached(nestedFilePath)
+    assertNotCached(nestedDirPath)
+    assertChildrenNotCached(excludedDir)
+  }
+
+  @Test
+  fun search_file_excluded_walk_does_not_follow_symlinks() = runBlocking(Dispatchers.Default) {
+    IoTestUtil.assumeSymLinkCreationIsSupported()
+    val linkName = "se_excluded_link_c7d3"
+    val markerName = "se_symlink_marker_c7d3.txt"
+    val siblingName = "se_symlink_sibling_c7d3.txt"
+    val outsideDir = Files.createTempDirectory("se_symlink_target_c7d3")
+    try {
+      Files.writeString(outsideDir.resolve(markerName), "Marker behind a symlink c7d3")
+      val excludedDir = createExcludedDirOnDisk("se_excluded_link_dir_c7d3") { dir ->
+        // The sibling proves the walk listed the disk; the link must not be descended into.
+        Files.writeString(dir.resolve(siblingName), "Sibling next to the symlink c7d3")
+        Files.createSymbolicLink(dir.resolve(linkName), outsideDir)
+      }
+      DumbService.getInstance(project).waitForSmartMode()
+      assertChildrenNotCached(excludedDir)
+
+      testMcpTool(
+        SearchToolset::search_file.name,
+        buildJsonObject {
+          put("q", JsonPrimitive("**/*_c7d3.txt"))
+          put("includeExcluded", JsonPrimitive(true))
+        }
+      ) { actualResult ->
+        val filePaths = parseResult(actualResult.textContent.text).filePaths()
+        assertThat(filePaths).anyMatch { it.endsWith(siblingName) }
+        assertThat(filePaths).noneMatch { it.contains(markerName) }
+      }
+
+      val linkPath = excludedDir.toNioPath().resolve(linkName)
+      assertNotCached(linkPath.resolve(markerName))
+      assertNotCached(linkPath)
+    }
+    finally {
+      NioFiles.deleteRecursively(outsideDir)
+    }
+  }
+
+  @Test
+  fun search_file_excluded_walk_covers_workspace_index_excluded_roots() = runBlocking(Dispatchers.Default) {
+    // IDEs without modules exclude folders through a WorkspaceFileIndexContributor, not through module exclude folders.
+    WorkspaceFileIndexImpl.EP_NAME.point.registerExtension(ExcludedKindFileSetTestContributor(), testDisposable)
+    val excludedDirName = "se_wsm_excluded_dir_9a2c"
+    val fileName = "se_wsm_excluded_file_9a2c.txt"
+    val rootDir = sourceRootFixture.get().virtualFile
+    val excludedDirPath = rootDir.toNioPath().resolve(excludedDirName)
+    Files.createDirectories(excludedDirPath)
+    Files.writeString(excludedDirPath.resolve(fileName), "Workspace-index excluded file content 9a2c")
+    val workspaceModel = project.workspaceModel
+    val excludedUrl = workspaceModel.getVirtualFileUrlManager().getOrCreateFromUrl("${rootDir.url}/$excludedDirName")
+    workspaceModel.update("add workspace-index excluded root") { storage ->
+      storage.addEntity(ExcludedTestEntity(excludedUrl, NonPersistentEntitySource))
+    }
+    val excludedDir = edtWriteAction {
+      LocalFileSystem.getInstance().refreshAndFindFileByNioFile(excludedDirPath)
+      ?: error("Excluded directory is not visible to the VFS: $excludedDirPath")
+    }
+    DumbService.getInstance(project).waitForSmartMode()
+    assertChildrenNotCached(excludedDir)
+
+    testMcpTool(
+      SearchToolset::search_file.name,
+      buildJsonObject {
+        put("q", JsonPrimitive("**/$fileName"))
+      }
+    ) { actualResult ->
+      val filePaths = parseResult(actualResult.textContent.text).filePaths()
+      assertThat(filePaths).noneMatch { it.contains(fileName) }
+    }
+
+    testMcpTool(
+      SearchToolset::search_file.name,
+      buildJsonObject {
+        put("q", JsonPrimitive("**/$fileName"))
+        put("includeExcluded", JsonPrimitive(true))
+      }
+    ) { actualResult ->
+      val filePaths = parseResult(actualResult.textContent.text).filePaths()
+      assertThat(filePaths).anyMatch { it.endsWith("$excludedDirName/$fileName") }
+    }
+
+    assertNotCached(excludedDirPath.resolve(fileName))
+    assertChildrenNotCached(excludedDir)
+  }
+
+  @Test
+  fun search_file_finds_file_under_non_indexable_content_root() = runBlocking(Dispatchers.Default) {
+    val nonIndexableFile = createNonIndexableFile()
+    awaitExternalChangesAndIndexing(project)
+    testMcpTool(
+      SearchToolset::search_file.name,
+      buildJsonObject {
+        put("q", JsonPrimitive(nonIndexableFile.name))
+      }
+    ) { actualResult ->
+      val filePaths = parseResult(actualResult.textContent.text).filePaths()
+      assertThat(filePaths).containsExactly("$nonIndexableDirName/$nonIndexableFileName")
     }
   }
 
@@ -487,6 +708,54 @@ class SearchToolsetTest : GeneralMcpToolsetTestBase() {
   }
 
   @Test
+  fun search_text_reports_partial_result_on_timeout() = runBlocking(Dispatchers.Default) {
+    awaitExternalChangesAndIndexing(project)
+    withSearchTimeoutOverride(project, Duration.ZERO) {
+      testMcpTool(
+        SearchToolset::search_text.name,
+        buildJsonObject { put("q", JsonPrimitive("Search Everywhere file content")) }
+      ) { actualResult ->
+        val result = parseResult(actualResult.textContent.text)
+        assertThat(result.items).isEmpty()
+        assertThat(result.more).isTrue()
+        assertThat(result.partialResultReason).isEqualTo(SEARCH_TIMEOUT_PARTIAL_RESULT_REASON)
+      }
+    }
+  }
+
+  @Test
+  fun search_file_reports_partial_result_on_timeout() = runBlocking(Dispatchers.Default) {
+    DumbService.getInstance(project).waitForSmartMode()
+    withSearchTimeoutOverride(project, Duration.ZERO) {
+      testMcpTool(
+        SearchToolset::search_file.name,
+        buildJsonObject { put("q", JsonPrimitive(searchFile.name)) }
+      ) { actualResult ->
+        val result = parseResult(actualResult.textContent.text)
+        assertThat(result.items).isEmpty()
+        assertThat(result.more).isTrue()
+        assertThat(result.partialResultReason).isEqualTo(SEARCH_TIMEOUT_PARTIAL_RESULT_REASON)
+      }
+    }
+  }
+
+  @Test
+  fun search_symbol_reports_partial_result_on_timeout() = runBlocking(Dispatchers.Default) {
+    DumbService.getInstance(project).waitForSmartMode()
+    withSearchTimeoutOverride(project, Duration.ZERO) {
+      testMcpTool(
+        SearchToolset::search_symbol.name,
+        buildJsonObject { put("q", JsonPrimitive("${symbolPrefix}Alpha")) }
+      ) { actualResult ->
+        val result = parseResult(actualResult.textContent.text)
+        assertThat(result.items).isEmpty()
+        assertThat(result.more).isTrue()
+        assertThat(result.partialResultReason).isEqualTo(SEARCH_TIMEOUT_PARTIAL_RESULT_REASON)
+      }
+    }
+  }
+
+  @Test
   fun search_symbol_accepts_directory_path_without_trailing_slash() = runBlocking(Dispatchers.Default) {
     val directoryName = "se_symbol_dir_4a1c"
     val fileName = "se_symbol_dir_4a1c.kt"
@@ -561,6 +830,29 @@ class SearchToolsetTest : GeneralMcpToolsetTestBase() {
   }
 
   @Test
+  fun search_symbol_surfaces_non_psi_items_via_navigation_item_mapper() = runBlocking(Dispatchers.Default) {
+    val symbolName = "SeMappedSymbol2f8d"
+    val mappedItem = FakeNonPsiNavigationItem(symbolName)
+    ChooseByNameContributor.SYMBOL_EP_NAME.point.registerExtension(FakeSymbolContributor(symbolName, mappedItem), testDisposable)
+    McpNavigationItemMapper.EP_NAME.point.registerExtension(FakeNavigationItemMapper(mappedItem, searchFile), testDisposable)
+    DumbService.getInstance(project).waitForSmartMode()
+    testMcpTool(
+      SearchToolset::search_symbol.name,
+      buildJsonObject {
+        put("q", JsonPrimitive(symbolName))
+      }
+    ) { actualResult ->
+      val result = parseResult(actualResult.textContent.text)
+      val item = result.items.firstOrNull { it.filePath.contains(searchFile.name) }
+      assertThat(item).isNotNull
+      assertThat(item?.startLine).isEqualTo(3)
+      assertThat(item?.startColumn).isEqualTo(5)
+      assertThat(item?.endLine).isEqualTo(3)
+      assertThat(item?.endColumn).isEqualTo(15)
+    }
+  }
+
+  @Test
   fun search_symbol_description_suggests_include_external_retry() = runBlocking(Dispatchers.Default) {
     withConnection { client ->
       val tool = client.listTools().tools.first { it.name == SearchToolset::search_symbol.name }
@@ -573,9 +865,9 @@ class SearchToolsetTest : GeneralMcpToolsetTestBase() {
     val sourcePath = root.resolve("sdk/$symbolName.java")
     Files.createDirectories(sourcePath.parent)
     Files.writeString(sourcePath, sourceCode)
-    val rootFile = com.intellij.openapi.vfs.LocalFileSystem.getInstance().refreshAndFindFileByNioFile(root)
+    val rootFile = com.intellij.openapi.vfs.VirtualFileManager.getInstance().refreshAndFindFileByNioPath(root)
                    ?: error("Cannot find sdk root $root")
-    val sourceFile = com.intellij.openapi.vfs.LocalFileSystem.getInstance().refreshAndFindFileByNioFile(sourcePath)
+    val sourceFile = com.intellij.openapi.vfs.VirtualFileManager.getInstance().refreshAndFindFileByNioPath(sourcePath)
                      ?: error("Cannot find source file $sourcePath")
     val sdkTable = ProjectJdkTable.getInstance(project)
     val sdk = sdkTable.createSdk("mcp-sdk-$symbolName-${System.nanoTime()}", sdkTable.defaultSdkType)
@@ -633,5 +925,40 @@ class SearchToolsetTest : GeneralMcpToolsetTestBase() {
       assertThat(result.more).isTrue()
       assertThat(entryFilePaths).anyMatch { path -> expectedNames.any { path.contains(it) } }
     }
+  }
+}
+
+private class FakeNonPsiNavigationItem(private val itemName: String) : NavigationItem {
+  override fun getName(): String = itemName
+
+  override fun getPresentation(): ItemPresentation = object : ItemPresentation {
+    override fun getPresentableText(): String = itemName
+    override fun getIcon(unused: Boolean): javax.swing.Icon? = null
+  }
+
+  override fun navigate(requestFocus: Boolean) {}
+
+  override fun canNavigate(): Boolean = false
+
+  override fun canNavigateToSource(): Boolean = false
+}
+
+private class FakeSymbolContributor(
+  private val symbolName: String,
+  private val item: NavigationItem,
+) : ChooseByNameContributor {
+  override fun getNames(project: Project?, includeNonProjectItems: Boolean): Array<String> = arrayOf(symbolName)
+
+  override fun getItemsByName(name: String, pattern: String, project: Project?, includeNonProjectItems: Boolean): Array<NavigationItem> =
+    if (name == symbolName) arrayOf(item) else NavigationItem.EMPTY_NAVIGATION_ITEM_ARRAY
+}
+
+private class FakeNavigationItemMapper(
+  private val expectedItem: NavigationItem,
+  private val file: VirtualFile,
+) : McpNavigationItemMapper {
+  override fun map(item: NavigationItem): McpNavigationItemLocation? {
+    if (item !== expectedItem) return null
+    return McpNavigationItemLocation(file = file, startLine = 2, startColumn = 4, endLine = 2, endColumn = 14)
   }
 }

@@ -13,7 +13,7 @@ import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
 import com.intellij.openapi.components.serviceAsync
 import com.intellij.openapi.diagnostic.logger
-import com.intellij.openapi.diagnostic.rethrowControlFlowException
+import com.intellij.diagnostic.rethrowControlFlowException
 import com.intellij.openapi.project.Project
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -481,7 +481,7 @@ internal class GitLabMetricsLoader(private val project: Project) {
 
       val api = getApi(chosenRepoMapping.repository.serverPath) ?: return null
       val currentUser = api.graphQL.getCurrentUser()
-      return api.graphQL.getMergeRequestMetrics(chosenRepoMapping.repository.projectPath, currentUser.username).body()
+      return api.graphQL.getMergeRequestMetrics(chosenRepoMapping.repository.projectPath, currentUser.username)
     }
     catch (e: Exception) {
       rethrowControlFlowException(e)

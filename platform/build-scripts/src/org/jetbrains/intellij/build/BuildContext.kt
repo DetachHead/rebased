@@ -2,6 +2,8 @@
 package org.jetbrains.intellij.build
 
 import com.intellij.platform.buildData.productInfo.ProductInfoLayoutItem
+import com.intellij.platform.buildScripts.concurrency.TaskScope
+import com.intellij.platform.buildScripts.concurrency.taskScope
 import io.opentelemetry.api.trace.Span
 import io.opentelemetry.api.trace.SpanBuilder
 import kotlinx.collections.immutable.PersistentMap
@@ -10,20 +12,25 @@ import kotlinx.serialization.Serializable
 import org.jetbrains.annotations.ApiStatus.Internal
 import org.jetbrains.intellij.build.classPath.PluginBuildResult
 import org.jetbrains.intellij.build.impl.DistributionBuilderState
+import org.jetbrains.intellij.build.impl.PlatformLayout
 import org.jetbrains.intellij.build.impl.plugins.PluginAutoPublishList
 import org.jetbrains.intellij.build.io.DEFAULT_TIMEOUT
 import org.jetbrains.intellij.build.productRunner.IntellijProductRunner
-import org.jetbrains.intellij.build.telemetry.blockingUse
 import org.jetbrains.intellij.build.telemetry.use
 import org.jetbrains.jps.model.module.JpsModule
+import java.io.ByteArrayOutputStream
+import java.io.OutputStream
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.concurrent.CancellationException
-import kotlin.coroutines.CoroutineContext
-import kotlin.coroutines.EmptyCoroutineContext
 import kotlin.time.Duration
 
 interface BuildContext : CompilationContext {
+  val lifetime: BuildLifetime
+
+  override val httpSession: BuildHttpSession
+    get() = lifetime.http
+
   val productProperties: ProductProperties
   val windowsDistributionCustomizer: WindowsDistributionCustomizer?
   val macDistributionCustomizer: MacDistributionCustomizer?
@@ -126,7 +133,7 @@ interface BuildContext : CompilationContext {
   val nonBundledPluginsToBePublished: Path
 
   /**
-   * Add the file to be copied into an application.
+   * Add the file to be copied into an application. [DistFile.relativePath] starts at the distribution root.
    */
   fun addDistFile(file: DistFile)
 
@@ -151,7 +158,7 @@ interface BuildContext : CompilationContext {
 
   fun findApplicationInfoModule(): JpsModule
 
-  suspend fun signFiles(files: List<Path>, options: PersistentMap<String, String> = persistentMapOf()) {
+  fun signFiles(files: List<Path>, options: PersistentMap<String, String> = persistentMapOf()) {
     proprietaryBuildTools.signTool.signFiles(files = files, context = this, options = options)
   }
 
@@ -162,13 +169,14 @@ interface BuildContext : CompilationContext {
    * This is necessary to generate launchers and other data for the embedded frontend process in a distribution of the full IDE.
    */
   @Internal
-  suspend fun getEmbeddedFrontendProductContext(): BuildContext?
+  fun getEmbeddedFrontendProductContext(): BuildContext?
 
   /**
    * Returns descriptors of plugins that are not bundled with the IDE, but used from the frontend process started from the IDE.
+   * The layout fills the descriptor cache of [platformLayout]. Read the result with the same layout.
    */
   @Internal
-  suspend fun getLayoutOfAdditionalFrontendOnlyPlugins(): List<PluginBuildResult>
+  fun getLayoutOfAdditionalFrontendOnlyPlugins(platformLayout: PlatformLayout): List<PluginBuildResult>
 
   fun getContentModuleFilter(): ContentModuleFilter
 
@@ -178,19 +186,19 @@ interface BuildContext : CompilationContext {
 
   fun shouldBuildDistributionForOS(os: OsFamily, arch: JvmArchitecture): Boolean
 
-  suspend fun createCopyForProduct(productProperties: ProductProperties, projectHomeForCustomizers: Path, prepareForBuild: Boolean = true): BuildContext
+  fun createCopyForProduct(productProperties: ProductProperties, projectHomeForCustomizers: Path, prepareForBuild: Boolean = true): BuildContext
 
   fun reportDistributionBuildNumber()
 
-  suspend fun cleanupJarCache()
+  fun cleanupJarCache()
 
   /**
    * Creates an instance of [IntellijProductRunner] which can be used to run the IDE being built with some command.
    * @param additionalPluginModules main modules of non-bundled plugins, which should be loaded inside the IDE process
    */
-  suspend fun createProductRunner(additionalPluginModules: List<String> = emptyList()): IntellijProductRunner
+  fun createProductRunner(additionalPluginModules: List<String> = emptyList()): IntellijProductRunner
 
-  suspend fun runProcess(
+  fun runProcess(
     args: List<String>,
     workingDir: Path? = null,
     timeout: Duration = DEFAULT_TIMEOUT,
@@ -203,7 +211,7 @@ interface BuildContext : CompilationContext {
   val isNightlyBuild: Boolean
 
   @Internal
-  suspend fun distributionState(): DistributionBuilderState
+  fun distributionState(): DistributionBuilderState
 }
 
 internal val BuildContext.isLanguageServer: Boolean
@@ -216,14 +224,16 @@ internal fun BuildContext.add64IfNeeded(s: String): String =
 /**
  * Runs a build step under a span, unless the step is skipped or fails. The step is a group of forks: a `fork` inside it
  * starts a task on a virtual thread, and the step ends when every fork has ended.
+ *
+ * A failed step is recorded and reported, and `null` is returned. A cancel of the caller, an [InterruptedException] or a
+ * [CancellationException], is not a failure of the step and is rethrown.
  */
-suspend inline fun <T> CompilationContext.executeStep(
+inline fun <T> CompilationContext.executeStep(
   spanBuilder: SpanBuilder,
   stepId: String,
-  coroutineContext: CoroutineContext = EmptyCoroutineContext,
-  crossinline step: suspend TaskScope.(Span) -> T,
+  crossinline step: TaskScope.(Span) -> T,
 ): T? {
-  return spanBuilder.use(coroutineContext) { span ->
+  return spanBuilder.use { span ->
     try {
       options.buildStepListener.onStart(stepId, messages)
       if (isStepSkipped(stepId)) {
@@ -232,45 +242,16 @@ suspend inline fun <T> CompilationContext.executeStep(
         null
       }
       else {
-        taskScope { step(span) }
+        taskScope {
+          val scopeResult = step(span)
+          join { scopeResult }
+        }
       }
     }
     catch (e: CancellationException) {
       throw e
     }
-    catch (e: Throwable) {
-      span.recordException(e)
-      options.buildStepListener.onFailure(stepId, e, messages)
-      null
-    }
-    finally {
-      options.buildStepListener.onCompletion(stepId, messages)
-    }
-  }
-}
-
-/**
- * The non-suspend twin of [executeStep] for a step that only blocks. The step runs on the calling thread, which is
- * a virtual thread in a build.
- */
-inline fun <T> CompilationContext.blockingExecuteStep(
-  spanBuilder: SpanBuilder,
-  stepId: String,
-  crossinline step: (Span) -> T,
-): T? {
-  return spanBuilder.blockingUse { span ->
-    try {
-      options.buildStepListener.onStart(stepId, messages)
-      if (isStepSkipped(stepId)) {
-        span.addEvent("skip '$stepId' step")
-        options.buildStepListener.onSkipping(stepId, messages)
-        null
-      }
-      else {
-        step(span)
-      }
-    }
-    catch (e: CancellationException) {
+    catch (e: InterruptedException) {
       throw e
     }
     catch (e: Throwable) {
@@ -301,14 +282,87 @@ data class LocalDistFileContent(@JvmField val file: Path, @JvmField val isExecut
   override fun toString(): String = "LocalDistFileContent(file=$file, isExecutable=$isExecutable)"
 }
 
-data class InMemoryDistFileContent(@JvmField val data: ByteArray) : DistFileContent {
-  override fun readAsStringForDebug(): String = String(data, 0, data.size.coerceAtMost(1024), Charsets.UTF_8)
+/**
+ * The content of a dist file in memory, as an ordered list of segments.
+ *
+ * The variants of one file share the segments that they have in common. A reader gets one array for the duration of its write only.
+ * Two contents are equal when their concatenated bytes are equal, whatever the segment boundaries are.
+ */
+class InMemoryDistFileContent private constructor(private val segments: List<ByteArray>) : DistFileContent {
+  constructor(data: ByteArray) : this(listOf(data))
 
-  override fun equals(other: Any?): Boolean = this === other || other is InMemoryDistFileContent && data.contentEquals(other.data)
+  companion object {
+    /**
+     * Creates the content from [segments] in their order. Empty segments are dropped. The arrays are not copied.
+     */
+    fun ofSegments(segments: List<ByteArray>): InMemoryDistFileContent = InMemoryDistFileContent(segments.filter { it.isNotEmpty() })
+  }
 
-  override fun hashCode(): Int = data.contentHashCode()
+  val size: Int = segments.sumOf { it.size }
 
-  override fun toString(): String = "InMemoryDistFileContent(size=${data.size})"
+  /**
+   * Returns the segment itself if there is only one segment, else a new array with the concatenated segments.
+   * The caller must not change the returned array.
+   */
+  fun readAllBytes(): ByteArray {
+    when (segments.size) {
+      0 -> return ByteArray(0)
+      1 -> return segments.first()
+    }
+
+    val result = ByteArray(size)
+    var offset = 0
+    for (segment in segments) {
+      System.arraycopy(segment, 0, result, offset, segment.size)
+      offset += segment.size
+    }
+    return result
+  }
+
+  fun writeTo(out: OutputStream) {
+    for (segment in segments) {
+      out.write(segment)
+    }
+  }
+
+  override fun readAsStringForDebug(): String {
+    val limit = size.coerceAtMost(1024)
+    val out = ByteArrayOutputStream(limit)
+    for (segment in segments) {
+      val remaining = limit - out.size()
+      if (remaining <= 0) {
+        break
+      }
+      out.write(segment, 0, segment.size.coerceAtMost(remaining))
+    }
+    return out.toString(Charsets.UTF_8)
+  }
+
+  override fun equals(other: Any?): Boolean {
+    if (this === other) {
+      return true
+    }
+    if (other !is InMemoryDistFileContent || size != other.size) {
+      return false
+    }
+    if (segments.size == 1 && other.segments.size == 1) {
+      return segments.first().contentEquals(other.segments.first())
+    }
+    return readAllBytes().contentEquals(other.readAllBytes())
+  }
+
+  override fun hashCode(): Int {
+    // the same function as ByteArray.contentHashCode, applied over all segments in order
+    var result = 1
+    for (segment in segments) {
+      for (b in segment) {
+        result = 31 * result + b
+      }
+    }
+    return result
+  }
+
+  override fun toString(): String = "InMemoryDistFileContent(size=$size)"
 }
 
 data class DistFile(

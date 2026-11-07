@@ -7,7 +7,7 @@ import com.intellij.python.pytools.resolveExecutable
 import com.intellij.python.hatch.impl.sdk.HatchSdkFlavor
 import com.intellij.python.hatch.impl.sdk.HatchSdkFlavorData
 import com.intellij.python.hatch.runtime.HatchConstants
-import com.intellij.python.hatch.icons.PythonHatchIcons
+import com.intellij.python.hatch.common.icons.PythonHatchCommonIcons
 import com.jetbrains.python.PyBundle
 import com.jetbrains.python.run.features.PyRunToolData
 import com.jetbrains.python.run.features.PyRunToolId
@@ -31,7 +31,7 @@ internal class HatchRunToolProvider : PySdkRunToolProvider<HatchSdkFlavorData, H
     flavorData.hatchEnvironmentName?.let {
       env += HatchConstants.AppEnvVars.ENV to it
     }
-    return PyRunToolParameters(hatchPath.toString(), listOf("run", "python"), env, includeOriginalExe = false)
+    return PyRunToolParameters(hatchPath.toStringForExecution(), listOf("run", "python"), env, includeOriginalExe = false)
   }
 
   override val runToolData: PyRunToolData = PyRunToolData(
@@ -39,7 +39,7 @@ internal class HatchRunToolProvider : PySdkRunToolProvider<HatchSdkFlavorData, H
     PyBundle.message("hatch.run.configuration.type.display.name"),
     PyBundle.message("python.run.configuration.fragments.python.group"),
     label = PyBundle.message("hatch.run.tool.label"),
-    icon = PythonHatchIcons.Logo,
+    icon = PythonHatchCommonIcons.Logo,
   )
 
   override val initialToolState: Boolean = true

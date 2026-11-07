@@ -10,7 +10,7 @@ import org.jetbrains.plugins.groovy.util.TestUtils
 
 
 class GroovyComplexArgumentLabelAnnotatorTest : LightGroovyTestCase() {
-  override fun getBasePath() = "${TestUtils.getTestDataPath()}/annotator/"
+  override fun getTestDataPath() = "${TestUtils.getAbsoluteTestDataPath()}/annotator/"
 
   override fun getProjectDescriptor(): LightProjectDescriptor = GroovyProjectDescriptors.GROOVY_4_0
 

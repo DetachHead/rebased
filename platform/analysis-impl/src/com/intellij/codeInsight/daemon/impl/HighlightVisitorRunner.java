@@ -35,7 +35,7 @@ import java.util.Set;
 import java.util.concurrent.CancellationException;
 import java.util.function.Supplier;
 
-import static com.intellij.openapi.diagnostic.LoggerKt.rethrowControlFlowException;
+import static com.intellij.diagnostic.ControlFlowExceptionsKt.rethrowControlFlowException;
 
 class HighlightVisitorRunner {
   private static final String PRIORITY_HIGHLIGHTING_RANGE_SPAN = "Prioritized range";

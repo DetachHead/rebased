@@ -19,6 +19,9 @@
     <module name="intellij.platform.analysis"/>
     <module name="intellij.platform.codeStyle"/>
     <module name="intellij.platform.codeStyle.impl"/>
+    <module name="intellij.platform.concurrency"/>
+    <module name="intellij.platform.consoleView"/>
+    <module name="intellij.platform.consoleView.impl"/>
     <module name="intellij.platform.core"/>
     <module name="intellij.platform.core.impl"/>
     <module name="intellij.platform.core.ui"/>
@@ -29,6 +32,7 @@
     <module name="intellij.platform.ide.core"/>
     <module name="intellij.platform.ide.impl"/>
     <module name="intellij.platform.indexing"/>
+    <module name="intellij.platform.indexing.impl"/>
     <module name="intellij.platform.lang"/>
     <module name="intellij.platform.lang.core"/>
     <module name="intellij.platform.lang.impl"/>
@@ -45,7 +49,9 @@
     <module name="intellij.xml.psi"/>
   </dependencies>
   <!-- endregion -->
-  <content namespace="jetbrains"/>
+  <content namespace="jetbrains">
+    <module name="intellij.xml.langInjection.xpath"/>
+  </content>
   <depends>com.intellij.modules.xml</depends>
   <resource-bundle>messages.XPathBundle</resource-bundle>
 

@@ -7,8 +7,8 @@ import org.jetbrains.plugins.groovy.util.TestUtils;
 
 public class MissingReturnTest extends LightGroovyTestCase {
   @Override
-  protected String getBasePath() {
-    return TestUtils.getTestDataPath() + "highlighting/missingReturn";
+  protected String getTestDataPath() {
+    return TestUtils.getAbsoluteTestDataPath() + "highlighting/missingReturn";
   }
 
   public void testMissingReturnWithLastLoop() { doTest(); }

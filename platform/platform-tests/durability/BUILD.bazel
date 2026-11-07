@@ -50,7 +50,6 @@ jvm_library(
         # do not sort,
         "//platform/util-ex",
         "//platform/util-ex:util-ex_test_lib",
-        "@lib//:ktor-network-tls",
         "@lib//:kotlin-stdlib",
         "//libraries/io",
         "//libraries/io:io_test_lib",

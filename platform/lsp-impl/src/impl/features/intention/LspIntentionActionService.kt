@@ -15,6 +15,7 @@ import com.intellij.platform.lsp.api.LspClient
 import com.intellij.platform.lsp.api.customization.LspCodeActionsSupport
 import com.intellij.platform.lsp.api.customization.LspIntentionAction
 import com.intellij.platform.lsp.impl.LspClientManagerImpl
+import com.intellij.platform.lsp.impl.supportsCodeActions
 import com.intellij.platform.lsp.util.getLsp4jRange
 import com.intellij.psi.PsiManager
 import com.intellij.util.asSafely

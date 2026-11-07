@@ -5,7 +5,7 @@ import com.intellij.application.options.CodeStyle
 import com.intellij.lang.Language
 import com.intellij.openapi.application.readAction
 import com.intellij.openapi.diagnostic.logger
-import com.intellij.openapi.diagnostic.rethrowControlFlowException
+import com.intellij.diagnostic.rethrowControlFlowException
 import com.intellij.openapi.diagnostic.trace
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.JDOMUtil

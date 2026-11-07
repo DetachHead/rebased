@@ -63,56 +63,36 @@ def _module_dir_relative_project_path(url, iml_rel_path, iml_dir_rel, root_type)
     return _normalize_project_relative_path(parts, "The %s root '%s' in %s" % (root_type, url, iml_rel_path))
 
 def _iml_roots(iml_content, iml_rel_path, iml_dir_rel):
-    """The project-relative resource roots an .iml declares, split by scope, plus its first content root.
+    """The project-relative production resource roots an .iml declares.
 
-    All of it comes out of one parse: this runs once per module in the repository, and a second `xml.parse` of the
-    same .iml just to find the test roots would double the cost of the whole model read.
-
-    A generated test plugin keeps its descriptor under a test root - `intellij.lambda.test.plugin` is a module with
-    no production output at all, only `resources/META-INF/plugin.xml` marked `java-test-resource`.
-
-    The first content root is where a plugin's dev-distribution residue lives, and only the first: that is the rule the
-    converter reads it back with (`devDistResidueFile` in `ModuleDescriptor.kt`), and the rule a `module-content.yaml`
-    follows too.
+    All of it comes out of one parse: this runs once per module in the repository.
     """
     doc = xml.parse(iml_content, strict = True)
     root = xml.get_document_element(doc)
 
-    first_content_root = None
-    for content in xml.find_elements_by_tag_name(root, "content"):
-        url = xml.get_attribute(content, "url")
-        if not url:
-            fail("A content root is missing the 'url' attribute in %s" % iml_rel_path)
-        first_content_root = _module_dir_relative_project_path(
-            url = url,
-            iml_rel_path = iml_rel_path,
-            iml_dir_rel = iml_dir_rel,
-            root_type = "content",
-        )
-        break
-
     production = []
-    test = []
+    production_resources = []
     for source_folder in xml.find_elements_by_tag_name(root, "sourceFolder"):
         root_type = xml.get_attribute(source_folder, "type")
-        if root_type == "java-resource":
-            target = production
-        elif root_type == "java-test-resource":
-            target = test
-        else:
+        if root_type != "java-resource":
             continue
 
         url = xml.get_attribute(source_folder, "url")
         if not url:
             fail("A %s root is missing the 'url' attribute in %s" % (root_type, iml_rel_path))
 
-        target.append(_module_dir_relative_project_path(
+        path = _module_dir_relative_project_path(
             url = url,
             iml_rel_path = iml_rel_path,
             iml_dir_rel = iml_dir_rel,
             root_type = root_type,
+        )
+        production.append(path)
+        production_resources.append(struct(
+            path = path,
+            relative_output_path = xml.get_attribute(source_folder, "relativeOutputPath") or "",
         ))
-    return struct(production = production, test = test, first_content_root = first_content_root)
+    return struct(production = production, production_resources = production_resources)
 
 def _find_plugin_xml_rel_path(ctx, project_root, resource_roots):
     for resource_root in resource_roots:
@@ -127,61 +107,6 @@ def _find_plugin_xml_rel_path(ctx, project_root, resource_roots):
             return plugin_xml_rel_path
 
     return None
-
-_TEST_DESCRIPTOR_SUFFIX = "._test"
-
-def _find_test_plugin_modules(ctx, project_root, test_resource_roots):
-    """Every JPS module a generated test plugin's descriptor names, or `None` when this module owns no such descriptor.
-
-    A dev-distribution fragment lays out the whole plugin, so declaring only the descriptor module's own jar is not
-    enough - it needs the jar of every module the plugin packs. That set is written in the descriptor, and the
-    descriptor is generated from the `testPlugin { }` block and checked in, so reading it here is reading the same
-    answer the assembly reads. Nothing has to name these modules in a generated plan.
-
-    Probed, never listed: the plugin.xml of a test plugin sits at `META-INF/plugin.xml` under a test resource root,
-    exactly the way a production plugin's does under a production one.
-    """
-    for resource_root in test_resource_roots:
-        rel_path = _join_project_relative_path(resource_root, "META-INF/plugin.xml")
-        descriptor_path = project_root.get_child(rel_path)
-        if not descriptor_path.exists:
-            continue
-        return _parse_test_plugin_modules(ctx.read(descriptor_path, watch = "yes"), rel_path)
-
-    return None
-
-def _parse_test_plugin_modules(descriptor_content, descriptor_rel_path):
-    doc = xml.parse(descriptor_content, strict = True)
-    root = xml.get_document_element(doc)
-
-    names = {}
-
-    # `<content>` only. A fragment needs the jar of every module the plugin *packs*, and that is what a content
-    # module is; `<dependencies>` names modules the platform or another plugin owns and packs, and declaring those
-    # here doubled what this plugin asks for - 224 labels to 436 for `intellij.lambda.test.plugin`, whose
-    # `<dependencies>` block is 58 platform modules. The layout still resolves them, from the shared project model
-    # tree rather than from a jar.
-    for container in xml.find_elements_by_tag_name(root, "content"):
-        for module_element in xml.find_elements_by_tag_name(container, "module"):
-            name = xml.get_attribute(module_element, "name")
-            if not name:
-                fail("<module> is missing the 'name' attribute in %s" % descriptor_rel_path)
-            names[_normalize_content_module_name(name)] = True
-
-    return sorted(names.keys())
-
-def _normalize_content_module_name(name):
-    """Descriptor vocabulary to JPS module name.
-
-    `<name>/<loading>` is one module with a loading mode, and `._test` is a synthetic name for a module's test
-    output. Neither exists on the Bazel side, which resolves plain JPS module names to output labels.
-    """
-    slash = name.rfind("/")
-    if slash != -1:
-        name = name[:slash]
-    if name.endswith(_TEST_DESCRIPTOR_SUFFIX):
-        name = name[:-len(_TEST_DESCRIPTOR_SUFFIX)]
-    return name
 
 def _join_project_relative_path(directory, relative):
     return directory + "/" + relative if directory else relative
@@ -214,36 +139,6 @@ def _find_descriptor_rel_paths(project_root, module_name, resource_roots, extra_
             result.append(rel_path)
     return result
 
-_CONTENT_MODULE_RECIPE_FILE_NAME = "module-content.yaml"
-
-def _find_content_module_recipe_rel_path(ctx, project_root, first_content_root):
-    """The `module-content.yaml` of the `lib/` jar this module owns, or `None`.
-
-    The recipe is what says whether a platform content module owns a jar of its own, and only the converter reads it.
-    A recipe nobody names is a recipe the hermetic `bazel-targets.json` run cannot see, because that run loads its
-    project model from a tree materialized out of declared labels, and its `contentModuleJarTarget` then silently
-    differs from the full-checkout run's. That is not a symmetric loss: a missing label makes a dev-distribution fragment repack a jar whose packing
-    target goes unbuilt, and the recipe's absence also stops the veto in `isPrepackedPluginContentModule` from firing,
-    so the fallback claims jars for modules that own none and the plan hands a jar to a target that is not in the tree.
-
-    Beside the module's *first content root*, which is where the content-report writer puts it and is not always the
-    directory holding the `.iml` - the same rule `ModuleDescriptor.contentModuleRecipeFile` follows.
-
-    Existence only, deliberately: this side cannot parse YAML and does not have to. `JpsModuleToBazelTargetsOnly`
-    asserts that the two sides pick out the same set of files, and the one converter then decides the rest.
-    """
-    if first_content_root == None:
-        return None
-    rel_path = _join_project_relative_path(first_content_root, _CONTENT_MODULE_RECIPE_FILE_NAME)
-    path = project_root.get_child(rel_path)
-
-    # Watched, and not only probed. `path.exists` reads the filesystem and records nothing, so a recipe that is deleted
-    # leaves its label in the generated list and Bazel then fails the analysis of every target that reads the group.
-    # The watch is what makes a creation or a deletion re-evaluate this extension. `ctx.watch` accepts a path that does
-    # not exist, which is the case that matters: a recipe added later has to invalidate too.
-    ctx.watch(path)
-    return rel_path if path.exists else None
-
 def watch_project_model_files(ctx, project_root):
     idea_dir = project_root.get_child(".idea")
     modules_xml = idea_dir.get_child("modules.xml")
@@ -257,7 +152,7 @@ def watch_project_model_files(ctx, project_root):
     for library_xml in libraries_dir.readdir(watch = "yes"):
         ctx.read(library_xml, watch = "yes")
 
-def read_project_model(ctx, project_root, extra_descriptor_rel_paths_by_module = {}, collect_test_plugin_modules = False):
+def read_project_model(ctx, project_root, extra_descriptor_rel_paths_by_module = {}):
     """Read project model files and return their contents for Starlark-based derivation.
 
     Watches all files for invalidation (same as watch_project_model_files) but also
@@ -270,14 +165,10 @@ def read_project_model(ctx, project_root, extra_descriptor_rel_paths_by_module =
             in [_find_descriptor_rel_paths] cannot derive, from `build/dev_dist_descriptors.bzl`. Only the Ultimate
             repository rule passes it: the list is an Ultimate artifact, community has to build standalone without
             it, and no community target materializes a project model tree.
-        collect_test_plugin_modules: whether to probe test resource roots for a generated test plugin's descriptor
-            and parse the modules it names. Off by default so a community build pays neither the probe nor the
-            parse; only the Ultimate repository rule needs it, to declare a dev fragment's inputs for a test
-            plugin an `additional_modules` names.
 
     Returns struct with:
       - modules: list of structs (module_name, iml_dir_rel, iml_content, iml_rel_path, plugin_xml_rel_path,
-        descriptor_rel_paths, content_module_recipe_rel_path, test_plugin_modules)
+        descriptor_rel_paths)
       - library_xmls: list of structs (xml_content, xml_rel_path) from .idea/libraries/
     """
     idea_dir = project_root.get_child(".idea")
@@ -310,19 +201,12 @@ def read_project_model(ctx, project_root, extra_descriptor_rel_paths_by_module =
         )
         resource_roots = iml_roots.production
 
-        test_plugin_modules = None
-        if collect_test_plugin_modules:
-            test_plugin_modules = _find_test_plugin_modules(
-                ctx = ctx,
-                project_root = project_root,
-                test_resource_roots = iml_roots.test,
-            )
-
         modules.append(struct(
             module_name = module_name,
             iml_dir_rel = iml_dir_rel,
             iml_content = iml_content,
             iml_rel_path = rel_path,
+            resource_roots = iml_roots.production_resources,
             plugin_xml_rel_path = _find_plugin_xml_rel_path(ctx = ctx, project_root = project_root, resource_roots = resource_roots),
             descriptor_rel_paths = _find_descriptor_rel_paths(
                 project_root = project_root,
@@ -330,12 +214,6 @@ def read_project_model(ctx, project_root, extra_descriptor_rel_paths_by_module =
                 resource_roots = resource_roots,
                 extra_rel_paths = extra_descriptor_rel_paths_by_module.get(module_name, []),
             ),
-            content_module_recipe_rel_path = _find_content_module_recipe_rel_path(
-                ctx = ctx,
-                project_root = project_root,
-                first_content_root = iml_roots.first_content_root,
-            ),
-            test_plugin_modules = test_plugin_modules,
         ))
 
     # Read library XMLs and retain relative paths for error messages.

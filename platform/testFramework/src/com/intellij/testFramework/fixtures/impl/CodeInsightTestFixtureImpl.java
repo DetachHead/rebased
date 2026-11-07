@@ -15,6 +15,7 @@ import com.intellij.codeInsight.daemon.impl.DaemonCodeAnalyzerImpl;
 import com.intellij.codeInsight.daemon.impl.HighlightInfo;
 import com.intellij.codeInsight.daemon.impl.HighlightInfoType;
 import com.intellij.codeInsight.daemon.impl.IdentifierHighlighterPassFactory;
+import com.intellij.codeInsight.daemon.impl.LineMarkersPass;
 import com.intellij.codeInsight.daemon.impl.TestDaemonCodeAnalyzerImpl;
 import com.intellij.codeInsight.highlighting.actions.HighlightUsagesAction;
 import com.intellij.codeInsight.intention.IntentionAction;
@@ -123,8 +124,8 @@ import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vcs.readOnlyHandler.ReadonlyStatusHandlerImpl;
-import com.intellij.openapi.vfs.LocalFileSystem;
 import com.intellij.openapi.vfs.ReadonlyStatusHandler;
+import com.intellij.openapi.vfs.StandardFileSystems;
 import com.intellij.openapi.vfs.VfsUtil;
 import com.intellij.openapi.vfs.VfsUtilCore;
 import com.intellij.openapi.vfs.VirtualFile;
@@ -132,6 +133,7 @@ import com.intellij.openapi.vfs.VirtualFileFilter;
 import com.intellij.openapi.vfs.VirtualFileUtil;
 import com.intellij.openapi.vfs.impl.VirtualFilePointerTracker;
 import com.intellij.openapi.vfs.newvfs.ArchiveFileSystem;
+import com.intellij.openapi.vfs.newvfs.impl.VfsRootAccess;
 import com.intellij.openapi.vfs.transformer.TextPresentationTransformers;
 import com.intellij.platform.testFramework.core.FileComparisonFailedError;
 import com.intellij.profile.codeInspection.ProjectInspectionProfileManager;
@@ -170,7 +172,7 @@ import com.intellij.testFramework.IndexingTestUtil;
 import com.intellij.testFramework.InspectionTestUtil;
 import com.intellij.testFramework.InspectionsKt;
 import com.intellij.testFramework.LightPlatformTestCase;
-import com.intellij.testFramework.NavigationTestUtil;
+import com.intellij.testFramework.EditorOpenTestUtil;
 import com.intellij.testFramework.PlatformTestUtil;
 import com.intellij.testFramework.PsiTestUtil;
 import com.intellij.testFramework.RunAll;
@@ -179,6 +181,7 @@ import com.intellij.testFramework.TestDataFile;
 import com.intellij.testFramework.TreeNodeTester;
 import com.intellij.testFramework.UsefulTestCase;
 import com.intellij.testFramework.VfsTestUtil;
+import com.intellij.testFramework.common.BazelTestUtil;
 import com.intellij.testFramework.common.EditorCaretTestUtil;
 import com.intellij.testFramework.fixtures.CodeInsightTestFixture;
 import com.intellij.testFramework.fixtures.CodeInsightTestUtil;
@@ -248,6 +251,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.SortedMap;
 import java.util.TreeMap;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
@@ -641,7 +645,7 @@ public class CodeInsightTestFixtureImpl extends BaseFixture implements CodeInsig
       throw new RuntimeException(e);
     }
 
-    VirtualFile file = LocalFileSystem.getInstance().refreshAndFindFileByIoFile(targetFile);
+    VirtualFile file = StandardFileSystems.local().refreshAndFindFileByPath(targetFile.getAbsolutePath());
     assertNotNull(file);
     file.refresh(false, true);
     IndexingTestUtil.waitUntilIndexesAreReady(getProject());
@@ -1138,7 +1142,7 @@ public class CodeInsightTestFixtureImpl extends BaseFixture implements CodeInsig
     ActionUtil.updateAction(action, e);
     if (e.getPresentation().isEnabled()) {
       ActionUtil.performAction(action, e);
-      NavigationTestUtil.awaitPendingNavigationIfEnabled(getProject());
+      EditorOpenTestUtil.awaitPendingNavigationAndEditorOpenIfEnabled(getProject());
     }
     return e.getPresentation();
   }
@@ -1716,11 +1720,11 @@ public class CodeInsightTestFixtureImpl extends BaseFixture implements CodeInsig
         }
         else if (myTempDirFixture instanceof TempDirTestFixtureImpl) {
           Path tempFile = ((TempDirTestFixtureImpl)myTempDirFixture).createTempFile(fileName);
-          file = LocalFileSystem.getInstance().refreshAndFindFileByPath(FileUtil.toSystemIndependentName(tempFile.toString()));
+          file = StandardFileSystems.local().refreshAndFindFileByPath(FileUtil.toSystemIndependentName(tempFile.toString()));
           assertNotNull(tempFile + " not found", file);
         }
         else {
-          file = LocalFileSystem.getInstance().refreshAndFindFileByIoFile(new File(getTempDirPath(), fileName));
+          file = StandardFileSystems.local().refreshAndFindFileByPath(new File(getTempDirPath(), fileName).getAbsolutePath());
           assertNotNull(fileName + " not found in " + getTempDirPath(), file);
         }
 
@@ -1865,7 +1869,7 @@ public class CodeInsightTestFixtureImpl extends BaseFixture implements CodeInsig
     }
     String fullPath = getTempDirPath() + "/" + filePath;
 
-    VirtualFile copy = LocalFileSystem.getInstance().refreshAndFindFileByPath(fullPath.replace(File.separatorChar, '/'));
+    VirtualFile copy = StandardFileSystems.local().refreshAndFindFileByPath(fullPath.replace(File.separatorChar, '/'));
     assertNotNull("file " + fullPath + " not found", copy);
     VfsTestUtil.assertFilePathEndsWithCaseSensitivePath(copy, filePath);
     return copy;
@@ -1932,7 +1936,7 @@ public class CodeInsightTestFixtureImpl extends BaseFixture implements CodeInsig
     data.checkResult(file, infos, file.getText());
     if (data.hasLineMarkers()) {
       Document document = getDocument(getFile());
-      data.checkLineMarkers(file, DaemonCodeAnalyzerImpl.getLineMarkers(document, getProject()), document.getText());
+      data.checkLineMarkers(file, LineMarkersPass.getDisplayedLineMarkers(document, getProject()), document.getText());
     }
     Reference.reachabilityFence(hardRefToFileElement);
     return elapsed;
@@ -1972,6 +1976,9 @@ public class CodeInsightTestFixtureImpl extends BaseFixture implements CodeInsig
   @Override
   public void setTestDataPath(@NotNull String dataPath) {
     myTestDataPath = dataPath;
+    if (BazelTestUtil.isUnderBazelTest() && !dataPath.isEmpty()) {
+      VfsRootAccess.allowRootAccess(getTestRootDisposable(), Paths.get(dataPath).toAbsolutePath().toString());
+    }
   }
 
   @Override
@@ -2190,7 +2197,7 @@ public class CodeInsightTestFixtureImpl extends BaseFixture implements CodeInsig
         }
         else {
           FileUtil.writeToFile(new File(destinationFileName), cleanContent);
-          VirtualFile file = LocalFileSystem.getInstance().refreshAndFindFileByPath(destinationFileName);
+          VirtualFile file = StandardFileSystems.local().refreshAndFindFileByPath(destinationFileName);
           assertNotNull(file);
           configureFromExistingVirtualFile(file);
         }
@@ -2455,6 +2462,7 @@ public class CodeInsightTestFixtureImpl extends BaseFixture implements CodeInsig
     VirtualFile vFile = requireNonNull(InjectedLanguageManager.getInstance(project).getTopLevelFile(file)).getVirtualFile();
     withReadOnlyFile(vFile, project, () -> {
       try {
+        CompletableFuture<Void> barrier = new CompletableFuture<>();
         ApplicationManager.getApplication().invokeLater(() -> {
           try {
             //PsiFile may be invalidated by any WA executed in between -> needs to be re-resolved
@@ -2470,8 +2478,14 @@ public class CodeInsightTestFixtureImpl extends BaseFixture implements CodeInsig
           catch (StubTextInconsistencyException e) {
             PsiTestUtil.compareStubTexts(e);
           }
+          finally {
+            // FIFO barrier: completes after every runnable that the intention queued with Application.invokeLater. Relies on:
+            // - NonBlockingFlushQueue runs runnables with the same metadata (modality state, write-intent flag) in scheduling order;
+            // - Application.invokeLater on the EDT schedules with the current modality state and the write-intent flag.
+            ApplicationManager.getApplication().invokeLater(() -> barrier.complete(null));
+          }
         });
-        UIUtil.dispatchAllInvocationEvents();
+        PlatformTestUtil.waitForFuture(barrier);
         checkPsiTextConsistency(project, vFile);
       }
       catch (AssertionError e) {

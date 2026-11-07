@@ -1,5 +1,5 @@
 load("@community//build:tests-options.bzl", "jps_test")
-load("@community//platform/build-scripts/bazel-rules:dev_dist_plugin.bzl", "dev_dist_plugin")
+load("@jps_dynamic_deps_community//:targets.bzl", "dev_dist_plugin")
 load("@rules_jvm//:jvm.bzl", "jvm_library")
 
 jps_test(
@@ -9,6 +9,46 @@ jps_test(
     runtime_deps = [":featuresTrainer-tests_test_lib"],
 )
 ### skip generation section `test intellij.featuresTrainer.tests`
+
+### auto-generated section `dev intellij.featuresTrainer` start
+dev_dist_plugin(
+    content_modules = [
+        # do not sort,
+        "intellij.vcs.git.featuresTrainer",
+        "intellij.featuresTrainer.onboarding",
+        "intellij.kotlin.onboarding.promoter",
+        "intellij.featuresTrainer.tips",
+        "intellij.libraries.assertj.core",
+        "intellij.libraries.assertj.swing",
+        "intellij.libraries.git.learning.project",
+    ],
+    descriptor = "res/META-INF/plugin.xml",
+    jars = {
+        "lib/featuresTrainer.jar": [
+            "intellij.featuresTrainer",
+            "intellij.vcs.git.featuresTrainer",
+            "intellij.featuresTrainer.onboarding",
+        ],
+        "lib/intellij.libraries.assertj.core.jar": [
+            "intellij.libraries.assertj.core",
+            "@lib//:libraries-assertj-core-assert_j",
+        ],
+        "lib/intellij.libraries.assertj.swing.jar": [
+            "intellij.libraries.assertj.swing",
+            "@lib//:libraries-assertj-swing-assertj-swing",
+        ],
+    },
+    main_module = "intellij.featuresTrainer",
+    mode_refused_content_modules = {
+        "frontend": [
+            "intellij.vcs.git.featuresTrainer",
+            "intellij.featuresTrainer.onboarding",
+            "intellij.kotlin.onboarding.promoter",
+            "intellij.featuresTrainer.tips",
+        ],
+    },
+)
+### auto-generated section `dev intellij.featuresTrainer` end
 
 ### auto-generated section `build intellij.featuresTrainer` start
 jvm_library(
@@ -91,8 +131,6 @@ jvm_library(
     runtime_deps = [
         # do not sort,
         ":featuresTrainer",
-        "//libraries/kotlin/test:libraries-kotlinTest",
-        "//libraries/kotlin/test:libraries-kotlinTest_test_lib",
         "//libraries/guava:guava_test_lib",
         "//libraries/assertj-core:assertj-core_test_lib",
         "//libraries/assertj-swing:assertj-swing_test_lib",
@@ -115,8 +153,6 @@ jvm_library(
         "//platform/xdebugger-impl:debugger-impl_test_lib",
         "//platform/xdebugger-impl/shared:shared_test_lib",
         "//platform/projectModel-api:projectModel_test_lib",
-        "//platform/testFramework",
-        "//platform/testFramework:testFramework_test_lib",
         "//platform/ide-core-impl:ide-core-impl_test_lib",
         "//platform/ide-core:ide-core_test_lib",
         "//platform/usageView:usageView_test_lib",
@@ -133,12 +169,8 @@ jvm_library(
         "//platform/editor-ui-ex:editor-ex_test_lib",
         "//platform/lvcs-impl:lvcs-impl_test_lib",
         "//platform/diagnostic:diagnostic_test_lib",
-        "//platform/testFramework/junit5",
-        "//platform/testFramework/junit5:junit5_test_lib",
         "//libraries/mockito-kotlin",
         "//libraries/mockito-kotlin:mockito-kotlin_test_lib",
-        "//libraries/mockito",
-        "//libraries/mockito:mockito_test_lib",
         "//platform/execution:execution_test_lib",
         "//platform/xdebugger-impl/ui:ui_test_lib",
     ],
@@ -155,38 +187,6 @@ exports_files(
 )
 ### auto-generated section `iml intellij.featuresTrainer` end
 
-### auto-generated section `dev intellij.featuresTrainer` start
-dev_dist_plugin(
-    content_modules = [
-        "//libraries/assertj-core",
-        "//libraries/assertj-swing",
-        "//plugins/git-features-trainer:vcs-git-featuresTrainer",
-        "//plugins/ide-features-trainer/onboarding",
-    ],
-    descriptor = "res/META-INF/plugin.xml",
-    descriptor_module = ":featuresTrainer",
-    descriptors = {
-        "@community//libraries/assertj-core:resources/intellij.libraries.assertj.core.xml": "intellij.libraries.assertj.core.xml",
-        "@community//libraries/assertj-swing:resources/intellij.libraries.assertj.swing.xml": "intellij.libraries.assertj.swing.xml",
-        "@community//libraries/git-learning-project:resources/intellij.libraries.git.learning.project.xml": "intellij.libraries.git.learning.project.xml",
-        "@community//plugins/git-features-trainer:resources/intellij.vcs.git.featuresTrainer.xml": "intellij.vcs.git.featuresTrainer.xml",
-        "@community//plugins/ide-features-trainer/onboarding:resources/intellij.featuresTrainer.onboarding.xml": "intellij.featuresTrainer.onboarding.xml",
-        "@community//plugins/ide-features-trainer/tips:resources/intellij.featuresTrainer.tips.xml": "intellij.featuresTrainer.tips.xml",
-        "@community//plugins/kotlin/onboarding-promoter:resources/intellij.kotlin.onboarding.promoter.xml": "intellij.kotlin.onboarding.promoter.xml",
-    },
-    libraries = [
-        "@lib//:libraries-assertj-core-assert_j",
-        "@lib//:libraries-assertj-swing-assertj-swing",
-    ],
-    main_module = "intellij.featuresTrainer",
-    prepacked_content_modules = [
-        "//libraries/git-learning-project:git-learning-project_content_module_jar",
-        "//plugins/ide-features-trainer/tips:tips_content_module_jar",
-        "//plugins/kotlin/onboarding-promoter:onboarding-promoter_content_module_jar",
-    ],
-)
-### auto-generated section `dev intellij.featuresTrainer` end
-
 ### auto-generated section `build intellij.featuresTrainer.tests` start
 jvm_library(
     name = "featuresTrainer-tests",
@@ -197,6 +197,7 @@ jvm_library(
     module_name = "intellij.featuresTrainer.tests",
     visibility = ["//visibility:public"],
     exports = ["//libraries/assertj-swing"],
+    runtime_deps = ["//xml/plugin"],
 )
 
 jvm_library(
@@ -230,6 +231,7 @@ jvm_library(
         "//platform/platform-impl:ide-impl_test_lib",
         "//platform/ide-core-impl:ide-core-impl_test_lib",
         "//platform/ide-core:ide-core_test_lib",
+        "//xml/plugin:plugin_test_lib",
     ],
     deps = [
         # do not sort,
@@ -331,8 +333,8 @@ jvm_library(
         "//platform/xdebugger-impl/ui:ui_test_lib",
         "//libraries/junit4",
         "//libraries/junit4:junit4_test_lib",
-        "//libraries/junit5",
-        "//libraries/junit5:junit5_test_lib",
+        "//libraries/junit6",
+        "//libraries/junit6:junit6_test_lib",
     ],
 )
 ### auto-generated section `build intellij.featuresTrainer.tests` end

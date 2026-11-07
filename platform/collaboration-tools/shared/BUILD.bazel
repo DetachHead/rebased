@@ -1,0 +1,114 @@
+load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
+
+### auto-generated section `dev intellij.platform.collaborationTools.shared` start
+content_module_jar(module = ":shared")
+### auto-generated section `dev intellij.platform.collaborationTools.shared` end
+
+### auto-generated section `build intellij.platform.collaborationTools.shared` start
+jvm_library(
+    name = "shared",
+    srcs = glob(
+        [
+            "src/**/*.kt",
+            "src/**/*.java",
+            "src/**/*.form",
+            "gen/**/*.kt",
+            "gen/**/*.java",
+        ],
+        allow_empty = True,
+    ),
+    module_name = "intellij.platform.collaborationTools.shared",
+    resource_strip_prefix = "resources",
+    resources = glob(
+        ["resources/**/*"],
+        exclude = ["resources/**/icon-robots.txt"],
+    ),
+    visibility = ["//visibility:public"],
+    deps = [
+        # do not sort,
+        "@lib//:kotlin-stdlib",
+        "//libraries/caffeine",
+        "//libraries/fastutil",
+        "//libraries/kotlinx/coroutines/core",
+        "//libraries/miglayout-swing",
+        "//platform/analysis-api:analysis",
+        "//platform/util/concurrency",
+        "//platform/core-api:core",
+        "//platform/core-impl",
+        "//platform/core-ui",
+        "//platform/diff-api:diff",
+        "//platform/diff-impl",
+        "//platform/editor-ui-ex:editor-ex",
+        "//platform/editor-ui-api:editor-ui",
+        "//platform/platform-api:ide",
+        "//platform/ide-core",
+        "//platform/ide-core-impl",
+        "//platform/platform-impl:ide-impl",
+        "//platform/observable",
+        "//platform/lang-api:lang",
+        "//platform/lang-impl",
+        "//platform/util/coroutines",
+        "//platform/util/diff",
+        "//platform/util-ex",
+        "//platform/util:util-ui",
+        "//platform/vcs-api/vcs-api-core:vcs-core",
+        "//platform/vcs-impl/shared",
+        "//platform/vcs-api/shared",
+    ],
+)
+
+jvm_library(
+    name = "shared_test_lib",
+    testonly = True,
+    srcs = glob(
+        [],
+        allow_empty = True,
+    ),
+    module_name = "intellij.platform.collaborationTools.shared",
+    visibility = ["//visibility:public"],
+    runtime_deps = [
+        # do not sort,
+        ":shared",
+        "//libraries/caffeine:caffeine_test_lib",
+        "//libraries/fastutil:fastutil_test_lib",
+        "//libraries/kotlinx/coroutines/core:core_test_lib",
+        "//libraries/miglayout-swing:miglayout-swing_test_lib",
+        "//platform/analysis-api:analysis_test_lib",
+        "//platform/util/concurrency:concurrency_test_lib",
+        "//platform/core-api:core_test_lib",
+        "//platform/core-impl:core-impl_test_lib",
+        "//platform/core-ui:core-ui_test_lib",
+        "//platform/diff-api:diff_test_lib",
+        "//platform/diff-impl:diff-impl_test_lib",
+        "//platform/editor-ui-ex:editor-ex_test_lib",
+        "//platform/editor-ui-api:editor-ui_test_lib",
+        "//platform/platform-api:ide_test_lib",
+        "//platform/ide-core:ide-core_test_lib",
+        "//platform/ide-core-impl:ide-core-impl_test_lib",
+        "//platform/platform-impl:ide-impl_test_lib",
+        "//platform/observable:observable_test_lib",
+        "//platform/lang-api:lang_test_lib",
+        "//platform/lang-impl:lang-impl_test_lib",
+        "//platform/util/coroutines:coroutines_test_lib",
+        "//platform/util/diff:diff_test_lib",
+        "//platform/util-ex:util-ex_test_lib",
+        "//platform/util:util-ui_test_lib",
+        "//platform/vcs-api/vcs-api-core:vcs-core_test_lib",
+        "//platform/vcs-impl/shared:shared_test_lib",
+        "//platform/vcs-api/shared:shared_test_lib",
+    ],
+)
+### auto-generated section `build intellij.platform.collaborationTools.shared` end
+
+### auto-generated section `iml intellij.platform.collaborationTools.shared` start
+exports_files(
+    [
+        "intellij.platform.collaborationTools.shared.iml",
+        "resources/colorSchemes/CollaborationToolsDark.xml",
+        "resources/colorSchemes/CollaborationToolsDefault.xml",
+        "resources/intellij.platform.collaborationTools.shared.xml",
+    ],
+    visibility = ["//visibility:public"],
+)
+### auto-generated section `iml intellij.platform.collaborationTools.shared` end

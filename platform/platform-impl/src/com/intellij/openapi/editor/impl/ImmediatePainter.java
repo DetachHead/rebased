@@ -1,4 +1,4 @@
-// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.editor.impl;
 
 import com.intellij.ide.ui.UISettings;
@@ -17,6 +17,7 @@ import com.intellij.openapi.editor.ex.RangeHighlighterEx;
 import com.intellij.openapi.editor.ex.util.EditorUIUtil;
 import com.intellij.openapi.editor.ex.util.EditorUtil;
 import com.intellij.openapi.editor.ex.util.LexerEditorHighlighter;
+import com.intellij.openapi.editor.impl.caret.model.CaretRepaintMetrics;
 import com.intellij.openapi.editor.impl.view.EditorPainter;
 import com.intellij.openapi.editor.impl.view.FontLayoutService;
 import com.intellij.openapi.editor.impl.view.IterationState;
@@ -25,7 +26,6 @@ import com.intellij.openapi.editor.markup.HighlighterLayer;
 import com.intellij.openapi.editor.markup.HighlighterTargetArea;
 import com.intellij.openapi.editor.markup.TextAttributes;
 import com.intellij.openapi.editor.markup.TextAttributesEffectsBuilder;
-import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.util.SystemInfo;
 import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.util.registry.RegistryValue;
@@ -43,6 +43,7 @@ import org.jetbrains.annotations.ApiStatus;
 import sun.awt.image.SunVolatileImage;
 
 import java.awt.geom.GeneralPath;
+import java.util.Objects;
 import java.util.function.Consumer;
 
 import javax.swing.JComponent;
@@ -65,8 +66,6 @@ import java.awt.image.VolatileImage;
 import java.util.ArrayList;
 import java.util.List;
 
-import static com.intellij.util.ui.UIUtil.useSafely;
-
 /**
  * @author Pavel Fatin
  */
@@ -85,12 +84,14 @@ public final class ImmediatePainter {
 
   ImmediatePainter(EditorImpl editor) {
     myEditor = editor;
-
-    Disposer.register(editor.getDisposable(), () -> {
-      if (myImage != null) {
-        myImage.flush();
+    EditorUtil.disposeWithEditor(
+      editor,
+      () -> {
+        if (myImage != null) {
+          myImage.flush();
+        }
       }
-    });
+    );
   }
 
   boolean paint(final Graphics g, final EditorActionPlan plan) {
@@ -100,7 +101,7 @@ public final class ImmediatePainter {
       final List<EditorActionPlan.Replacement> replacements = plan.getReplacements();
       if (replacements.size() != 1) return false;
 
-      final EditorActionPlan.Replacement replacement = replacements.get(0);
+      final EditorActionPlan.Replacement replacement = replacements.getFirst();
       if (replacement.getText().length() != 1) return false;
 
       final int caretOffset = replacement.getBegin();
@@ -152,22 +153,23 @@ public final class ImmediatePainter {
     });
   }
 
+  /// @noinspection GraphicsSetClipInspection
   private void paintImmediately(final Graphics2D g, final int offset, final char c2) {
-    final EditorImpl editor = myEditor;
-    final Document document = editor.getElfDocument();
-    final LexerEditorHighlighter highlighter = (LexerEditorHighlighter)myEditor.getHighlighter();
+    EditorImpl editor = myEditor;
+    Document document = editor.getElfDocument();
+    LexerEditorHighlighter highlighter = (LexerEditorHighlighter)myEditor.getHighlighter();
+    EditorSettings settings = editor.getSettings();
+    boolean isBlockCursor = editor.isInsertMode() == settings.isBlockCursor();
+    boolean isSmoothCaretMovement = editor.getSettings().isSmoothCaretMovement();
+    int lineHeight = editor.getLineHeight();
+    int ascent = editor.getAscent();
+    CaretRepaintMetrics metrics = editor.myView.getCaretRepaintMetrics();
+    int caretHeight = metrics.caretHeight;
+    int topOverhang = metrics.caretTopOverhang;
 
-    final EditorSettings settings = editor.getSettings();
-    final boolean isBlockCursor = editor.isInsertMode() == settings.isBlockCursor();
-    final boolean isSmoothCaretMovement = editor.getSettings().isSmoothCaretMovement();
-    final int lineHeight = editor.getLineHeight();
-    final int caretHeight = editor.myView.getCaretHeight();
-    final int ascent = editor.getAscent();
-    final int topOverhang = settings.isFullLineHeightCursor() ? 0 : editor.myView.getTopOverhang();
+    char c1 = offset == 0 ? ' ' : document.getImmutableCharSequence().charAt(offset - 1);
 
-    final char c1 = offset == 0 ? ' ' : document.getCharsSequence().charAt(offset - 1);
-
-    final List<TextAttributes> attributes;
+    List<TextAttributes> attributes;
     try {
       attributes = highlighter.getAttributesForPreviousAndTypedChars(document, offset, c2);
     }
@@ -198,7 +200,7 @@ public final class ImmediatePainter {
 
     Caret caret = editor.getCaretModel().getPrimaryCaret();
     //noinspection ConstantConditions
-    final float caretWidth = isBlockCursor ? editor.getCaretLocations(false)[0].getWidth()
+    final float caretWidth = isBlockCursor ? editor.getCaretLocations(false).getFirst().getWidth()
                                          : JBUIScale.scale(caret.getVisualAttributes().getWidth(settings.getLineCursorWidth())) * myEditor.getScale();
     final float caretShift = isBlockCursor ? 0 : caretWidth <= 1 ? 0 : 1 / JBUIScale.sysScale(g);
     final Rectangle2D caretRectangle = new Rectangle2D.Float(p2x + width2 - caretShift, p2y - topOverhang,
@@ -271,7 +273,7 @@ public final class ImmediatePainter {
 
     createOrUpdateImageBuffer(myEditor.getComponent(), graphics, bounds.getSize());
 
-    useSafely(myImage.getGraphics(), imageGraphics -> {
+    PaintUtil.use((Graphics2D)myImage.getGraphics(), imageGraphics -> {
       imageGraphics.translate(-bounds.x, -bounds.y);
       painter.accept(imageGraphics);
     });
@@ -309,14 +311,14 @@ public final class ImmediatePainter {
 
   private static boolean isImageValid(VolatileImage image, Component component) {
     GraphicsConfiguration componentConfig = component.getGraphicsConfiguration();
-    if (SystemInfo.isWindows && image instanceof SunVolatileImage) { // JBR-1540
-      GraphicsConfiguration imageConfig = ((SunVolatileImage)image).getGraphicsConfig();
+    if (SystemInfo.isWindows && image instanceof SunVolatileImage volatileImage) { // JBR-1540
+      GraphicsConfiguration imageConfig = volatileImage.getGraphicsConfig();
       if (imageConfig != null && componentConfig != null && imageConfig.getDevice() != componentConfig.getDevice()) return false;
     }
     return image.validate(componentConfig) != VolatileImage.IMAGE_INCOMPATIBLE;
   }
 
-  private void paintCaretBar(final Graphics2D g, final Rectangle2D r, final Color color) {
+  private static void paintCaretBar(final Graphics2D g, final Rectangle2D r, final Color color) {
     double w = r.getWidth(), h = r.getHeight();
     double x = r.getX(), y = r.getY();
 
@@ -406,7 +408,6 @@ public final class ImmediatePainter {
 
     final int size = highlighters.size();
 
-    //noinspection ForLoopReplaceableByForEach
     for (int i = 0; i < size; i++) {
       RangeHighlighterEx highlighter = highlighters.get(i);
       if (highlighter.getTextAttributes(editor.getColorsScheme()) == TextAttributes.ERASE_MARKER) {
@@ -416,7 +417,6 @@ public final class ImmediatePainter {
 
     final List<TextAttributes> cachedAttributes = new ArrayList<>();
 
-    //noinspection ForLoopReplaceableByForEach
     for (int i = 0; i < size; i++) {
       RangeHighlighterEx highlighter = highlighters.get(i);
 
@@ -445,7 +445,6 @@ public final class ImmediatePainter {
     EffectType effectType = null;
     int fontType = 0;
 
-    //noinspection ForLoopReplaceableByForEach, Duplicates
     for (int i = 0; i < cachedAttributes.size(); i++) {
       TextAttributes attrs = cachedAttributes.get(i);
 
@@ -473,7 +472,7 @@ public final class ImmediatePainter {
     TextAttributes defaultAttributes = editor.getColorsScheme().getAttributes(HighlighterColors.TEXT);
     if (fontType == Font.PLAIN) fontType = defaultAttributes == null ? Font.PLAIN : defaultAttributes.getFontType();
 
-    attributes.setAttributes(foreground, background, effect, null, effectType, fontType);
+    Objects.requireNonNull(attributes).setAttributes(foreground, background, effect, null, effectType, fontType);
   }
 
   private static void pause() {

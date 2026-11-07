@@ -12,8 +12,8 @@ import java.util.List;
 
 public class SpockFormattingTest extends GroovyFormatterTestCase {
   @Override
-  protected String getBasePath() {
-    return TestUtils.getTestDataPath() + "groovy/formatter/";
+  protected String getTestDataPath() {
+    return TestUtils.getAbsoluteTestDataPath() + "groovy/formatter/";
   }
 
   @Override

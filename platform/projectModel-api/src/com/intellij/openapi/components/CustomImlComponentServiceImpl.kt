@@ -4,7 +4,7 @@ package com.intellij.openapi.components
 import com.intellij.configurationStore.deserialize
 import com.intellij.configurationStore.jdomSerializer
 import com.intellij.configurationStore.serializeObjectInto
-import com.intellij.openapi.diagnostic.rethrowControlFlowException
+import com.intellij.diagnostic.rethrowControlFlowException
 import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.module.Module
 import com.intellij.openapi.project.Project

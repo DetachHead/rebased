@@ -1,6 +1,7 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.intellij.build.productLayout.validator
 
+import com.intellij.platform.buildScripts.concurrency.SharedTaskOwner
 import com.intellij.platform.pluginGraph.ContentModuleName
 import com.intellij.platform.pluginGraph.PluginId
 import com.intellij.platform.pluginGraph.TargetDependencyScope
@@ -9,6 +10,7 @@ import kotlinx.coroutines.runBlocking
 import org.assertj.core.api.Assertions.assertThat
 import org.jetbrains.intellij.build.productLayout.TestFailureLogger
 import org.jetbrains.intellij.build.productLayout.TestPluginSpec
+import org.jetbrains.intellij.build.productLayout.dependency.jpsModuleOutputProvider
 import org.jetbrains.intellij.build.productLayout.dependency.pluginGraph
 import org.jetbrains.intellij.build.productLayout.dependency.runValidationRule
 import org.jetbrains.intellij.build.productLayout.dependency.testGenerationModel
@@ -34,6 +36,13 @@ import java.nio.file.Path
 
 @ExtendWith(TestFailureLogger::class)
 class TestPluginPluginDependencyValidatorTest {
+  private val owner = SharedTaskOwner("TestPluginPluginDependencyValidatorTest")
+
+  @org.junit.jupiter.api.AfterEach
+  fun closeSharedTasks() {
+    owner.close()
+  }
+
   @Test
   fun `missing plugin dependency in test plugin XML reports error`(@TempDir tempDir: Path): Unit = runBlocking(Dispatchers.Default) {
     val graph = pluginGraph {
@@ -63,7 +72,7 @@ class TestPluginPluginDependencyValidatorTest {
 
     writePluginXml(tempDir, spec.pluginXmlPath, pluginXml("test.plugin"))
 
-    val model = testGenerationModel(graph, fileUpdater = DeferredFileUpdater(tempDir)).copy(
+    val model = testGenerationModel(graph, outputProvider = jpsModuleOutputProvider(tempDir, productionModules = listOf("consumer.module")), fileUpdater = DeferredFileUpdater(tempDir), owner = owner).copy(
       projectRoot = tempDir,
       dslTestPluginsByProduct = mapOf("TestProduct" to listOf(spec)),
     )
@@ -106,7 +115,7 @@ class TestPluginPluginDependencyValidatorTest {
 
     writePluginXml(tempDir, spec.pluginXmlPath, pluginXml("test.plugin", pluginDeps = listOf("dep.plugin")))
 
-    val model = testGenerationModel(graph, fileUpdater = DeferredFileUpdater(tempDir)).copy(
+    val model = testGenerationModel(graph, fileUpdater = DeferredFileUpdater(tempDir), owner = owner).copy(
       projectRoot = tempDir,
       dslTestPluginsByProduct = mapOf("TestProduct" to listOf(spec)),
     )
@@ -147,7 +156,7 @@ class TestPluginPluginDependencyValidatorTest {
 
     writePluginXml(tempDir, spec.pluginXmlPath, pluginXml("test.plugin"))
 
-    val model = testGenerationModel(graph, fileUpdater = DeferredFileUpdater(tempDir)).copy(
+    val model = testGenerationModel(graph, fileUpdater = DeferredFileUpdater(tempDir), owner = owner).copy(
       projectRoot = tempDir,
       dslTestPluginsByProduct = mapOf("TestProduct" to listOf(spec)),
     )
@@ -199,7 +208,7 @@ class TestPluginPluginDependencyValidatorTest {
       )
     )
 
-    val model = testGenerationModel(graph, fileUpdater = DeferredFileUpdater(tempDir)).copy(
+    val model = testGenerationModel(graph, fileUpdater = DeferredFileUpdater(tempDir), owner = owner).copy(
       projectRoot = tempDir,
       dslTestPluginsByProduct = mapOf("TestProduct" to listOf(spec)),
       dslTestPluginDependencyChains = dependencyChains,
@@ -243,7 +252,7 @@ class TestPluginPluginDependencyValidatorTest {
 
     writePluginXml(tempDir, spec.pluginXmlPath, pluginXml("test.plugin"))
 
-    val model = testGenerationModel(graph, fileUpdater = DeferredFileUpdater(tempDir)).copy(
+    val model = testGenerationModel(graph, fileUpdater = DeferredFileUpdater(tempDir), owner = owner).copy(
       projectRoot = tempDir,
       dslTestPluginsByProduct = mapOf("TestProduct" to listOf(spec)),
     )
@@ -287,7 +296,7 @@ class TestPluginPluginDependencyValidatorTest {
 
     writePluginXml(tempDir, spec.pluginXmlPath, pluginXml("test.plugin"))
 
-    val model = testGenerationModel(graph, fileUpdater = DeferredFileUpdater(tempDir)).copy(
+    val model = testGenerationModel(graph, fileUpdater = DeferredFileUpdater(tempDir), owner = owner).copy(
       projectRoot = tempDir,
       dslTestPluginsByProduct = mapOf("TestProduct" to listOf(spec)),
     )
@@ -338,7 +347,7 @@ class TestPluginPluginDependencyValidatorTest {
 
     writePluginXml(tempDir, spec.pluginXmlPath, pluginXml("test.plugin"))
 
-    val model = testGenerationModel(graph, fileUpdater = DeferredFileUpdater(tempDir)).copy(
+    val model = testGenerationModel(graph, fileUpdater = DeferredFileUpdater(tempDir), owner = owner).copy(
       projectRoot = tempDir,
       dslTestPluginsByProduct = mapOf("TestProduct" to listOf(spec)),
     )
@@ -389,7 +398,7 @@ class TestPluginPluginDependencyValidatorTest {
 
     writePluginXml(tempDir, spec.pluginXmlPath, pluginXml("test.plugin", pluginDeps = listOf("com.intellij.java")))
 
-    val model = testGenerationModel(graph, fileUpdater = DeferredFileUpdater(tempDir)).copy(
+    val model = testGenerationModel(graph, fileUpdater = DeferredFileUpdater(tempDir), owner = owner).copy(
       projectRoot = tempDir,
       dslTestPluginsByProduct = mapOf("TestProduct" to listOf(spec)),
     )
@@ -445,7 +454,7 @@ class TestPluginPluginDependencyValidatorTest {
 
     writePluginXml(tempDir, spec.pluginXmlPath, pluginXml("test.plugin", pluginDeps = listOf("com.intellij.java")))
 
-    val model = testGenerationModel(graph, fileUpdater = DeferredFileUpdater(tempDir)).copy(
+    val model = testGenerationModel(graph, fileUpdater = DeferredFileUpdater(tempDir), owner = owner).copy(
       projectRoot = tempDir,
       dslTestPluginsByProduct = mapOf("TestProduct" to listOf(spec)),
     )
@@ -495,7 +504,7 @@ class TestPluginPluginDependencyValidatorTest {
 
     writePluginXml(tempDir, spec.pluginXmlPath, pluginXml("test.plugin"))
 
-    val model = testGenerationModel(graph, fileUpdater = DeferredFileUpdater(tempDir)).copy(
+    val model = testGenerationModel(graph, fileUpdater = DeferredFileUpdater(tempDir), owner = owner).copy(
       projectRoot = tempDir,
       dslTestPluginsByProduct = mapOf("TestProduct" to listOf(spec)),
     )
@@ -524,7 +533,7 @@ class TestPluginPluginDependencyValidatorTest {
     )
   }
 
-  private suspend fun buildPlanOutput(
+  private fun buildPlanOutput(
     model: GenerationModel,
     contentModuleResults: List<DependencyFileResult>,
   ): TestPluginDependencyPlanOutput {

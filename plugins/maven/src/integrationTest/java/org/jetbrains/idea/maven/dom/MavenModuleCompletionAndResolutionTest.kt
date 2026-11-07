@@ -812,7 +812,7 @@ class MavenModuleCompletionAndResolutionTest(mavenVersion: String, modelVersion:
 
     readAction {
       val doc = FileDocumentManager.getInstance().getDocument(pom!!)
-      val selectedEditor = FileEditorManager.getInstance(maven.project).getSelectedTextEditor()
+      val selectedEditor = FileEditorManager.getInstance(maven.project).selectedTextEditor
       assertEquals(doc, selectedEditor!!.getDocument())
       assertEquals(expectedText, doc!!.text)
     }

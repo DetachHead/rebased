@@ -10,12 +10,20 @@
   <module value="com.intellij.modules.platform"/>
 
   <xi:include href="/META-INF/intellij.moduleSets.ide.common.xml"/>
-  <xi:include href="/META-INF/intellij.moduleSets.jsp.base.xml"/>
+  <xi:include href="/META-INF/intellij.moduleSets.compose.runtime.xml"/>
+  <xi:include href="/META-INF/intellij.moduleSets.platform.resources.defaults.xml"/>
   <!-- region additional -->
   <content namespace="jetbrains">
     <module name="intellij.platform.whatsNew"/>
     <module name="intellij.ide.startup.importSettings"/>
     <module name="intellij.libraries.jps.javac.extension" loading="embedded"/>
+    <module name="intellij.libraries.hamcrest" loading="embedded"/>
+    <module name="intellij.libraries.junit4" loading="embedded"/>
+    <module name="intellij.libraries.junit6" loading="embedded"/>
+    <module name="intellij.libraries.junit6.jupiter" loading="embedded"/>
+    <module name="intellij.libraries.junit6.launcher" loading="embedded"/>
+    <module name="intellij.libraries.junit6.vintage" loading="embedded"/>
+    <module name="intellij.libraries.opentest4j" loading="embedded"/>
     <module name="intellij.platform.customization.min"/>
     <module name="intellij.idea.customization.base"/>
     <module name="intellij.idea.community.ide.customization" loading="embedded"/>

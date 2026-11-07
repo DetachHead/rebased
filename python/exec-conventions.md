@@ -65,3 +65,65 @@ An API must always be consistent and logical:
 * If a function is a hotspot or private, you can mark it with `@RequiresBackgroundThread` or `@RequiresEdt`.
   The annotation only asserts the thread, so the caller must still switch to it.
 * Otherwise, use the "main-safe rule": make the function `suspend`, and choose the appropriate `Dispatcher` inside it.
+
+## Test assertions
+
+Use AssertJ for every assertion. Import `org.assertj.core.api.Assertions.assertThat`.
+Do not use `assertEquals`, `assertTrue` or another JUnit assertion. Do not use the
+Kotlin `assert`.
+
+To check a type and then a property of the value, use one chain with `asInstanceOf`
+and a factory from `org.assertj.core.api.InstanceOfAssertFactories`. Do not cast the
+value again.
+
+```kotlin
+// Good
+assertThat(output.error)
+  .asInstanceOf(type(ExecError::class.java))
+  .extracting { it.exe }
+  .asInstanceOf(type(Exe.OnEel::class.java))
+  .extracting { it.eelPath.asNioPath() }
+  .isEqualTo(binary)
+
+// Bad
+val err = output.error as ExecError
+assertEquals(binary, (err.exe as Exe.OnEel).eelPath.asNioPath())
+```
+
+`asInstanceOf` also asserts that the value is not null, and a failure reports the
+full chain. A cast reports only a `ClassCastException`.
+
+## Don't catch broadly
+
+* Never catch `Exception`, `Throwable`, or `RuntimeException`. Catch the type that the KDoc
+  of the callee documents with `@throws`.
+* Never use `runCatching`. It also catches `CancellationException` and breaks cancellation.
+* If you cannot avoid a broad catch, rethrow the exception after you handle it.
+* For a failure that the caller can expect, return `PyResult` instead of a throw.
+  See `com.jetbrains.python.errorProcessing.PyResult`.
+* To return an error one level up, use `getOr`. Give it a bundle message, they build a readable chain.
+
+Use these rules for an exception that you caught:
+
+* The user can correct the cause: Report the failure to the user and do not rethrow.
+* The user cannot correct the cause: Do not catch the exception. Let it propagate, because
+  Diogen must record it. Diogen is the internal system that aggregates exceptions.
+
+```kotlin
+// Wrong: this hides the cause and stops cancellation.
+val sdk = runCatching { createSdkForNewEnv(context, ref) }.getOrNull()
+
+// Right: the caller gets the documented failure, with the context added.
+val sdk = createSdkForNewEnv(context, ref)
+  .getOr(PyBundle.message("sdk.configuration.path.cant.create.sdk", python)) { return it }
+```
+
+## PyCharm must be Eel-enabled
+
+A project can be on any eel. Never assume that the project is on the local eel.
+
+* Do not use `localEel`. Get the eel from the project or from the path.
+* Never fall back to `localEel` when a path is `null`. If a function needs an eel and an optional path,
+  accept `EelOrJustPath` instead of `Path?`. It always has an eel. Its path, if present, is on that eel.
+* Use `EelApi` to run processes and to connect to the network.
+* Use NIO `Path` or `EelPath` to work with the file system.

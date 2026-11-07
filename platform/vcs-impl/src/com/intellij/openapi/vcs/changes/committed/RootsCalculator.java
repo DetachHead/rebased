@@ -7,10 +7,9 @@ import com.intellij.openapi.vcs.AbstractVcs;
 import com.intellij.openapi.vcs.ProjectLevelVcsManager;
 import com.intellij.openapi.vcs.RepositoryLocation;
 import com.intellij.openapi.vcs.VcsDirectoryMapping;
-import com.intellij.openapi.vfs.LocalFileSystem;
+import com.intellij.openapi.vfs.StandardFileSystems;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.util.containers.ContainerUtil;
-import one.util.streamex.StreamEx;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
@@ -18,6 +17,7 @@ import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -53,11 +53,14 @@ public final class RootsCalculator {
 
     logRoots("Candidates with repository location", roots);
 
-    Map<VirtualFile, RepositoryLocation> result = StreamEx.of(myVcs.filterUniqueRoots(roots, identity()))
-      .distinct()
-      .mapToEntry(this::getLocation)
-      .nonNullValues()
-      .toMap();
+    Map<VirtualFile, RepositoryLocation> result = new LinkedHashMap<>();
+    for (VirtualFile root : myVcs.filterUniqueRoots(roots, identity())) {
+      if (result.containsKey(root)) continue;
+      RepositoryLocation location = getLocation(root);
+      if (location != null) {
+        result.put(root, location);
+      }
+    }
     logRoots("Unique roots", result.keySet());
     return result;
   }
@@ -72,7 +75,7 @@ public final class RootsCalculator {
         }
       }
       else {
-        VirtualFile newFile = LocalFileSystem.getInstance().refreshAndFindFileByPath(mapping.getDirectory());
+        VirtualFile newFile = StandardFileSystems.local().refreshAndFindFileByPath(mapping.getDirectory());
         if (newFile != null) {
           result.add(newFile);
         }

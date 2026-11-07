@@ -1,7 +1,7 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.ide.trustedProjects.impl
 
-import com.intellij.ide.trustedProjects.TrustedFiles
+import com.intellij.ide.TrustedFiles
 import com.intellij.ide.trustedProjects.TrustedProjectsDialog
 import com.intellij.ide.trustedProjects.TrustedProjectsListener
 import com.intellij.ide.trustedProjects.TrustedProjectsLocator.LocatedProject
@@ -24,7 +24,7 @@ import javax.swing.JComponent
  */
 internal class UntrustedFileNotificationProvider : EditorNotificationProvider, DumbAware {
   override fun collectNotificationData(project: Project, file: VirtualFile): Function<in FileEditor, out JComponent?>? {
-    if (TrustedFiles.isTrusted(file, project)) return null
+    if (TrustedFiles.isTrusted(file, project) || !TrustedFiles.isTrustDecidedByFile(file, project)) return null
     val filePath = file.fileSystem.getNioPath(file) ?: return null
 
     return Function { fileEditor ->

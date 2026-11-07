@@ -3,10 +3,14 @@ package com.intellij.stats.completion.tracker
 
 import com.intellij.completion.ml.storage.LookupStorage
 import com.intellij.ide.highlighter.JavaFileType
-import junit.framework.TestCase
+import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertNull
+import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.Test
 
 class CompletionLoggingPsiFeaturesTest: CompletionLoggingTestBase() {
-  fun `test psi parent feature for position after qualifier`() {
+  @Test
+  fun `test psi parent feature for position after qualifier`(): Unit = onEdt {
     myFixture.configureByText(JavaFileType.INSTANCE, "public class HelloWorld {\n" +
                                                      "    public static void main(String[] args) {\n" +
                                                      "        System.<caret>\n" +
@@ -20,7 +24,8 @@ class CompletionLoggingPsiFeaturesTest: CompletionLoggingTestBase() {
                       "PsiJavaFileImpl")
   }
 
-  fun `test psi parent feature in if statement`() {
+  @Test
+  fun `test psi parent feature in if statement`(): Unit = onEdt {
     myFixture.configureByText(JavaFileType.INSTANCE, "public class HelloWorld {\n" +
                                                      "    public static void main(String[] args) {\n" +
                                                      "        if (<caret>\n" +
@@ -34,7 +39,8 @@ class CompletionLoggingPsiFeaturesTest: CompletionLoggingTestBase() {
                       "PsiJavaFileImpl")
   }
 
-  fun `test psi parent feature in arguments context`() {
+  @Test
+  fun `test psi parent feature in arguments context`(): Unit = onEdt {
     myFixture.configureByText(JavaFileType.INSTANCE, "public class HelloWorld {\n" +
                                                      "    public static void main(String[] args) {\n" +
                                                      "        String a = \"42\";\n" +
@@ -52,7 +58,8 @@ class CompletionLoggingPsiFeaturesTest: CompletionLoggingTestBase() {
                       "PsiJavaFileImpl")
   }
 
-  fun `test is after dot true`() {
+  @Test
+  fun `test is after dot true`(): Unit = onEdt {
     myFixture.configureByText(JavaFileType.INSTANCE, "public class HelloWorld {\n" +
                                                      "    public static void main(String[] args) {\n" +
                                                      "        System.out.<caret>\n" +
@@ -62,7 +69,8 @@ class CompletionLoggingPsiFeaturesTest: CompletionLoggingTestBase() {
     checkHaveFeatures(mapOf("ml_ctx_common_is_after_dot" to true))
   }
 
-  fun `test is after dot false`() {
+  @Test
+  fun `test is after dot false`(): Unit = onEdt {
     myFixture.configureByText(JavaFileType.INSTANCE, "public class HelloWorld {\n" +
                                                      "    public static void main(String[] args) {\n" +
                                                      "        <caret>\n" +
@@ -76,17 +84,17 @@ class CompletionLoggingPsiFeaturesTest: CompletionLoggingTestBase() {
     val features = LookupStorage.getStorage(lookup)?.contextProvidersResult()!!
     expectedParents.forEachIndexed { i, expectedParent ->
       val actualParent = features.classNameValue("ml_ctx_common_parent_${i + 1}")
-      TestCase.assertEquals("Psi parent features", expectedParent, actualParent)
+      assertEquals(expectedParent, actualParent, "Psi parent features")
     }
 
     // There are no unchecked parent features
-    TestCase.assertNull(features.classNameValue("ml_ctx_common_parent_${expectedParents.size + 1}"))
+    assertNull(features.classNameValue("ml_ctx_common_parent_${expectedParents.size + 1}"))
   }
 
   private fun checkHaveFeatures(expectedFeatures: Map<String, Any>) {
     val features = LookupStorage.getStorage(lookup)?.contextProvidersResult()!!
     expectedFeatures.forEach { fName, fValue ->
-      TestCase.assertTrue(features.binaryValue(fName) == fValue)
+      assertTrue(features.binaryValue(fName) == fValue)
     }
   }
 }

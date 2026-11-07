@@ -22,8 +22,8 @@ import org.jetbrains.plugins.groovy.util.TestUtils;
  */
 public class ConvertJavaStyleArrayCreationTest extends GrIntentionTestCase{
   @Override
-  protected String getBasePath() {
-    return TestUtils.getTestDataPath() + "intentions/convertJavaStyleArrayCreation/";
+  protected String getTestDataPath() {
+    return TestUtils.getAbsoluteTestDataPath() + "intentions/convertJavaStyleArrayCreation/";
   }
 
   public void testConversion() {

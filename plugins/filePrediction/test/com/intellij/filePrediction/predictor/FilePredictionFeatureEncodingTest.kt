@@ -11,11 +11,27 @@ import com.intellij.filePrediction.predictor.model.setCustomTestFilePredictionMo
 import com.intellij.internal.ml.DecisionFunction
 import com.intellij.internal.ml.FeaturesInfo
 import com.intellij.internal.ml.ResourcesModelMetadataReader
-import com.intellij.testFramework.builders.ModuleFixtureBuilder
-import com.intellij.testFramework.fixtures.CodeInsightFixtureTestCase
-import com.intellij.testFramework.fixtures.ModuleFixture
+import com.intellij.openapi.Disposable
+import com.intellij.openapi.application.EDT
+import com.intellij.platform.testFramework.junit5.codeInsight.fixture.codeInsightFixture
+import com.intellij.platform.testFramework.junit5.codeInsight.fixture.codeInsightProjectFixture
+import com.intellij.testFramework.common.timeoutRunBlocking
+import com.intellij.testFramework.junit5.TestApplication
+import com.intellij.testFramework.junit5.TestDisposable
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertNotNull
+import org.junit.jupiter.api.Test
 
-class FilePredictionFeatureEncodingTest : CodeInsightFixtureTestCase<ModuleFixtureBuilder<ModuleFixture>>() {
+@TestApplication
+class FilePredictionFeatureEncodingTest {
+  private val projectFixture = codeInsightProjectFixture()
+  private val myFixture by codeInsightFixture(projectFixture)
+
+  @TestDisposable
+  lateinit var disposable: Disposable
+
   private fun doTestBinary(features: Map<String, FilePredictionFeature>, expected: DoubleArray) {
     doTest(features, "binary", expected)
   }
@@ -28,26 +44,29 @@ class FilePredictionFeatureEncodingTest : CodeInsightFixtureTestCase<ModuleFixtu
     doTest(features, "numerical", expected)
   }
 
-  private fun doTest(features: Map<String, FilePredictionFeature>, metadataDir: String, expected: DoubleArray) {
-    myFixture.addFileToProject("test.txt", "CURRENT FILE")
+  private fun doTest(features: Map<String, FilePredictionFeature>, metadataDir: String, expected: DoubleArray): Unit = timeoutRunBlocking {
+    withContext(Dispatchers.EDT) {
+      myFixture.addFileToProject("test.txt", "CURRENT FILE")
 
-    val encoder = TestFilePredictionModelProvider(metadataDir)
-    setCustomTestFilePredictionModel(testRootDisposable, encoder)
+      val encoder = TestFilePredictionModelProvider(metadataDir)
+      setCustomTestFilePredictionModel(disposable, encoder)
 
-    val model = getFilePredictionModel()
-    assertNotNull("Cannot find prediction model", model)
+      val model = getFilePredictionModel()
+      assertNotNull(model, "Cannot find prediction model")
 
-    model!!.predict(features)
+      model!!.predict(features)
 
-    val actual = encoder.encoded
-    assertNotNull(actual)
+      val actual = encoder.encoded
+      assertNotNull(actual)
 
-    assertEquals("Size of encoded features array is different from expected", expected.size, actual!!.size)
-    for (i in actual.indices) {
-      assertEquals("Encoded feature at position $i is different from expected", expected[i], actual[i])
+      assertEquals(expected.size, actual!!.size, "Size of encoded features array is different from expected")
+      for (i in actual.indices) {
+        assertEquals(expected[i], actual[i], "Encoded feature at position $i is different from expected")
+      }
     }
   }
 
+  @Test
   fun `test binary features encoding`() {
     val features = FilePredictionFeaturesBuilder()
       .withStructureFeatures(true, true, true, true).build()
@@ -55,6 +74,7 @@ class FilePredictionFeatureEncodingTest : CodeInsightFixtureTestCase<ModuleFixtu
     doTestBinary(features, encodeBinary(1.0, 1.0, 0.0, 1.0, 0.0))
   }
 
+  @Test
   fun `test binary features encoding with undefined`() {
     val features = FilePredictionFeaturesBuilder()
       .withInRef(true).build()
@@ -62,6 +82,7 @@ class FilePredictionFeatureEncodingTest : CodeInsightFixtureTestCase<ModuleFixtu
     doTestBinary(features, encodeBinary(0.0, 0.0, 1.0, 1.0, 1.0))
   }
 
+  @Test
   fun `test categorical features encoding`() {
     val features = FilePredictionFeaturesBuilder()
       .withFileType("JAVA")
@@ -70,6 +91,7 @@ class FilePredictionFeatureEncodingTest : CodeInsightFixtureTestCase<ModuleFixtu
     doTestCategorical(features, encodeCategorical(1.0, 0.0, 0.0, 1.0))
   }
 
+  @Test
   fun `test categorical features encoding with unknown feature`() {
     val features = FilePredictionFeaturesBuilder()
       .withCustomFeature("unknown", "FEATURE_VALUE")
@@ -79,6 +101,7 @@ class FilePredictionFeatureEncodingTest : CodeInsightFixtureTestCase<ModuleFixtu
     doTestCategorical(features, encodeCategorical(0.0, 1.0, 0.0, 1.0))
   }
 
+  @Test
   fun `test categorical features encoding with undefined feature`() {
     val features = FilePredictionFeaturesBuilder()
       .withPrevFileType("Kotlin").build()
@@ -86,6 +109,7 @@ class FilePredictionFeatureEncodingTest : CodeInsightFixtureTestCase<ModuleFixtu
     doTestCategorical(features, encodeCategorical(0.0, 0.0, 0.0, 1.0))
   }
 
+  @Test
   fun `test numerical features encoding`() {
     val features = FilePredictionFeaturesBuilder()
       .withHistoryPosition(6)
@@ -94,6 +118,7 @@ class FilePredictionFeatureEncodingTest : CodeInsightFixtureTestCase<ModuleFixtu
     doTestNumerical(features, encodeNumerical(6.0, 0.0, 0.4, 0.1, 0.9, 0.0))
   }
 
+  @Test
   fun `test numerical features with undefined position`() {
     val features = FilePredictionFeaturesBuilder()
       .withUniGram(NextFileProbability(0.4, 0.1, 0.9, 42.0, 0.0001)).build()
@@ -101,6 +126,7 @@ class FilePredictionFeatureEncodingTest : CodeInsightFixtureTestCase<ModuleFixtu
     doTestNumerical(features, encodeNumerical(99.0, 1.0, 0.4, 0.1, 0.9, 0.0))
   }
 
+  @Test
   fun `test numerical features with undefined uni gram`() {
     val features = FilePredictionFeaturesBuilder()
       .withHistoryPosition(6).build()

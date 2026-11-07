@@ -22,8 +22,8 @@ import org.jetbrains.plugins.groovy.util.TestUtils;
  */
 public class ImportStaticTest extends GrIntentionTestCase {
   @Override
-  protected String getBasePath() {
-    return TestUtils.getTestDataPath() + "intentions/staticImport/";
+  protected String getTestDataPath() {
+    return TestUtils.getAbsoluteTestDataPath() + "intentions/staticImport/";
   }
 
   private void doSingleTest() {

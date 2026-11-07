@@ -78,6 +78,14 @@ public abstract class XBreakpointType<B extends XBreakpoint<P>, P extends XBreak
     return false;
   }
 
+  /**
+   * @return {@code true} if a breakpoint of this type can save a thread dump when hit
+   */
+  @ApiStatus.Internal
+  public boolean isCaptureThreadDumpSupported() {
+    return false;
+  }
+
   public SuspendPolicy getDefaultSuspendPolicy() {
     return SuspendPolicy.ALL;
   }

@@ -27,6 +27,7 @@ import com.intellij.ui.treeStructure.treetable.TreeTable;
 import com.intellij.ui.treeStructure.treetable.TreeTableModel;
 import com.intellij.util.MathUtil;
 import com.intellij.util.ObjectUtils;
+import com.intellij.util.concurrency.ThreadingAssertions;
 import com.intellij.util.ui.AsyncProcessIcon;
 import com.intellij.util.ui.ColumnInfo;
 import com.intellij.util.ui.ComponentWithEmptyText;
@@ -157,6 +158,9 @@ public class JBTable extends JTable implements ComponentWithEmptyText, Component
 
   public JBTable(final TableModel model, final TableColumnModel columnModel) {
     super(model, columnModel);
+
+    ThreadingAssertions.softAssertAwtOperationsThread();
+
     // By default, tables only allow Ctrl-TAB/Ctrl-Shift-TAB to navigate to the
     // next/previous component, while TAB/Shift-TAB is used to navigate through
     // cells. This behavior is somewhat counter-intuitive, as visually impaired
@@ -1564,6 +1568,16 @@ public class JBTable extends JTable implements ComponentWithEmptyText, Component
         return JBTable.this
           .getCellRenderer(myRow, myColumn)
           .getTableCellRendererComponent(JBTable.this, getValueAt(myRow, myColumn), false, false, myRow, myColumn);
+      }
+
+      @Override
+      public boolean isVisible() {
+        // Cells outside the visible area are reported as invisible without creating the renderer component,
+        // which can be expensive and would otherwise be done for every cell of the table (e.g., for visible children query)
+        if (!JBTable.this.getVisibleRect().intersects(JBTable.this.getCellRect(myRow, myColumn, false))) {
+          return false;
+        }
+        return super.isVisible();
       }
 
       @Override

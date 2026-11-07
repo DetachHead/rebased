@@ -15,14 +15,27 @@ import com.intellij.psi.PsiClassOwner;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.PsiPackage;
 import com.intellij.util.Query;
+import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import java.util.Collections;
+import java.util.HashSet;
 import java.util.Set;
 
 public class PackageScope extends GlobalSearchScope {
   private final Set<VirtualFile> myDirs;
+  /**
+   * The URL of each directory of {@link #myDirs}. An environment can represent one file by more than one
+   * {@link VirtualFile} instance, and {@link #myDirs} then misses the instance which the caller holds.
+   */
+  private final Set<String> myDirUrls;
   private final Set<VirtualFile> myFiles;
+  /**
+   * The URL of each file of {@link #myFiles}. An environment can represent one file by more than one
+   * {@link VirtualFile} instance, and {@link #myFiles} then misses the instance which the caller holds.
+   */
+  private final Set<String> myFileUrls;
   private final PsiPackage myPackage;
   private final boolean myIncludeSubpackages;
   private final boolean myIncludeLibraries;
@@ -55,7 +68,8 @@ public class PackageScope extends GlobalSearchScope {
       myDirs.add(e);
       return true;
     });
-    
+    myDirUrls = urlsOf(myDirs);
+
     Query<VirtualFile> files = packageIndex.getFilesByPackageName(myPackageQualifiedName);
     if (packageScope != null) {
       files = files.filtering(packageScope::contains);
@@ -66,24 +80,50 @@ public class PackageScope extends GlobalSearchScope {
       return true;
     });
 
+    // A file can declare a package which no directory holds. PackageIndex does not know such a file, but an element finder does.
+    // With includeSubpackages such a file can also declare a subpackage, and then no directory of myDirs is an ancestor of it either.
+    GlobalSearchScope effectiveScope = packageScope != null ? packageScope : allScope(project);
+    for (PsiFile file : myPackage.getIndividualFiles(effectiveScope, includeSubpackages)) {
+      VirtualFile virtualFile = file.getVirtualFile();
+      if (virtualFile != null) {
+        myFiles.add(virtualFile);
+      }
+    }
+    myFileUrls = urlsOf(myFiles);
+
     myIncludeLibraries = includeLibraries;
 
     myPartOfPackagePrefix = JavaPsiFacade.getInstance(project).isPartOfPackagePrefix(myPackageQualifiedName);
     myPackageQNamePrefix = myPackageQualifiedName + ".";
   }
 
+  private static @NotNull Set<String> urlsOf(@NotNull Set<VirtualFile> files) {
+    return files.isEmpty() ? Collections.emptySet() : new HashSet<>(ContainerUtil.map(files, VirtualFile::getUrl));
+  }
+
+  /**
+   * The same check as the one over {@link #myDirs}, but by URL, for a {@link VirtualFile} instance which the sets do not hold.
+   */
+  private boolean containsDirByUrl(@Nullable VirtualFile dir) {
+    if (dir == null || myDirUrls.isEmpty()) return false;
+    String url = dir.getUrl();
+    return myIncludeSubpackages ? VfsUtilCore.isUnder(url, myDirUrls) : myDirUrls.contains(url);
+  }
+
   @Override
   public boolean contains(@NotNull VirtualFile file) {
-    VirtualFile dir = file.isDirectory() ? file : file.getParent();
+    VirtualFile fileDir = file.isDirectory() ? file : file.getParent();
     if (!myIncludeSubpackages) {
-      if (myDirs.contains(dir)) return true;
+      if (myDirs.contains(fileDir)) return true;
     }
     else {
+      VirtualFile dir = fileDir;
       while (dir != null) {
         if (myDirs.contains(dir)) return true;
         dir = dir.getParent();
       }
     }
+    if (containsDirByUrl(fileDir)) return true;
 
     if (myPartOfPackagePrefix && myIncludeSubpackages) {
       final PsiFile psiFile = myPackage.getManager().findFile(file);
@@ -95,7 +135,8 @@ public class PackageScope extends GlobalSearchScope {
         }
       }
     }
-    return myFiles.contains(file);
+    if (myFiles.contains(file)) return true;
+    return !myFileUrls.isEmpty() && myFileUrls.contains(file.getUrl());
   }
 
   @Override

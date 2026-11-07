@@ -1,6 +1,5 @@
 // FIX: Replace 'if' expression with safe cast expression
-// HIGHLIGHT: INFORMATION
-// FIR_COMPARISON
+// HIGHLIGHT: WARNING
 class My(val x: Int)
 
 fun foo(arg: Any?): My? {

@@ -7,7 +7,7 @@ import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.application.UI
 import com.intellij.openapi.application.asContextElement
 import com.intellij.openapi.diagnostic.logger
-import com.intellij.openapi.diagnostic.rethrowControlFlowException
+import com.intellij.diagnostic.rethrowControlFlowException
 import com.intellij.openapi.diagnostic.trace
 import com.intellij.openapi.fileEditor.FileEditor
 import com.intellij.openapi.project.Project
@@ -119,7 +119,7 @@ internal class StructureUiModelSession : StructureUiModel {
       val updateStartTime = System.nanoTime()
       logger.trace { "StructureUiModelImpl[$dtoId]: nodes update received" }
 
-      model.applyNodesModel(modelDto.rootNode,
+      model.applyNodesModel(nodesUpdate.rootNode ?: modelDto.rootNode,
                             nodesUpdate.nodeProviders,
                             nodesUpdate.nodes,
                             nodesUpdate.editorSelectionId)
@@ -163,7 +163,7 @@ internal class StructureUiModelSession : StructureUiModel {
 
     if (deferredNodes != null) {
       val deferredApplyStartTime = System.nanoTime()
-      model.applyNodesModel(modelDto.rootNode,
+      model.applyNodesModel(nodesUpdate.rootNode ?: modelDto.rootNode,
                             deferredNodes.nodeProviders,
                             deferredNodes.nodes,
                             nodesUpdate.editorSelectionId)

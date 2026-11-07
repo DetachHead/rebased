@@ -25,8 +25,8 @@ public class RemoveExplicitTypeDeclarationTest extends GrIntentionTestCase {
     super("Remove explicit type");
   }
   @Override
-  public final String getBasePath() {
-    return TestUtils.getTestDataPath() + "intentions/removeExplicitTypeDeclaration/";
+  public final String getTestDataPath() {
+    return TestUtils.getAbsoluteTestDataPath() + "intentions/removeExplicitTypeDeclaration/";
   }
 
   public void testMethod1() { doTest(true); }

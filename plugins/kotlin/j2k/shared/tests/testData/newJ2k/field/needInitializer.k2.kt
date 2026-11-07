@@ -1,12 +1,12 @@
 class Init {
-    var field1: String? = "str"
+    var field1: String = "str"
     var field2: String? = null
 
     var field3: Int = 1
     var field4: Int = 0
 
     init {
-        val prop1: String?
+        val prop1: String
         prop1 = "aaa"
 
         var prop2: String?

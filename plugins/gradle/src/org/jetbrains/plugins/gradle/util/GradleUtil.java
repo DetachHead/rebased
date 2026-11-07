@@ -33,6 +33,7 @@ import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.plugins.gradle.GradleManager;
+import org.jetbrains.plugins.gradle.execution.build.CachedModuleDataFinder;
 import org.jetbrains.plugins.gradle.model.data.GradleProjectBuildScriptData;
 import org.jetbrains.plugins.gradle.service.GradleInstallationManager;
 import org.jetbrains.plugins.gradle.settings.GradleProjectSettings;
@@ -487,5 +488,17 @@ public final class GradleUtil {
     var canonicalIdeOutPath = FileUtil.toCanonicalPath(ideaOutDir.getPath());
     var canonicalRootPath = data.getRootPath();
     return FileUtil.isAncestor(canonicalRootPath, canonicalIdeOutPath, false);
+  }
+
+  public static @Nullable String resolveGradleIdentityPath(@NotNull Module module) {
+    GradleModuleData gradleModuleData = CachedModuleDataFinder.getGradleModuleData(module);
+    return gradleModuleData == null ? null : gradleModuleData.getGradleIdentityPathOrNull();
+  }
+
+  public static @NotNull String summarizeList(List<String> strings) {
+    List<String> tests = strings.stream().distinct().toList();
+    if (tests.isEmpty()) return "";
+    if (tests.size() == 1) return tests.getFirst();
+    return GradleBundle.message("gradle.tests.pattern.producer.configuration.name", tests.getFirst(), tests.size() - 1);
   }
 }

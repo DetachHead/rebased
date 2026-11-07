@@ -14,69 +14,14 @@
 - getLanguage():com.intellij.lang.Language
 - getLanguageDomainId():java.lang.String
 - getPropertyDescription(java.lang.String):java.lang.String
-*:com.intellij.build.BuildProgressObservable
-- a:addListener(com.intellij.build.BuildProgressListener,com.intellij.openapi.Disposable):V
-*:com.intellij.build.BuildViewSettingsProvider
-- a:isExecutionViewHidden():Z
-*:com.intellij.build.BuildWorkspaceConfiguration
-- s:getInstance(com.intellij.openapi.project.Project):com.intellij.build.BuildWorkspaceConfiguration
-- a:isShowFirstErrorInEditor():Z
-*:com.intellij.build.eventBuilders.BuildIssueEventBuilder
-- a:build():com.intellij.build.events.BuildIssueEvent
-- a:withFilePosition(com.intellij.build.FilePosition):com.intellij.build.eventBuilders.BuildIssueEventBuilder
-- a:withHint(java.lang.String):com.intellij.build.eventBuilders.BuildIssueEventBuilder
-- a:withId(java.lang.Object):com.intellij.build.eventBuilders.BuildIssueEventBuilder
-- a:withParentId(java.lang.Object):com.intellij.build.eventBuilders.BuildIssueEventBuilder
-- a:withTime(java.lang.Long):com.intellij.build.eventBuilders.BuildIssueEventBuilder
-*:com.intellij.build.eventBuilders.PresentableBuildEventBuilder
-- a:build():com.intellij.build.events.PresentableBuildEvent
-- a:withDescription(java.lang.String):com.intellij.build.eventBuilders.PresentableBuildEventBuilder
-- a:withHint(java.lang.String):com.intellij.build.eventBuilders.PresentableBuildEventBuilder
-- a:withId(java.lang.Object):com.intellij.build.eventBuilders.PresentableBuildEventBuilder
-- a:withParentId(java.lang.Object):com.intellij.build.eventBuilders.PresentableBuildEventBuilder
-- a:withTime(java.lang.Long):com.intellij.build.eventBuilders.PresentableBuildEventBuilder
-com.intellij.build.eventBuilders.StartBuildEventBuilder
-- *a:withBuildViewSettings(com.intellij.build.BuildViewSettingsProvider):com.intellij.build.eventBuilders.StartBuildEventBuilder
-*:com.intellij.build.events.BuildEventPresentationData
-- a:consoleToolbarActions():com.intellij.openapi.actionSystem.ActionGroup
-- a:getExecutionConsole():com.intellij.execution.ui.ExecutionConsole
-- a:getNodeIcon():javax.swing.Icon
-*:com.intellij.build.events.BuildIssueEvent
-- com.intellij.build.events.MessageEvent
-- s:builder(com.intellij.build.issue.BuildIssue,com.intellij.build.events.MessageEvent$Kind):com.intellij.build.eventBuilders.BuildIssueEventBuilder
-- a:getDescription():java.lang.String
-- a:getIssue():com.intellij.build.issue.BuildIssue
-*:com.intellij.build.events.DerivedResult
-- com.intellij.build.events.EventResult
-- a:createDefaultResult():com.intellij.build.events.EventResult
-- a:createFailureResult():com.intellij.build.events.FailureResult
-*:com.intellij.build.events.DuplicateMessageAware
-- com.intellij.build.events.MessageEvent
-*:com.intellij.build.events.PresentableBuildEvent
-- com.intellij.build.events.BuildEvent
-- s:builder(java.lang.String,com.intellij.build.events.BuildEventPresentationData):com.intellij.build.eventBuilders.PresentableBuildEventBuilder
-- a:getPresentationData():com.intellij.build.events.BuildEventPresentationData
-com.intellij.build.events.StartBuildEvent
-- com.intellij.build.events.StartEvent
-- *:getBuildViewSettings():com.intellij.build.BuildViewSettingsProvider
-*:com.intellij.build.issue.BuildIssueChecker
-- a:check(com.intellij.build.issue.BuildIssueData):com.intellij.build.issue.BuildIssue
-*:com.intellij.build.issue.BuildIssueData
-*:com.intellij.build.issue.BuildIssueQuickFix
-- a:getId():java.lang.String
-- runQuickFix(com.intellij.openapi.project.Project,com.intellij.openapi.actionSystem.DataContext):java.util.concurrent.CompletableFuture
 *:com.intellij.codeInsight.AnActionWithPreview
 - a:getPreview():com.intellij.codeInsight.intention.preview.IntentionPreviewInfo
-f:com.intellij.codeInsight.CodeInsightBundle
-- *s:dumbModeMessage(java.lang.String,java.lang.String,java.lang.Object[]):java.lang.String
 *:com.intellij.codeInsight.codeVision.settings.CodeVisionSettingsDefaults
 - *sf:Companion:com.intellij.codeInsight.codeVision.settings.CodeVisionSettingsDefaults$Companion
 - getDefaultEnablementForProviderId():java.util.Map
 - getDefaultPosition():com.intellij.codeInsight.codeVision.CodeVisionAnchorKind
 *f:com.intellij.codeInsight.codeVision.settings.CodeVisionSettingsDefaults$Companion
 - f:getInstance():com.intellij.codeInsight.codeVision.settings.CodeVisionSettingsDefaults
-f:com.intellij.codeInsight.daemon.DaemonBundle
-- *s:dumbModeMessage(java.lang.String,java.lang.String,java.lang.Object[]):java.lang.String
 *:com.intellij.codeInsight.hints.AbstractSettingsKey
 - a:getFullId(com.intellij.lang.Language):java.lang.String
 *f:com.intellij.codeInsight.hints.BlockConstrainedPresentation
@@ -457,13 +402,6 @@ f:com.intellij.codeInsight.hints.declarative.InlayProviderOption
 - p:<init>(java.lang.String):V
 - f:render(com.intellij.codeInspection.options.OptCustom,com.intellij.codeInspection.options.OptionController,com.intellij.openapi.project.Project):javax.swing.JComponent
 - a:render(java.lang.Object,com.intellij.codeInspection.options.OptionController,com.intellij.openapi.project.Project):javax.swing.JComponent
-*:com.intellij.execution.RunConfigurationProducerSuppressor
-- *sf:Companion:com.intellij.execution.RunConfigurationProducerSuppressor$Companion
-- a:shouldSuppress(com.intellij.execution.actions.RunConfigurationProducer,com.intellij.openapi.project.Project):Z
-*f:com.intellij.execution.RunConfigurationProducerSuppressor$Companion
-*:com.intellij.execution.dashboard.RunDashboardChecker
-- a:countUniqueConfigurations(com.intellij.openapi.project.Project):I
-- a:getTypeId():java.lang.String
 *:com.intellij.execution.services.ServiceViewAddActionContributor
 - a:getContributorClass():java.lang.Class
 com.intellij.execution.services.ServiceViewDescriptor
@@ -484,6 +422,8 @@ com.intellij.execution.services.ServiceViewDescriptor
 *f:com.intellij.ide.actions.searcheverywhere.SearchEverywhereSpellCheckResult$NoCorrection
 - com.intellij.ide.actions.searcheverywhere.SearchEverywhereSpellCheckResult
 - sf:INSTANCE:com.intellij.ide.actions.searcheverywhere.SearchEverywhereSpellCheckResult$NoCorrection
+com.intellij.ide.actions.searcheverywhere.SearchListener
+- *:standardSearchFoundNoResults(com.intellij.ide.actions.searcheverywhere.SearchEverywhereContributor):V
 com.intellij.ide.bookmark.BookmarksListProvider
 - *:getDescriptor(com.intellij.ide.util.treeView.AbstractTreeNode):com.intellij.openapi.fileEditor.OpenFileDescriptor
 com.intellij.ide.bookmark.BookmarksManager
@@ -512,6 +452,9 @@ com.intellij.ide.bookmark.BookmarksManager
 *:com.intellij.ide.util.projectWizard.ModuleNameGenerator
 - sf:EP_NAME:com.intellij.openapi.extensions.ExtensionPointName
 - a:getUi(java.lang.String,java.util.function.Consumer):javax.swing.JComponent
+c:com.intellij.ide.util.scopeChooser.ScopeDescriptor
+- com.intellij.openapi.util.ColoredItem
+- *:needsUserInputForScope():Z
 *a:com.intellij.lang.parameterInfo.ParameterInfoHandlerWithColoredSyntax
 - com.intellij.lang.parameterInfo.ParameterInfoHandler
 - <init>():V
@@ -594,6 +537,12 @@ com.intellij.ide.bookmark.BookmarksManager
 - f:setBoilerplate(Z):V
 - f:setFrameworkLanguage(java.lang.String):V
 - f:setFrameworkVersion(java.lang.String):V
+c:com.intellij.navigation.GotoRelatedItem
+- com.intellij.pom.Navigatable
+- *p:<init>(com.intellij.openapi.project.Project,com.intellij.psi.PsiElement,java.lang.String,I):V
+- *f:getProject():com.intellij.openapi.project.Project
+- *:navigationRequest():com.intellij.platform.backend.navigation.NavigationRequest
+- *:onChosen():V
 com.intellij.openapi.roots.ModifiableModelsProvider
 - *a:getGlobalLibraryTableModifiableModel(com.intellij.openapi.project.Project):com.intellij.openapi.roots.libraries.LibraryTable$ModifiableModel
 c:com.intellij.openapi.roots.ui.configuration.ProjectSettingsService
@@ -628,36 +577,3 @@ com.intellij.refactoring.RenameRefactoring
 - *a:hasNonCodeUsages():Z
 - *a:respectAllAutomaticRenames():V
 - *a:respectEnabledAutomaticRenames():V
-c:com.intellij.task.ProjectTaskContext
-- com.intellij.openapi.util.UserDataHolderBase
-- *f:addDirtyOutputPathsProvider(kotlin.jvm.functions.Function0):V
-- *f:fileGenerated(java.lang.String,java.lang.String):V
-- *f:getGeneratedFilesRelativePaths(java.lang.String):java.util.Collection
-- *f:getGeneratedFilesRoots():java.util.Collection
-- *f:isCollectionOfGeneratedFilesEnabled():Z
-Fa:com.intellij.task.ProjectTaskManager
-- *a:createProjectTaskExecutionEnvironment(com.intellij.task.ProjectTask):com.intellij.execution.runners.ExecutionEnvironment
-com.intellij.task.ProjectTaskManager$Result
-- *a:anyTaskMatches(java.util.function.BiPredicate):Z
-a:com.intellij.task.ProjectTaskRunner
-- *:createExecutionEnvironment(com.intellij.openapi.project.Project,com.intellij.task.ProjectTask[]):com.intellij.execution.runners.ExecutionEnvironment
-- *:isFileGeneratedEventsSupported():Z
-*:com.intellij.task.RunConfigurationTaskState
-- *sf:Companion:com.intellij.task.RunConfigurationTaskState$Companion
-- createCustomActions(com.intellij.execution.process.ProcessHandler,com.intellij.execution.ui.ExecutionConsole,com.intellij.execution.Executor):java.util.List
-- *s:getKEY():com.intellij.openapi.util.Key
-- a:handleCreatedTargetEnvironment(com.intellij.execution.target.TargetEnvironment,com.intellij.execution.target.TargetProgressIndicator):java.lang.String
-- a:prepareTargetEnvironmentRequest(com.intellij.execution.target.TargetEnvironmentRequest,com.intellij.execution.target.TargetProgressIndicator):V
-- a:processExecutionResult(com.intellij.execution.process.ProcessHandler,com.intellij.execution.ui.ExecutionConsole):V
-*f:com.intellij.task.RunConfigurationTaskState$Companion
-- f:getKEY():com.intellij.openapi.util.Key
-*e:com.intellij.task.TaskRunnerResults
-- java.lang.Enum
-- com.intellij.task.ProjectTaskRunner$Result
-- sf:ABORTED:com.intellij.task.TaskRunnerResults
-- sf:FAILURE:com.intellij.task.TaskRunnerResults
-- sf:SUCCESS:com.intellij.task.TaskRunnerResults
-- hasErrors():Z
-- isAborted():Z
-- s:valueOf(java.lang.String):com.intellij.task.TaskRunnerResults
-- s:values():com.intellij.task.TaskRunnerResults[]

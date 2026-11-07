@@ -1,0 +1,27 @@
+<html>
+<body>
+Reports a <code>toolwindow.stripe.*</code> key that is not in the bundle the platform reads for the tool window.
+<p>
+  The platform builds the key from the tool window ID. It adds the prefix <code>toolwindow.stripe.</code> and replaces
+  every space with an underscore. For example, the tool window <code>Version Control</code> needs the key
+  <code>toolwindow.stripe.Version_Control</code>. If the key is missing, the stripe button silently shows the ID.
+</p>
+<p>
+  The platform reads the key from one bundle only:
+</p>
+<ul>
+  <li>For the core plugin, it reads <code>messages.IdeBundle</code>.</li>
+  <li>For every other plugin, it reads the <code>&lt;resource-bundle&gt;</code> of the descriptor that declares the
+    tool window. A content module does not inherit the bundle of its plugin.
+    A <code>&lt;depends config-file&gt;</code> descriptor inherits it, unless it declares its own bundle.
+  </li>
+</ul>
+<p>
+  To fix the problem, move the key to that bundle.
+  If the descriptor declares no bundle, declare a bundle of the module, and move the key to it.
+</p>
+<p>
+  The inspection does not report a tool window whose factory sets the stripe title in <code>ToolWindowFactory.init()</code>.
+</p>
+</body>
+</html>

@@ -151,6 +151,7 @@ object PyNames {
 
   const val TESTCASE_SETUP_NAME: String = "setUp"
   const val PY_DOCSTRING_ID: String = "Doctest"
+  const val PY_DOCSTRING_CODE_BLOCK_ID: String = "PythonDocstringCodeBlock"
   const val END_WILDCARD: String = ".*"
 
   const val INIT: String = "__init__"
@@ -270,7 +271,9 @@ object PyNames {
   const val ITER: String = "__iter__"
   const val NEXT: String = "next"
   const val DUNDER_NEXT: String = "__next__"
+  const val DIVMOD: String = "divmod"
   const val LEN: String = "__len__"
+  const val BOOL: String = "__bool__"
   const val CALL: String = "__call__"
   const val GETITEM: String = "__getitem__"
   const val SETITEM: String = "__setitem__"

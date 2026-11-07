@@ -5,7 +5,7 @@ import com.intellij.openapi.diagnostic.logger
 import com.intellij.platform.eel.EelDescriptorWithInteractiveDeployment
 import com.intellij.platform.eel.EelMachineWithConnectionState
 import com.intellij.platform.eel.EelOsFamily
-import com.intellij.platform.eel.annotations.MultiRoutingFileSystemPath
+import com.intellij.platform.util.annotations.paths.NioPath
 import com.intellij.platform.eel.nioFs.impl.MultiRoutingFileSystemBackend
 import com.intellij.platform.eel.provider.getResolvedEelMachine
 import com.intellij.platform.eel.provider.utils.WindowsPathUtils
@@ -82,7 +82,7 @@ class TcpEelMrfsBackend(private val scope: CoroutineScope) : MultiRoutingFileSys
     ).getFileSystem(ijentUri)
   }
 
-  override fun getCustomRoots(): Collection<@MultiRoutingFileSystemPath String> {
+  override fun getCustomRoots(): Collection<@NioPath String> {
     // No I/O - called from read actions; querying ijent.rootDirectories would deploy IJent and block (IJPL-245202).
     // For Windows we synthesize per-drive roots A..Z (VFS equality match with per-drive Path.of(p).getRoot())
     // and append any UNC roots discovered lazily via compute() (see [seenUncRoots]).

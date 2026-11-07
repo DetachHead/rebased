@@ -314,7 +314,7 @@ public class Groovy30HighlightingTest extends GroovyVersionBasedTest {
   }
 
   @Override
-  public final String getBasePath() {
-    return TestUtils.getTestDataPath() + "highlighting/v30/";
+  public final String getTestDataPath() {
+    return TestUtils.getAbsoluteTestDataPath() + "highlighting/v30/";
   }
 }

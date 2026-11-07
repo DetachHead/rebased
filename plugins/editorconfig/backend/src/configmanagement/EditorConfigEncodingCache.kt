@@ -67,10 +67,6 @@ internal class EditorConfigEncodingCache : SettingsSavingComponent {
     }
   }
 
-  fun getUseUtf8Bom(project: Project?, virtualFile: VirtualFile): Boolean {
-    return getCharsetData(project = project, virtualFile = virtualFile, withCache = true)?.isUseBom ?: false
-  }
-
   fun getCharsetData(project: Project?, virtualFile: VirtualFile, withCache: Boolean): CharsetData? {
     if (project == null || !Utils.isEnabledFor(project, virtualFile)) {
       return null

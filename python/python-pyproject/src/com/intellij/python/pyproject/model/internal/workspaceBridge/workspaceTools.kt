@@ -59,12 +59,22 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import org.jetbrains.annotations.VisibleForTesting
 import java.nio.file.Path
 import kotlin.io.path.exists
+import kotlin.time.Duration
+import kotlin.time.measureTime
+import kotlin.time.measureTimedValue
 
 private val logger = fileLogger()
 
-/** Collect all excluded folder paths from the workspace model. */
+/**
+ * Collect all excluded folder paths from the workspace model.
+ *
+ * The result is one set over every content root. `toRebuildRequest` of the tracker relies on that union: it
+ * ignores a url that one change removes and another adds, because the union then stays equal. A result per
+ * content root would break that reasoning.
+ */
 internal fun collectExcludedPaths(project: Project): Set<Path> {
   return project.workspaceModel.currentSnapshot.entities<ContentRootEntity>()
     .flatMap { cr -> cr.excludedUrls.asSequence().map { it.url.toPath() } }.toSet()
@@ -80,33 +90,106 @@ internal suspend fun rebuildProjectModel(project: Project, files: FSWalkInfoWith
     }
   }
   changeWorkspaceMutex.withLock {
-    val currentSnapshot = project.workspaceModel.currentSnapshot
-
-    // All module names (Python and non-Python) — module names must be unique across the project.
-    // A stale registration does not reserve its name. `applyProjectModel` removes it (PY-91133).
-    val allModuleNames: Set<String> = currentSnapshot.entities<ModuleEntity>()
-      .filterNot { it.isStaleRegistration() }
-      .map { it.name }.toSet()
-
-    // Existing Python module names keyed by their content root directory.
-    val existingPythonNames: Map<Path, String> =
-      currentSnapshot.entities<ModuleEntity>().filter { it.type == PYTHON_MODULE_TYPE_ID }.mapNotNull { module ->
-        val moduleRootPath = module.contentRoots.singleOrNull()?.url?.toPath()
-        moduleRootPath?.let { it to module.name }
-      }.toMap()
-
-    val entries = generatePyProjectTomlEntries(files, existingPythonNames, allModuleNames)
-
-    project.workspaceModel.update(PyProjectTomlBundle.message("action.PyProjectTomlSyncAction.description")) { projectStorage ->
-      preserveRootModule(project, projectStorage) {
-        applyProjectModel(entries, project, projectStorage)
-        ensureNoSrcIntersectsWithOtherRoots(projectStorage)
+    for (attempt in 1..MODEL_UPDATE_ATTEMPTS) {
+      val lastAttempt = attempt == MODEL_UPDATE_ATTEMPTS
+      if (tryRebuildProjectModel(project, files, lastAttempt)) {
+        // Flush .iml files to disk to make changes visible for VCS and to prevent races with VFS.
+        val saved = measureTime { saveSettings(project) }
+        logger.debug { "Saved the project settings in $saved" }
+        return@withLock
       }
+      // The last attempt writes the model whatever the module set holds, so it never asks for a repeat.
+      // A repeat here would leave the loop with no model, no saved settings and no report of either.
+      check(!lastAttempt) { "The last attempt of the model build has to write the model" }
+      logger.debug { "The module set changed during the build. Attempt $attempt of $MODEL_UPDATE_ATTEMPTS." }
     }
-    // Flush .iml files to disk to make changes visible for VCS and to prevent races with VFS.
-    saveSettings(project)
   }
 }
+
+/**
+ * Builds the model once, and returns false when the platform changed the module set in the meantime.
+ *
+ * The mutex serializes one pyproject build against another, and against nothing else. The platform loads the
+ * JPS files on its own, so a new `.iml` can add a module while this method runs. The name dedup reads the
+ * module names, hence a stale read can produce a name that the new module already holds.
+ *
+ * [generatePyProjectTomlEntries] suspends, and the block of `WorkspaceModel.update` does not, so the read and
+ * the write cannot share one lock. The method compares the names again inside the update instead, and it asks
+ * the caller for one more attempt when they differ.
+ *
+ * On [lastAttempt] the model is written with the names of that attempt, so the method returns true. A model
+ * that lags one JPS change is better than no model at all, and the next VFS event starts a new build.
+ *
+ * A contract of Kotlin cannot hold that rule. `implies` reads the return of a method and states a fact about
+ * an argument, and this rule reads an argument and states a fact about the return. The caller therefore
+ * checks the rule.
+ */
+private suspend fun tryRebuildProjectModel(project: Project, files: FSWalkInfoWithToml, lastAttempt: Boolean): Boolean {
+  val currentSnapshot = project.workspaceModel.currentSnapshot
+
+  // All module names (Python and non-Python) — module names must be unique across the project.
+  // A stale registration does not reserve its name. `applyProjectModel` removes it (PY-91133).
+  val allModuleNames: Set<String> = currentSnapshot.entities<ModuleEntity>()
+    .filterNot { it.isStaleRegistration() }
+    .map { it.name }.toSet()
+
+  // Existing Python module names keyed by their content root directory.
+  val existingPythonNames: Map<Path, String> =
+    currentSnapshot.entities<ModuleEntity>().filter { it.type == PYTHON_MODULE_TYPE_ID }.mapNotNull { module ->
+      val moduleRootPath = module.contentRoots.singleOrNull()?.url?.toPath()
+      moduleRootPath?.let { it to module.name }
+    }.toMap()
+
+  val (entries, entriesTime) = measureTimedValue {
+    generatePyProjectTomlEntries(files, existingPythonNames, allModuleNames)
+  }
+
+  var applied = true
+  var applyTime = Duration.ZERO
+  var clashTime = Duration.ZERO
+  val updateTime = measureTime {
+    project.workspaceModel.update(PyProjectTomlBundle.message("action.PyProjectTomlSyncAction.description")) { projectStorage ->
+      val namesNow = projectStorage.entities<ModuleEntity>()
+        .filterNot { it.isStaleRegistration() }
+        .map { it.name }.toSet()
+      if (namesNow != allModuleNames && !lastAttempt) {
+        applied = false
+        return@update
+      }
+      preserveRootModule(project, projectStorage) {
+        applyTime = measureTime { applyProjectModel(entries, project, projectStorage) }
+        clashTime = measureTime { ensureNoSrcIntersectsWithOtherRoots(projectStorage) }
+      }
+    }
+  }
+  // The split answers "where does the apply spend its time?" (PY-91841).
+  logger.debug {
+    "Model apply: ${entries.size} entries in $entriesTime, " +
+    "workspace update $updateTime (entities $applyTime, clash check $clashTime)"
+  }
+  return applied
+}
+
+/**
+ * The value of the deepest key of [byPath] that is [path] itself or an ancestor of [path]. Null if none is.
+ *
+ * A caller wants the innermost match. Every key that is an ancestor of one path is comparable to every other
+ * such key, so the matches form one chain and the deepest match is the innermost. A walk up from [path] meets
+ * the deepest match first, hence it costs the depth of [path] and not the size of [byPath] (PY-91841).
+ */
+@VisibleForTesting
+internal fun <T : Any> findInnermost(path: Path, byPath: Map<Path, T>): T? {
+  var directory: Path? = path
+  while (directory != null) {
+    byPath[directory]?.let { return it }
+    directory = directory.parent
+  }
+  return null
+}
+
+
+/** How often a build may repeat when the platform changes the module set at the same time. */
+private const val MODEL_UPDATE_ATTEMPTS = 3
 
 /**
  * Apply the desired project model described by [entries] directly to [projectStorage].
@@ -216,12 +299,12 @@ private fun deleteModule(
 
   // Preserve source roots and excluded folders by relocating them to the parent module,
   // but only if the underlying directory still physically exists on disk.
-  val otherContentRoots = projectStorage.entities<ContentRootEntity>().filter { it.module != module }.toList()
+  val otherContentRootIndex = ContentRootIndex(projectStorage.entities<ContentRootEntity>().filter { it.module != module }.toList())
 
   val sourcesByTarget = mutableMapOf<ContentRootEntity, MutableList<SourceRootEntityBuilder>>()
   val excludesByTarget = mutableMapOf<ContentRootEntity, MutableList<ExcludeUrlEntityBuilder>>()
   for (cr in module.contentRoots) {
-    val parent = otherContentRoots.deepestContaining(cr.url.toPath()) ?: continue
+    val parent = otherContentRootIndex.deepestContaining(cr.url.toPath()) ?: continue
     for (sr in cr.sourceRoots) {
       if (sr.url.toPath().exists()) {
         sourcesByTarget.getOrPut(parent) { mutableListOf() }.add(copyOfSourceRoot(sr, parent.entitySource))
@@ -397,14 +480,24 @@ private fun logIfNeeded(projectStorage: MutableEntityStorage, title: String) {
  */
 private fun ensureNoSrcIntersectsWithOtherRoots(projectStorage: MutableEntityStorage) {
   val allContentRoots = projectStorage.entities<ModuleEntity>().flatMap { it.contentRoots }.toList()
+  // `clashTarget` reads every content root for every source root and for every excluded url. The product of
+  // these three numbers is the cost of this method, so the log must carry all of them (PY-91841). The two
+  // sums walk every content root, hence the lambda: it keeps that walk out of a run that logs nothing.
+  logger.debug {
+    "Clash check over ${allContentRoots.size} content roots, " +
+    "${allContentRoots.sumOf { it.sourceRoots.size }} source roots, " +
+    "${allContentRoots.sumOf { it.excludedUrls.size }} excluded urls"
+  }
 
   val pathsToRemove = mutableMapOf<ContentRootEntity, MutableSet<Path>>()
   val sourcesToAdd = mutableMapOf<ContentRootEntity, MutableList<SourceRootEntityBuilder>>()
   val excludesToAdd = mutableMapOf<ContentRootEntity, MutableList<ExcludeUrlEntityBuilder>>()
 
+  val contentRootIndex = ContentRootIndex(allContentRoots)
+
   /** Find the innermost content root containing [path] that belongs to a different module than [cr]. */
   fun clashTarget(path: Path, cr: ContentRootEntity): ContentRootEntity? {
-    return allContentRoots.deepestContaining(path)?.takeIf { it.module != cr.module }?.also {
+    return contentRootIndex.deepestContaining(path)?.takeIf { it.module != cr.module }?.also {
       pathsToRemove.getOrPut(cr) { mutableSetOf() }.add(path)
     }
   }
@@ -485,17 +578,14 @@ private fun MutableEntityStorage.mergeRoots(
 }
 
 /**
- * Make a source root that the IDE can compare with a root that the user marks.
+ * Make a source root for the sync.
  *
- * `ModifiableContentEntryBridge` compares a java source root by its properties. A root without a
- * `JavaSourceRootPropertiesEntity` never matches, so the bridge writes a second entity for one directory. The `.iml`
- * serializer gives that child to every java source root that it reads. This factory keeps a new root equal to the same
- * root after a reload.
+ * The root holds no [JavaSourceRootPropertiesEntity]. Python has no package prefix and no generated flag, so the
+ * default properties are correct. `ModifiableContentEntryBridge` reads a missing child as the default properties
+ * (IJPL-254041), so the bridge finds this root when the user marks the same directory.
  */
 private fun pyProjectSourceRoot(url: VirtualFileUrl, entitySource: EntitySource): SourceRootEntityBuilder =
-  SourceRootEntity(url, JAVA_SOURCE_ROOT_TYPE, entitySource) {
-    javaSourceRoots = listOf(JavaSourceRootPropertiesEntity(generated = false, packagePrefix = "", entitySource = entitySource))
-  }
+  SourceRootEntity(url, JAVA_SOURCE_ROOT_TYPE, entitySource)
 
 /**
  * Copy [sourceRoot] for another content root, with [entitySource].
@@ -508,9 +598,23 @@ private fun copyOfSourceRoot(sourceRoot: SourceRootEntity, entitySource: EntityS
     javaSourceRoots = sourceRoot.javaSourceRoots.map { JavaSourceRootPropertiesEntity(it.generated, it.packagePrefix, entitySource) }
   }
 
-/** The content root that contains [path] and lies deepest. */
-private fun List<ContentRootEntity>.deepestContaining(path: Path): ContentRootEntity? =
-  filter { path.startsWith(it.url.toPath()) }.maxByOrNull { it.url.url.length }
+/**
+ * Content roots indexed by path, for a repeated [deepestContaining] query.
+ */
+private class ContentRootIndex(contentRoots: List<ContentRootEntity>) {
+  private val byPath = HashMap<Path, ContentRootEntity>(contentRoots.size)
+
+  init {
+    // The first entry wins for a repeated path, as the `maxByOrNull` of the previous scan also did.
+    // Two content roots with one path carry one url, hence one url length.
+    for (contentRoot in contentRoots) {
+      byPath.putIfAbsent(contentRoot.url.toPath(), contentRoot)
+    }
+  }
+
+  /** The content root that contains [path] and lies deepest. */
+  fun deepestContaining(path: Path): ContentRootEntity? = findInnermost(path, byPath)
+}
 
 private suspend fun generatePyProjectTomlEntries(
   fsInfo: FSWalkInfoWithToml,

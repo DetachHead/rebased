@@ -366,17 +366,6 @@
     <stacktrace.fold substring="at com.sun.proxy.$Proxy"/>
     <stacktrace.fold substring="at com.intellij.rt.execution."/>
 
-    <psi.symbolReferenceProvider hostElementClass="com.intellij.psi.PsiComment"
-                                 implementationClass="com.intellij.codeInsight.todo.TodoSymbolReferenceProvider"
-                                 targetClass="com.intellij.codeInsight.todo.TodoSymbol"
-                                 hostLanguage="JAVA"
-    />
-    <lang.symbolSearchTarget implementationClass="com.intellij.codeInsight.todo.TodoSymbolSearchTargetFactory"
-                             forClass="com.intellij.codeInsight.todo.TodoSymbol"/>
-    <searcher forClass="com.intellij.find.usages.api.UsageSearchParameters"
-              implementationClass="com.intellij.codeInsight.todo.TodoSearcher"/>
-
-
     <structureViewBuilder key="CLASS" factoryClass="com.intellij.ide.highlighter.JavaClsStructureViewBuilderProvider"/>
 
     <patterns.patternClass className="com.intellij.patterns.PsiJavaPatterns" alias="java"/>
@@ -446,7 +435,8 @@
     <library.type implementation="com.intellij.externalSystem.ImportedLibraryType"/>
     <postStartupActivity implementation="com.intellij.codeInsight.daemon.impl.IdeaLibDependencyNotifier"/>
     <postStartupActivity implementation="com.intellij.jarRepository.RepositoryLibrarySynchronizer"/>
-    <projectConfigurable groupId="build" instance="com.intellij.jarRepository.settings.RemoteRepositoriesConfigurable"
+    <projectConfigurable id="com.intellij.jarRepository.settings.RemoteRepositoriesConfigurable"
+                         groupId="build" instance="com.intellij.jarRepository.settings.RemoteRepositoriesConfigurable"
                          key="configurable.RemoteRepositoriesConfigurable.display.name" bundle="messages.JavaUiBundle"
                          order="last"/>
 
@@ -467,9 +457,6 @@
                     overrides="true"/>
     <projectService serviceInterface="com.intellij.refactoring.RefactoringFactory"
                     serviceImplementation="com.intellij.refactoring.openapi.impl.JavaRefactoringFactoryImpl"
-                    overrides="true"/>
-    <projectService serviceInterface="com.intellij.ide.todo.nodes.TodoTreeHelper"
-                    serviceImplementation="com.intellij.ide.todo.nodes.TodoJavaTreeHelper"
                     overrides="true"/>
 
     <jvm.logging implementation="com.intellij.lang.logging.ApacheCommonsLogger"/>
@@ -533,7 +520,7 @@
     <projectTemplateParameterFactory implementation="com.intellij.openapi.module.BasePackageParameterFactory"/>
     <projectTemplateParameterFactory implementation="com.intellij.openapi.module.LanguageLevelParameterFactory"/>
     <java.elementFinder implementation="com.intellij.psi.impl.migration.MigrationElementFinder"/>
-    <treeCopyHandler implementation="com.intellij.psi.impl.source.tree.JavaTreeCopyHandler"/>
+    <treeCopyHandler implementation="com.intellij.psi.impl.source.tree.JavaTreeCopyHandler" id="java"/>
     <lang.treePatcher language="JAVA" implementationClass="com.intellij.psi.templateLanguages.MiddleTreePatcher"/>
     <generation.topLevelFactory language="JAVA" implementationClass="com.intellij.psi.impl.JavaFactoryProvider"/>
     <resolveScopeEnlarger implementation="com.intellij.psi.NonClasspathResolveScopeEnlarger"/>
@@ -600,12 +587,21 @@
     <renameInputValidator implementation="com.intellij.refactoring.rename.JavaModuleRenameValidator"/>
     <renameInputValidator implementation="com.intellij.refactoring.rename.JavaTypeRenameValidator"/>
     <renamePsiElementProcessor implementation="com.intellij.refactoring.rename.RenamePsiPackageProcessor"/>
+    <headlessRenamePsiElementProcessor implementation="com.intellij.refactoring.rename.RenamePsiPackageProcessor$HeadlessRenamePsiPackageProcessor"/>
     <renamePsiElementProcessor implementation="com.intellij.refactoring.rename.RenamePsiDirectoryProcessor"/>
+    <headlessRenamePsiElementProcessor implementation="com.intellij.refactoring.rename.RenamePsiDirectoryProcessor"/>
     <renamePsiElementProcessor implementation="com.intellij.refactoring.rename.RenameJavaClassProcessor"/>
+    <headlessRenamePsiElementProcessor implementation="com.intellij.refactoring.rename.RenameJavaClassProcessor$HeadlessRenameJavaClassProcessor"/>
     <renamePsiElementProcessor implementation="com.intellij.refactoring.rename.RenameJavaMethodProcessor" id="javamethod"/>
+    <headlessRenamePsiElementProcessor implementation="com.intellij.refactoring.rename.RenameJavaMethodProcessor$HeadlessRenameJavaMethodProcessor" id="javamethod"/>
     <renamePsiElementProcessor implementation="com.intellij.refactoring.rename.RenameJavaVariableProcessor" id="javaVariable"/>
+    <headlessRenamePsiElementProcessor implementation="com.intellij.refactoring.rename.RenameJavaVariableProcessor$HeadlessRenameJavaVariableProcessor" id="javaVariable"/>
     <renamePsiElementProcessor implementation="com.intellij.refactoring.rename.RenameJavaModuleProcessor"/>
+    <headlessRenamePsiElementProcessor implementation="com.intellij.refactoring.rename.RenameJavaModuleProcessor"/>
     <renamePsiElementProcessor implementation="com.intellij.refactoring.rename.RenameAliasingPomTargetProcessor" id="aliasingPom"/>
+    <headlessRenamePsiElementProcessor implementation="com.intellij.refactoring.rename.RenameAliasingPomTargetProcessor" id="aliasingPom"/>
+    <!-- Temporary. See HeadlessRenameSupportedLanguage. Remove it when every language is converted. -->
+    <headlessRenameSupportedLanguage language="JAVA"/>
     <findUsagesHandlerFactory implementation="com.intellij.find.findUsages.JavaFindUsagesHandlerFactory" id="java"
                               order="last, before default"/>
     <updateAddedFileProcessor implementation="com.intellij.psi.impl.file.JavaUpdateAddedFileProcessor"/>
@@ -634,6 +630,7 @@
     <indexPatternBuilder implementation="com.intellij.psi.impl.search.JavaIndexPatternBuilder"/>
     <printOption implementation="com.intellij.codeEditor.printing.HyperlinksToClassesOption"/>
     <macro implementation="com.intellij.ide.macro.JavaDocPathMacro"/>
+    <macro implementation="com.intellij.ide.macro.JdkPathMacro"/>
     <macro implementation="com.intellij.ide.macro.FilePackageMacro"/>
     <macro implementation="com.intellij.ide.macro.FileFQPackage"/>
     <macro implementation="com.intellij.ide.macro.FileClassMacro"/>
