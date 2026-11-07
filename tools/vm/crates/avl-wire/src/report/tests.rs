@@ -2,14 +2,13 @@ use pretty_assertions::assert_eq;
 use serde_json::{Map, Value, json};
 
 use super::*;
-use crate::daemon::{Skipped, WatchdogExpired};
+use crate::daemon::{Skipped, SlowStep, WatchdogExpired};
 
 /// A report that satisfies every requirement, the starting point of the refusal cases. Built as a value and
 /// serialized rather than written as a literal, so a field renamed on the struct cannot leave this fixture
 /// silently describing the old shape.
 pub(super) fn valid_report() -> RunReport {
     RunReport {
-        report_schema_version: RUN_REPORT_SCHEMA_VERSION,
         iteration_id: "iteration-1".to_owned(),
         daemon_run_id: "run-ui-daemon-015546b8-bd1e-4dec-8b20-f9627a770f68".to_owned(),
         daemon_boot_stamp: "boot-1".to_owned(),
@@ -18,35 +17,12 @@ pub(super) fn valid_report() -> RunReport {
         started_at: "2026-08-23T08:08:56.000200831Z".to_owned(),
         completed_at: "2026-08-23T08:13:05.364Z".to_owned(),
         duration_ms: 249_364.0,
-        ordering: ORDERING.to_owned(),
         execution: ExecutionCounts {
             tests_started: 23,
             containers_skipped: 1,
             ..ExecutionCounts::default()
         },
-        xml: XmlCounts {
-            tests: 23,
-            ..XmlCounts::default()
-        },
-        source: Source {
-            guest_path: "/Users/air/data/out/test.xml".to_owned(),
-            retrieval: Retrieval::DaemonHttp,
-            integrity: Integrity::Complete,
-            diagnostic: None,
-        },
-        suites: Vec::new(),
-        failures: Vec::new(),
-        skipped_containers: Vec::new(),
-        active_tests: Vec::new(),
-        unreported_classes: Vec::new(),
-        watchdog: Watchdog::default(),
-        evidence: Vec::new(),
-        trace_archives: Vec::new(),
-        traces_error: None,
-        tree: None,
-        tree_error: None,
-        protocol_diagnostic: None,
-        verdict_diagnostic: None,
+        ..RunReport::default()
     }
 }
 
@@ -78,10 +54,30 @@ fn a_valid_report_round_trips() {
 
 // The arrays this document declares are declared unconditionally: a reader that saw `null` would have to decide
 // for itself whether that meant "none" or "the producer forgot".
+/// An active test is one flat object: the fields of the record that started it, and the start.
+#[test]
+fn an_active_test_is_one_flat_object() {
+    let test = ActiveTest {
+        execution: ExecutionIdentity {
+            id: "[engine:junit-jupiter]/[class:air.RenameTest]".to_owned(),
+            display_name: "renames".to_owned(),
+            class_name: Some("air.RenameTest".to_owned()),
+            method_name: None,
+        },
+        started_at: Some("2026-08-23T08:09:00Z".to_owned()),
+    };
+    let text = String::from_utf8(encode(&test)).unwrap();
+    assert_eq!(
+        text,
+        r#"{"id":"[engine:junit-jupiter]/[class:air.RenameTest]","displayName":"renames","className":"air.RenameTest","startedAt":"2026-08-23T08:09:00Z"}"#
+    );
+    assert_eq!(serde_json::from_str::<ActiveTest>(&text).unwrap(), test);
+}
+
 #[test]
 fn declared_arrays_are_never_null() {
     let document = String::from_utf8(encode(&valid_report())).unwrap();
-    for field in ["suites", "failures", "skippedContainers", "activeTests", "unreportedClasses"] {
+    for field in ["cases", "failures", "skippedContainers", "activeTests", "unreportedClasses"] {
         assert!(
             document.contains(&format!(r#""{field}":[]"#)),
             "{field} is not an empty array: {document}"
@@ -129,16 +125,7 @@ fn the_schema_version_is_checked_before_the_fields() {
 
 #[test]
 fn a_required_field_missing_is_refused() {
-    for field in [
-        "iterationId",
-        "daemonRunId",
-        "status",
-        "ordering",
-        "execution",
-        "xml",
-        "source",
-        "watchdog",
-    ] {
+    for field in ["iterationId", "daemonRunId", "status", "ordering", "execution", "watchdog"] {
         let document = reshaped(|fields| {
             fields.remove(field);
         });
@@ -199,7 +186,7 @@ fn the_trace_archives_round_trip_beside_an_error() {
         );
     });
     let decoded = decode_run_report(&older).expect("a report of the first pull design did not decode");
-    assert!(decoded.trace_archives.is_empty());
+    assert_eq!(decoded.trace_archives, []);
 }
 
 #[test]
@@ -296,20 +283,15 @@ fn an_inconsistent_tree_pair_is_refused() {
 
 #[test]
 fn unknown_vocabulary_is_refused() {
-    let suite = |case_status: &str| {
+    let case = |case_status: &str| json!([{"className": "C", "name": "t", "status": case_status, "durationMs": 1, "startedAt": "2026-08-23T08:09:00Z"}]);
+    let failure = |kind: &str| {
         json!([{
-            "name": "s", "durationMs": 1, "documentIndex": 0, "tests": 1, "failures": 0, "errors": 0, "skipped": 0,
-            "cases": [{"className": "C", "name": "t", "status": case_status, "durationMs": 1}],
-        }])
-    };
-    let failure = |source: &str, kind: &str| {
-        json!([{
-            "source": source, "testName": "t", "kind": kind, "message": "m",
+            "testName": "t", "kind": kind, "message": "m",
             "relevantFrames": [], "messageTruncated": false, "detailTruncated": false,
         }])
     };
     type Mutation = Box<dyn FnOnce(&mut Map<String, Value>)>;
-    let cases: [(&str, Mutation, &str); 7] = [
+    let cases: [(&str, Mutation, &str); 4] = [
         (
             "a status",
             Box::new(|fields| {
@@ -325,35 +307,18 @@ fn unknown_vocabulary_is_refused() {
             "report_schema_unknown_ordering",
         ),
         (
-            "a retrieval",
-            Box::new(|fields| fields["source"]["retrieval"] = json!("scp")),
-            "report_schema_unknown_retrieval",
-        ),
-        (
-            "an integrity",
-            Box::new(|fields| fields["source"]["integrity"] = json!("probably_fine")),
-            "report_schema_unknown_integrity",
-        ),
-        (
             "a case status",
             Box::new(move |fields| {
-                fields.insert("suites".to_owned(), suite("green"));
+                fields.insert("cases".to_owned(), case("green"));
             }),
             "report_schema_unknown_case_status",
         ),
         (
             "a failure kind",
             Box::new(move |fields| {
-                fields.insert("failures".to_owned(), failure("junit_xml", "exploded"));
+                fields.insert("failures".to_owned(), failure("exploded"));
             }),
             "report_schema_unknown_failure_kind",
-        ),
-        (
-            "a failure source",
-            Box::new(move |fields| {
-                fields.insert("failures".to_owned(), failure("hearsay", "failure"));
-            }),
-            "report_schema_unknown_failure_source",
         ),
     ];
     for (what, mutate, code) in cases {
@@ -361,21 +326,25 @@ fn unknown_vocabulary_is_refused() {
     }
     // The same shapes with declared words decode, so each refusal is about the word.
     let declared = reshaped(|fields| {
-        fields.insert("suites".to_owned(), suite("skipped"));
-        fields.insert("failures".to_owned(), failure("progress", "container"));
+        fields.insert("cases".to_owned(), case("skipped"));
+        fields.insert("failures".to_owned(), failure("container"));
     });
     let decoded = decode_run_report(&declared).expect("declared words were refused");
     assert_eq!(
-        (decoded.suites[0].cases[0].status, decoded.failures[0].kind),
+        (decoded.cases[0].status, decoded.failures[0].kind),
         (CaseStatus::Skipped, FailureKind::Container)
     );
 }
 
-// The first four integrities are the JUnit reader's own words; `avl-report` holds the reader to them.
+// A report of schema 2 holds the XML counts, its source and its suites. Its words and its shape belong to another
+// document, so it is refused by its version, before any field is read.
 #[test]
-fn the_integrities_are_spelled_once() {
-    let spelled: Vec<&str> = Integrity::ALL.iter().map(|integrity| integrity.as_str()).collect();
-    assert_eq!(spelled, ["complete", "empty", "truncated", "malformed", "missing", "oversized"]);
+fn a_report_of_schema_2_is_refused_by_its_version() {
+    let document = reshaped(|fields| {
+        fields.insert("reportSchemaVersion".to_owned(), json!(2));
+        fields.insert("xml".to_owned(), json!({"tests": 1, "failures": 0, "errors": 0, "skipped": 0}));
+    });
+    assert_eq!(refusal_code(decode_run_report(&document)), "report_schema_unsupported");
 }
 
 // --- the evidence guard -----------------------------------------------------------------------------------
@@ -421,11 +390,60 @@ fn safe_evidence_paths_keeps_only_what_is_safe_to_fetch() {
     }
 }
 
+// The IDE writes its evidence into its context under `<vm_data>/ide/`: the heartbeat screenshots, and the thread
+// dump of a cancel before the kill.
+#[test]
+fn safe_evidence_paths_admits_the_files_of_an_ide_context() {
+    let log = "/home/admin/WorkerData/ide/a1b2c3/log/launch-1";
+    let screenshot = format!("{log}/screenshots/heartbeat-1.png");
+    let dump = format!("{log}/threadDump-before-kill-1791460800000.txt");
+    assert_eq!(safe_evidence_paths(&[expiry(&[&screenshot, &dump])]), [screenshot, dump]);
+}
+
 #[test]
 fn safe_evidence_paths_caps_the_count() {
     let paths = safe_evidence_paths(&[expiry(&["/a.png", "/b.png", "/c.png", "/d.png", "/e.png", "/f.png"])]);
     assert_eq!(paths, ["/a.png", "/b.png", "/c.png", "/d.png"]);
     assert_eq!(paths.len(), MAX_EVIDENCE_FILES);
+}
+
+fn slow_step(ordinal: u32, ide_dump: bool) -> RunEvent {
+    RunEvent::synthesized(RunEventKind::SlowStep(SlowStep {
+        timestamp: "t".to_owned(),
+        step: "restart".to_owned(),
+        path: "restart > quit".to_owned(),
+        budget_ms: 30_000,
+        elapsed_ms: 31_000,
+        thread_dump: format!("/it/slow-steps/{ordinal:02}-restart-daemon-threads.txt"),
+        ide_dump: ide_dump.then(|| format!("/it/slow-steps/{ordinal:02}-restart-ide-dump.txt")),
+        ide_dump_error: (!ide_dump).then(|| "refused".to_owned()),
+    }))
+}
+
+// The dumps of each slow step are evidence too. They follow the files of the expiry and have a cap of their own, so a
+// run with many slow steps keeps the evidence of its end.
+#[test]
+fn safe_evidence_paths_adds_the_dumps_of_the_slow_steps_after_the_expiry() {
+    let mut events = vec![slow_step(1, true), slow_step(2, false)];
+    events.push(expiry(&["/a.png", "/b.png", "/c.png", "/d.png"]));
+    events.extend((3..=6).map(|ordinal| slow_step(ordinal, true)));
+
+    let paths = safe_evidence_paths(&events);
+
+    assert_eq!(&paths[..4], ["/a.png", "/b.png", "/c.png", "/d.png"]);
+    assert_eq!(
+        &paths[4..7],
+        [
+            "/it/slow-steps/01-restart-daemon-threads.txt",
+            "/it/slow-steps/01-restart-ide-dump.txt",
+            "/it/slow-steps/02-restart-daemon-threads.txt",
+        ]
+    );
+    assert_eq!(paths.len(), MAX_EVIDENCE_FILES + MAX_SLOW_STEP_FILES);
+    assert_eq!(
+        safe_evidence_paths(&[slow_step(1, false)]),
+        ["/it/slow-steps/01-restart-daemon-threads.txt"]
+    );
 }
 
 // A run may publish several expiries, and the one that ended it describes the end.

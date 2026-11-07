@@ -11,6 +11,7 @@ use avl_testkit::tartfake::{Answer, Binary, Fake};
 use pretty_assertions::assert_eq;
 
 use super::*;
+use crate::worker::testing::{assert_counts_one_guest_call, assert_probe_unanswered};
 
 const WORKER: &str = "macOS";
 
@@ -25,7 +26,6 @@ struct Fixture {
     settings: Arc<Config>,
     parallels: Parallels,
     fake: Fake,
-    host_repo: PathBuf,
     host_bazel: PathBuf,
     _root: tempfile::TempDir,
 }
@@ -52,7 +52,13 @@ impl Fixture {
             backend: Backend::Parallels,
             guest_os: GuestOs::Macos,
         };
-        let settings = Config::load(selection, &environment, &root.path().join("scripts")).unwrap();
+        let settings = Config::load(
+            avl_base::HostFacts::without_memory(),
+            selection,
+            &environment,
+            &root.path().join("scripts"),
+        )
+        .unwrap();
         let host_repo = root.path().join("idea");
         let host_bazel = root.path().join("bazel");
         for path in [&host_repo, &host_bazel] {
@@ -70,13 +76,12 @@ impl Fixture {
             settings,
             parallels,
             fake,
-            host_repo,
             host_bazel,
             _root: root,
         }
     }
 
-    fn shares(&self) -> [SharedFolder; 2] {
+    fn shares(&self) -> [SharedFolder; 1] {
         share::shares(&self.settings).unwrap()
     }
 
@@ -84,7 +89,6 @@ impl Fixture {
     fn matching_folders(&self) -> String {
         serde_json::json!({
             "enabled": true,
-            self.settings.repo_share_name.clone(): {"enabled": true, "path": self.host_repo, "mode": "ro"},
             self.settings.bazel_share_name.clone(): {"enabled": true, "path": self.host_bazel, "mode": "ro"},
         })
         .to_string()
@@ -189,13 +193,7 @@ async fn running_is_what_prlctl_status_says() {
 async fn a_prlctl_without_an_answer_is_refused_and_not_a_state() {
     let ctx = Ctx::background();
     let fixture = Fixture::new();
-    for (answer, code) in [(Answer::KilledVerb, 137), (Answer::SilentVerb, 0)] {
-        fixture.fake.answer(answer, "status");
-        let refusal = fixture.parallels.running(&ctx, WORKER).await.unwrap_err();
-        assert_eq!(refusal.code, "probe_unanswered", "{refusal:?}");
-        assert!(refusal.message.contains(&format!("exited with {code}")), "{}", refusal.message);
-        fixture.fake.forget(answer);
-    }
+    assert_probe_unanswered(&fixture.fake, "status", async || fixture.parallels.running(&ctx, WORKER).await).await;
     assert!(fixture.parallels.running(&ctx, WORKER).await.unwrap());
 
     fixture
@@ -281,7 +279,7 @@ async fn a_share_change_stops_the_vm_before_it_mutates_anything() {
     let fixture = Fixture::new();
     let drifted = serde_json::json!({
         "enabled": true,
-        fixture.settings.repo_share_name.clone(): {"enabled": true, "path": "/Users/x/somewhere-else", "mode": "ro"},
+        fixture.settings.bazel_share_name.clone(): {"enabled": true, "path": "/Users/x/somewhere-else", "mode": "ro"},
     })
     .to_string();
     fixture.fake.answer(Answer::ListJson, listing("running", &drifted));
@@ -301,10 +299,9 @@ async fn a_share_change_stops_the_vm_before_it_mutates_anything() {
     };
     let (stop, set, start) = (position("stop macOS"), position("--shf-host-set"), position("start macOS"));
     assert!(stop < set && set < start, "the VM was mutated outside the cycle: {calls:?}");
-    // `--shf-host-set` for the drifted share and `--shf-host-add` for the absent one; `prlctl` refuses the wrong
-    // one.
-    position(&format!("--shf-host-set {}", fixture.settings.repo_share_name));
-    position(&format!("--shf-host-add {}", fixture.settings.bazel_share_name));
+    // `--shf-host-set` for the drifted share, because it exists; `prlctl` refuses an add for a name it has.
+    position(&format!("--shf-host-set {}", fixture.settings.bazel_share_name));
+    assert!(!calls.iter().any(|call| call.contains("--shf-host-add")), "{calls:?}");
     // The master switch is applied unconditionally: a correct share set with sharing off looks right in a listing.
     position("--shf-host on --shf-host-automount on");
 }
@@ -555,6 +552,7 @@ async fn the_parallels_guest_line_is_one_quoted_shell_string() {
 fn settings_for(backend: Backend) -> Config {
     let environment = Environment::from_pairs([("HOME", "/Users/air"), ("TART_BIN", "tart"), ("AIR_VM_PARALLELS_BIN", "prlctl")]);
     Config::load(
+        avl_base::HostFacts::without_memory(),
         Selection {
             backend,
             guest_os: GuestOs::Macos,
@@ -574,12 +572,7 @@ fn building_a_guest_line_declares_its_argv_head() {
     let parallels = Parallels::new(Arc::new(settings_for(Backend::Parallels)), path_runner());
     let line = parallels.guest_argv(&ctx, WORKER, &words(["/bin/sh", "-c", "echo hi"]));
     assert_eq!(line, words(["prlctl", "exec", WORKER, "'/bin/sh' '-c' 'echo hi'"]));
-    let (inner, phase) = ctx.begin("state-prep");
-    inner.phase().record_subprocess(&["prlctl", "exec"], Duration::from_secs(1));
-    inner.phase().record_subprocess(&["git", "rev-parse"], Duration::from_secs(1));
-    drop(phase);
-    let timing = &timeline.take()[0];
-    assert_eq!((timing.guest_calls, timing.host_calls), (1, 1), "{timing:?}");
+    assert_counts_one_guest_call(&ctx, &timeline, &words(["prlctl", "exec"]));
 }
 
 // Both spellings are valid POSIX and they are not interchangeable in practice, so they stay two functions. Each is

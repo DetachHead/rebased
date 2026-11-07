@@ -10,7 +10,7 @@ use std::sync::{Arc, Mutex};
 use avl_base::format::words;
 use avl_base::{Backend, Exit, GuestOs, Refusal, SCHEMA_VERSION};
 use avl_host_sys::interrupt::Interrupts;
-use avl_host_sys::{Ctx, Runner, SpawnOptions};
+use avl_host_sys::{Runner, SpawnOptions};
 use avl_host_testkit::{answer_guest, load_settings, said};
 use avl_testkit::tartfake::Answer;
 use futures::FutureExt;
@@ -18,13 +18,9 @@ use pretty_assertions::assert_eq;
 
 use super::tart::SuspendedState;
 use super::*;
-use crate::worker::tart::ProcessIdentity;
-use crate::worker::testing::{CONSOLE_LOGIN, Fixture, find_step, manager_over};
+use crate::worker::tart::PidReceipt;
+use crate::worker::testing::{CONSOLE_LOGIN, Fixture, StaleRun, ctx, find_step, manager_over, start_again};
 use avl_base::RefusalExt;
-
-fn ctx() -> Ctx {
-    Ctx::background()
-}
 
 fn lease_of(worker: &str, token: &str) -> Lease {
     Lease {
@@ -38,8 +34,7 @@ fn lease_of(worker: &str, token: &str) -> Lease {
     }
 }
 
-// Two leases are one when the worker and the token agree, whoever holds them; the held set forgets a lease by that
-// comparison too.
+// Two leases are one when the worker and the token agree, whoever holds them.
 #[test]
 fn a_lease_is_its_worker_and_its_token() {
     let lease = lease_of("air-macos-1", "token-1");
@@ -49,13 +44,6 @@ fn a_lease_is_its_worker_and_its_token() {
     }));
     assert!(!lease.same_lease(&lease_of("air-macos-1", "token-2")));
     assert!(!lease.same_lease(&lease_of("air-macos-2", "token-1")));
-
-    let held = Arc::new(HeldLeases::default());
-    let guard = held.hold(std::slice::from_ref(&lease));
-    assert!(held.contains(&lease));
-    assert!(!held.contains(&lease_of("air-macos-1", "token-2")));
-    drop(guard);
-    assert!(!held.contains(&lease));
 }
 
 // A probe inside a wait gets what is left of the wait, so a guest that stops answering cannot carry the wait past
@@ -132,7 +120,7 @@ async fn the_process_receipt_round_trips_and_is_refused_field_by_field() {
     let fixture = Fixture::macos();
     let worker = fixture.worker(0);
     let identity = fixture.run_as_fake_process(worker).await;
-    assert!(!identity.process_start.is_empty() && !identity.process_command.is_empty());
+    assert!(!identity.process.process_start.is_empty() && !identity.process.process_command.is_empty());
     let path = fixture.settings.pid_path(worker);
     assert_eq!(std::fs::metadata(&path).unwrap().permissions().mode() & 0o7777, 0o600);
     assert_eq!(tart(&fixture).read_process_identity(worker), Some(identity.clone()));
@@ -141,18 +129,20 @@ async fn the_process_receipt_round_trips_and_is_refused_field_by_field() {
     assert!(
         written.starts_with(&format!(
             "{{\"schemaVersion\":1,\"worker\":\"{worker}\",\"pid\":{},\"processStart\":",
-            identity.pid
+            identity.process.pid
         )),
         "{written}"
     );
 
-    let damaged = |edit: fn(&mut ProcessIdentity)| {
-        let mut broken = ProcessIdentity {
+    let damaged = |edit: fn(&mut PidReceipt)| {
+        let mut broken = PidReceipt {
             schema_version: SCHEMA_VERSION,
             worker: worker.to_owned(),
-            pid: 1,
-            process_start: "s".to_owned(),
-            process_command: "c".to_owned(),
+            process: avl_host_sys::ProcessIdentity {
+                pid: 1,
+                process_start: "s".to_owned(),
+                process_command: "c".to_owned(),
+            },
         };
         edit(&mut broken);
         broken
@@ -166,9 +156,9 @@ async fn the_process_receipt_round_trips_and_is_refused_field_by_field() {
             "another worker's receipt",
             damaged(|identity| identity.worker = "somebody-else".to_owned()),
         ),
-        ("no pid", damaged(|identity| identity.pid = 0)),
-        ("no start time", damaged(|identity| identity.process_start.clear())),
-        ("no command line", damaged(|identity| identity.process_command.clear())),
+        ("no pid", damaged(|identity| identity.process.pid = 0)),
+        ("no start time", damaged(|identity| identity.process.process_start.clear())),
+        ("no command line", damaged(|identity| identity.process.process_command.clear())),
     ] {
         std::fs::write(&path, serde_json::to_vec(&broken).unwrap()).unwrap();
         assert_eq!(tart(&fixture).read_process_identity(worker), None, "{name}");
@@ -198,10 +188,13 @@ fn the_run_argv_declares_suspendable_only_when_it_is_on() {
         let joined = argv.join(" ");
         assert_eq!(joined.contains("--suspendable"), want, "AIR_VM_SUSPENDABLE={setting}: {joined}");
         assert_eq!(argv.last().map(String::as_str), Some(worker), "{joined}");
-        // The share grammar is the backend's, and it must reach the argv by name rather than by tag.
-        for share in [&fixture.settings.repo_share_name, &fixture.settings.bazel_share_name] {
-            assert!(joined.contains(&format!("--dir={share}:")), "{joined}");
-        }
+        // The share grammar is the backend's, and it must reach the argv by name rather than by tag. The one share
+        // is the Bazel output root: no share holds the checkout.
+        assert!(
+            joined.contains(&format!("--dir={}:", fixture.settings.bazel_share_name)),
+            "{joined}"
+        );
+        assert_eq!(joined.matches("--dir=").count(), 1, "{joined}");
     }
 }
 
@@ -334,6 +327,75 @@ async fn stop_accepts_the_holders_own_lease() {
     );
 }
 
+// --- the run guard -------------------------------------------------------------------------------------------
+
+/// A Tart pool whose first worker the holder leased, with the run `suite-user-run-1` of another live process in
+/// flight on it. Answers the fixture, the worker and the lease.
+async fn a_worker_with_a_run_in_flight() -> (Fixture, String, Lease) {
+    let fixture = Fixture::macos();
+    let worker = fixture.worker(0).to_owned();
+    let lease = fixture.write_lease(&worker, "the-holders-token");
+    fixture.write_run_marker(&lease, "suite-user-run-1", fixture.another_process().await);
+    (fixture, worker, lease)
+}
+
+/// Asserts that the pool `command` refuses `lease_busy` and names the run in flight.
+async fn assert_busy_with_the_run(fixture: &Fixture, command: PoolCommand) {
+    let refusal = fixture.run_pool(command).await.unwrap_err();
+    assert_eq!((refusal.code.as_ref(), refusal.exit), ("lease_busy", Exit::TEMP_FAIL));
+    assert!(refusal.message.contains("has run suite-user-run-1 in flight"), "{refusal}");
+}
+
+/// `pool start` and `pool stop` of a worker with a run of another live process in flight refuse `lease_busy` and name
+/// the run. They touch nothing.
+#[tokio::test]
+async fn pool_start_and_stop_refuse_a_worker_with_a_run_in_flight() {
+    let (fixture, worker, lease) = a_worker_with_a_run_in_flight().await;
+    assert_busy_with_the_run(&fixture, PoolCommand::Start(PoolTarget::Worker(worker.clone()))).await;
+    assert_eq!(fixture.fake.calls(), Vec::<String>::new());
+    // `pool stop` meets the run guard before the lease guard, so it names the run too. A stop that the holder's own
+    // lease authorizes refuses as well.
+    assert_busy_with_the_run(&fixture, PoolCommand::Stop(PoolTarget::Worker(worker.clone()))).await;
+    let refusal = fixture
+        .manager
+        .stop_without_lifecycle_lock(&ctx(), &worker, Some(&lease))
+        .await
+        .unwrap_err();
+    assert_eq!(refusal.code, "lease_busy");
+    assert_eq!(fixture.fake.calls(), Vec::<String>::new());
+}
+
+/// `pool gc` keeps the worker of a run as `leased`. A run holds a lease, and the gc needs no lock of the run to see it.
+#[tokio::test]
+async fn pool_gc_keeps_the_worker_of_a_run() {
+    let (fixture, worker, _) = a_worker_with_a_run_in_flight().await;
+    let outcome = fixture.run_pool(PoolCommand::Gc).await.unwrap();
+    assert_eq!(outcome.data["kept"][&worker], "leased", "{}", outcome.data);
+    assert!(fixture.settings.run_marker_path(&worker).exists());
+}
+
+/// The gate of a container-linux run forgets the guest of a new container. It keeps the lease and the run marker,
+/// which are the run's, and the reports.
+#[tokio::test]
+async fn forgetting_a_guest_keeps_the_lease_and_the_run_marker() {
+    let fixture = Fixture::macos();
+    let worker = fixture.worker(0);
+    let lease = fixture.write_lease(worker, "the-holders-token");
+    fixture.write_run_marker(&lease, "suite-user-run-1", fixture.another_process().await);
+    let directory = fixture.settings.worker_dir(worker);
+    std::fs::write(directory.join("daemon.json"), "{}").unwrap();
+    std::fs::create_dir_all(directory.join("reports/run-1")).unwrap();
+    fixture.manager.forget_guest(worker).unwrap();
+    assert!(!directory.join("daemon.json").exists());
+    for kept in [
+        fixture.settings.lease_path(worker),
+        fixture.settings.run_marker_path(worker),
+        directory.join("reports"),
+    ] {
+        assert!(kept.exists(), "{} is gone", kept.display());
+    }
+}
+
 // --- pool commands ---------------------------------------------------------------------------------------------
 
 /// `pool init` is pool-wide, so one leased worker refuses the whole operation rather than initializing the rest.
@@ -341,7 +403,7 @@ async fn stop_accepts_the_holders_own_lease() {
 async fn pool_init_refuses_a_leased_worker() {
     let fixture = Fixture::macos();
     fixture.write_lease(fixture.worker(0), "held");
-    let refusal = fixture.manager.pool(&ctx(), PoolCommand::Init { golden: None }).await.unwrap_err();
+    let refusal = fixture.run_pool(PoolCommand::Init { golden: None }).await.unwrap_err();
     assert_eq!(refusal.code, "worker_leased");
     assert!(!fixture.fake.saw_call_containing("clone"));
 }
@@ -380,7 +442,7 @@ async fn pool_gc_and_recycle_are_refused_on_parallels() {
     // a refusal that needed either would be a refusal arriving too late. `all` is the one target that would otherwise
     // expand to a pool-wide delete.
     for command in [PoolCommand::Gc, PoolCommand::Recycle(PoolTarget::All)] {
-        let refusal = manager.pool(&ctx(), command.clone()).await.unwrap_err();
+        let refusal = manager.pool(&ctx(), command.clone(), None).await.unwrap_err();
         assert_eq!(refusal.code, crate::worker::hypervisor::UNSUPPORTED_CODE, "{command:?}");
     }
     assert!(!root.path().join("runtime").exists());
@@ -535,21 +597,6 @@ async fn a_parallels_connect_is_the_installed_agent_relay_in_one_shell_string() 
     );
 }
 
-/// A loopback port where nothing listens, and the sockets that hold it. While they live, the port refuses a connect,
-/// and no other socket of the host receives it from a `bind` to port 0 or as the source port of a `connect`.
-///
-/// The holder is the client end of a loopback connection, and it binds its port before it connects. A dropped
-/// listener frees its port for any process of the host. A bound socket that does not listen is not a refusal on
-/// macOS, because the kernel drops the SYN.
-async fn closed_port() -> (u16, impl Sized) {
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let holder = tokio::net::TcpSocket::new_v4().unwrap();
-    holder.bind((std::net::Ipv4Addr::LOCALHOST, 0).into()).unwrap();
-    let holder = holder.connect(listener.local_addr().unwrap()).await.unwrap();
-    let (accepted, _) = listener.accept().await.unwrap();
-    (holder.local_addr().unwrap().port(), (holder, accepted))
-}
-
 /// A connect to a port where nothing listens is a refused connection at the first read, with the reason, as the
 /// HTTP client expects of a socket.
 #[tokio::test]
@@ -558,7 +605,7 @@ async fn a_connect_to_a_closed_port_is_refused_at_the_first_read() {
     let fixture = Fixture::macos();
     let manager = manager_over(&fixture.settings, fixture.runner(), None, builds_nothing());
     let channel = manager.channel(fixture.worker(0));
-    let (port, _held) = closed_port().await;
+    let (port, _held) = avl_testkit::closed_port().await;
     let mut stream = channel.connect(&ctx(), port).await.unwrap();
     let error = stream.read(&mut [0; 16]).await.unwrap_err();
     assert_eq!(error.kind(), std::io::ErrorKind::ConnectionRefused, "{error}");
@@ -693,11 +740,15 @@ async fn a_start_spawns_identifies_and_provisions() {
     let identity = tart(&fixture)
         .read_process_identity(worker)
         .expect("a started worker leaves an identifiable run process behind");
-    assert!(identity.process_command.contains("run"), "{}", identity.process_command);
+    assert!(
+        identity.process.process_command.contains("run"),
+        "{}",
+        identity.process.process_command
+    );
     // Its own session, so the terminal's Ctrl-C and the controller's exit leave it running.
     assert_eq!(
-        nix::unistd::getsid(Some(nix::unistd::Pid::from_raw(identity.pid))).ok(),
-        Some(nix::unistd::Pid::from_raw(identity.pid))
+        nix::unistd::getsid(Some(nix::unistd::Pid::from_raw(identity.process.pid))).ok(),
+        Some(nix::unistd::Pid::from_raw(identity.process.pid))
     );
     let calls = fixture.fake.calls();
     let run = calls
@@ -723,13 +774,9 @@ async fn a_start_spawns_identifies_and_provisions() {
     // A second start over the same live process is `already-running`, and spawns nothing. Tart lists the VM the first
     // start cloned; a run process whose VM is not listed is an orphan the start ends first.
     fixture.fake.answer(Answer::ListQuiet, format!("{worker}\n"));
-    let before = fixture.fake.calls().len();
-    assert_eq!(
-        fixture.manager.start_without_lifecycle_lock(&ctx(), worker).await.unwrap(),
-        StartState::AlreadyRunning
-    );
+    let after = start_again(&fixture, worker).await;
     assert!(
-        !fixture.fake.calls()[before..].iter().any(|call| call.starts_with("run ")),
+        !after.iter().any(|call| call.starts_with("run ")),
         "a live worker must not be spawned a second time"
     );
 }
@@ -781,13 +828,13 @@ async fn recycle_refuses_a_leased_worker_and_deletes_nothing() {
     let lease = fixture.write_lease(&worker, "another-holders-token");
 
     let refusal = fixture
-        .manager
-        .pool(&ctx(), PoolCommand::Recycle(PoolTarget::Worker(worker.clone())))
+        .run_pool(PoolCommand::Recycle(PoolTarget::Worker(worker.clone())))
         .await
         .unwrap_err();
     assert_eq!(refusal.code, "worker_leased", "{refusal:?}");
     assert!(refusal.message.contains("lease release"), "{refusal}");
     assert!(refusal.message.contains(&format!("pool recycle {worker}")), "{refusal}");
+    assert!(refusal.message.contains("`--lease-file FILE pool recycle"), "{refusal}");
     assert!(!refusal.message.contains(&lease.holder), "{refusal}");
     assert!(!fixture.fake.saw_call_containing("delete"));
     // The lease itself is untouched: a refused recycle leaves the slot exactly as it was found.
@@ -836,8 +883,7 @@ async fn recycle_deletes_the_guests_records_and_keeps_the_lifecycle_lock() {
     std::fs::create_dir_all(directory.join("reports/run-1")).unwrap();
 
     let outcome = fixture
-        .manager
-        .pool(&ctx(), PoolCommand::Recycle(PoolTarget::Worker(worker.clone())))
+        .run_pool(PoolCommand::Recycle(PoolTarget::Worker(worker.clone())))
         .await
         .unwrap();
     let calls = fixture.fake.calls();
@@ -869,6 +915,15 @@ async fn recycle_deletes_the_guests_records_and_keeps_the_lifecycle_lock() {
     assert_eq!(outcome.data["action"], "recycle");
 }
 
+/// Asserts that `pool recycle` of `worker` refuses `subprocess_failed`, the refusal of a `tart` verb that failed.
+async fn assert_recycle_fails_in_tart(fixture: &Fixture, worker: &str) {
+    let refusal = fixture
+        .run_pool(PoolCommand::Recycle(PoolTarget::Worker(worker.to_owned())))
+        .await
+        .unwrap_err();
+    assert_eq!(refusal.code, "subprocess_failed", "{refusal:?}");
+}
+
 /// A stop that fails ends the recycle before anything is destroyed: a worker whose run process cannot be brought down
 /// still has a VM and its records when the refusal arrives.
 #[tokio::test]
@@ -880,12 +935,7 @@ async fn recycle_that_cannot_stop_the_worker_deletes_nothing() {
     fixture.run_as_fake_process(&worker).await;
     fixture.fake.answer(Answer::Exit, "1");
 
-    let refusal = fixture
-        .manager
-        .pool(&ctx(), PoolCommand::Recycle(PoolTarget::Worker(worker.clone())))
-        .await
-        .unwrap_err();
-    assert_eq!(refusal.code, "subprocess_failed", "{refusal:?}");
+    assert_recycle_fails_in_tart(&fixture, &worker).await;
     assert!(!fixture.fake.saw_call_containing("delete"));
     assert!(fixture.settings.pid_path(&worker).exists());
 }
@@ -899,15 +949,25 @@ async fn recycle_leaves_no_half_state_when_the_clone_fails() {
     let worker = fixture.worker(0).to_owned();
     // The slot has no VM, so the delete is a no-op and the clone is the first verb that can fail.
     fixture.fake.answer(Answer::Exit, "1");
-    let refusal = fixture
-        .manager
-        .pool(&ctx(), PoolCommand::Recycle(PoolTarget::Worker(worker.clone())))
-        .await
-        .unwrap_err();
-    assert_eq!(refusal.code, "subprocess_failed", "{refusal:?}");
+    assert_recycle_fails_in_tart(&fixture, &worker).await;
     assert!(fixture.fake.saw_call_containing(&format!("clone {}", fixture.settings.golden_vm)));
     assert!(!fixture.fake.calls().iter().any(|call| call.starts_with("run ")));
     assert!(!fixture.settings.pid_path(&worker).exists());
+}
+
+/// Runs the pool-wide `command`, and asserts that it refuses `code` at the temporary exit, because a lease was in the
+/// way. Answers the refusal.
+async fn incomplete(fixture: &Fixture, command: PoolCommand, code: &str) -> Refusal {
+    let refusal = fixture.run_pool(command).await.unwrap_err();
+    assert_eq!((refusal.code.as_ref(), refusal.exit), (code, Exit::TEMP_FAIL), "{refusal:?}");
+    refusal
+}
+
+/// Asserts that the per-worker outcome `details` of a pool-wide verb refused one worker, `leased`, as `worker_leased`.
+fn assert_refused_only_the_leased(details: &serde_json::Value, leased: &str) {
+    let refused = details["refused"].as_object().unwrap();
+    assert_eq!(refused.len(), 1, "{details}");
+    assert_eq!(refused[leased]["code"], "worker_leased");
 }
 
 /// `recycle all` repairs what it can and then refuses, naming every worker it left alone and why: its job is a usable
@@ -922,21 +982,10 @@ async fn recycle_all_recycles_what_it_can_and_names_the_rest() {
     let _reaper = fixture.kill_run_processes_on_drop();
     fixture.write_lease(&leased, "another-holders-token");
 
-    let refusal = fixture
-        .manager
-        .pool(&ctx(), PoolCommand::Recycle(PoolTarget::All))
-        .await
-        .unwrap_err();
-    assert_eq!(
-        (refusal.code.as_ref(), refusal.exit),
-        ("recycle_incomplete", Exit::TEMP_FAIL),
-        "{refusal:?}"
-    );
+    let refusal = incomplete(&fixture, PoolCommand::Recycle(PoolTarget::All), "recycle_incomplete").await;
     let details = refusal.details().expect("the per-worker outcome");
     assert_eq!(details["recycled"], serde_json::json!([materialized, virgin]));
-    let refused = details["refused"].as_object().unwrap();
-    assert_eq!(refused.len(), 1, "{details}");
-    assert_eq!(refused[&leased]["code"], "worker_leased");
+    assert_refused_only_the_leased(&details, &leased);
     assert!(
         refusal.message.contains(&format!("not recycled: {leased} (worker_leased)")),
         "{}",
@@ -954,11 +1003,7 @@ async fn recycle_all_recycles_what_it_can_and_names_the_rest() {
     // A refusal that does not go away on its own makes the aggregate a failure.
     let broken = Fixture::builder(GuestOs::Macos).build();
     broken.fake.answer(Answer::Exit, "1");
-    let refusal = broken
-        .manager
-        .pool(&ctx(), PoolCommand::Recycle(PoolTarget::All))
-        .await
-        .unwrap_err();
+    let refusal = broken.run_pool(PoolCommand::Recycle(PoolTarget::All)).await.unwrap_err();
     assert_eq!((refusal.code.as_ref(), refusal.exit), ("recycle_incomplete", Exit::FAILURE));
 }
 
@@ -969,13 +1014,119 @@ async fn recycle_all_recycles_what_it_can_and_names_the_rest() {
 async fn recycle_refuses_a_worker_this_pool_does_not_contain() {
     let fixture = Fixture::macos();
     let refusal = fixture
-        .manager
-        .pool(&ctx(), PoolCommand::Recycle(PoolTarget::Worker("air-docker-1".to_owned())))
+        .run_pool(PoolCommand::Recycle(PoolTarget::Worker("air-docker-1".to_owned())))
         .await
         .unwrap_err();
     assert_eq!(refusal.code, "unknown_worker", "{refusal:?}");
     assert_eq!(fixture.fake.calls(), ["--version"]);
     assert!(!Path::new(&fixture.settings.worker_dir("air-docker-1")).exists());
+}
+
+// --- pool start all and pool stop all -------------------------------------------------------------------------
+
+/// `pool stop all` stops the workers which it can and then refuses. It names each worker that it left alone, and why.
+/// It exits temporary, because a lease was the one thing in its way. A named worker keeps its own refusal.
+#[tokio::test]
+async fn stop_all_stops_what_it_can_and_names_the_rest() {
+    let fixture = Fixture::builder(GuestOs::Macos).env("AIR_VM_MAX_WORKERS", "3").build();
+    let [leased, running, stopped] = [0, 1, 2].map(|index| fixture.worker(index).to_owned());
+    fixture.write_lease(&leased, "another-holders-token");
+    // Tart lists no VM for this run process, so the stop ends the process itself.
+    let stale = fixture.run_stale_tart_process(&running).await;
+
+    let refusal = incomplete(&fixture, PoolCommand::Stop(PoolTarget::All), "stop_incomplete").await;
+    assert_eq!(
+        refusal.message,
+        format!("stopped {running},{stopped}; not stopped: {leased} (worker_leased)")
+    );
+    let details = refusal.details().expect("the per-worker outcome");
+    assert_eq!(
+        (&details["backend"], &details["action"], &details["target"]),
+        (&serde_json::json!("tart"), &serde_json::json!("stop"), &serde_json::json!("all"))
+    );
+    assert_eq!(
+        details["workers"],
+        serde_json::json!({ running.as_str(): "stopped", stopped.as_str(): "already-stopped" })
+    );
+    assert_refused_only_the_leased(&details, &leased);
+    assert!(!tart(&fixture).process_alive(&ctx(), Some(&stale.identity)).await.unwrap());
+    assert!(fixture.settings.lease_path(&leased).exists());
+
+    let refusal = fixture
+        .run_pool(PoolCommand::Stop(PoolTarget::Worker(leased.clone())))
+        .await
+        .unwrap_err();
+    assert_eq!(
+        (refusal.code.as_ref(), refusal.exit),
+        ("worker_leased", Exit::TEMP_FAIL),
+        "{refusal:?}"
+    );
+    assert!(refusal.message.contains(&format!("pool stop {leased}")), "{refusal}");
+}
+
+/// A worker whose stop fails makes `stop_incomplete` a failure. A retry does not mend a broken worker, so a lease on
+/// another worker does not make the answer temporary.
+#[tokio::test]
+async fn stop_all_that_cannot_stop_a_worker_fails() {
+    let fixture = Fixture::macos();
+    let [leased, broken] = [0, 1].map(|index| fixture.worker(index).to_owned());
+    fixture.write_lease(&leased, "another-holders-token");
+    // A live run process of the fake table for a VM that Tart lists, and a `tart` that refuses every verb but the
+    // listings.
+    fixture.fake.answer(Answer::ListQuiet, format!("{broken}\n"));
+    fixture.run_as_fake_process(&broken).await;
+    fixture.fake.answer(Answer::Exit, "1");
+
+    let refusal = fixture.run_pool(PoolCommand::Stop(PoolTarget::All)).await.unwrap_err();
+    assert_eq!(
+        (refusal.code.as_ref(), refusal.exit),
+        ("stop_incomplete", Exit::FAILURE),
+        "{refusal:?}"
+    );
+    assert_eq!(
+        refusal.message,
+        format!("stopped (none); not stopped: {leased} (worker_leased), {broken} (subprocess_failed)")
+    );
+    let details = refusal.details().expect("the per-worker outcome");
+    assert_eq!(details["workers"], serde_json::json!({}));
+    assert_eq!(details["refused"][&broken]["code"], "subprocess_failed");
+    assert!(fixture.settings.pid_path(&broken).exists());
+}
+
+/// A run of another live process on one worker, and another operation that holds the lifecycle lock of the other
+/// worker, are both named `lease_busy`. Both go away without help, so `start_incomplete` and `stop_incomplete` exit
+/// temporary. Neither verb reaches Tart.
+#[tokio::test]
+async fn start_all_and_stop_all_name_a_busy_worker_lease_busy() {
+    let fixture = Fixture::macos();
+    let [running, locked] = [0, 1].map(|index| fixture.worker(index).to_owned());
+    let lease = fixture.write_lease(&running, "the-holders-token");
+    fixture.write_run_marker(&lease, "suite-user-run-1", fixture.another_process().await);
+    fixture.manager.prepare_runtime_dirs().unwrap();
+    let _held = fixture
+        .manager
+        .locks()
+        .acquire(&ctx(), &fixture.manager.lifecycle_lock_path(&locked), "pool-start", "busy")
+        .await
+        .unwrap();
+
+    for (command, code, word) in [
+        (PoolCommand::Start(PoolTarget::All), "start_incomplete", "started"),
+        (PoolCommand::Stop(PoolTarget::All), "stop_incomplete", "stopped"),
+    ] {
+        let refusal = fixture.run_pool(command).await.unwrap_err();
+        assert_eq!((refusal.code.as_ref(), refusal.exit), (code, Exit::TEMP_FAIL), "{refusal:?}");
+        assert_eq!(
+            refusal.message,
+            format!("{word} (none); not {word}: {running} (lease_busy), {locked} (lease_busy)")
+        );
+        let details = refusal.details().expect("the per-worker outcome");
+        let message = |worker: &str| details["refused"][worker]["message"].as_str().unwrap_or_default().to_owned();
+        assert!(message(&running).contains("has run suite-user-run-1 in flight"), "{details}");
+        assert!(message(&locked).contains("another lifecycle operation"), "{details}");
+        assert_eq!(details["workers"], serde_json::json!({}));
+    }
+    assert_eq!(fixture.fake.calls(), Vec::<String>::new());
 }
 
 // --- a run process whose VM is gone ---------------------------------------------------------------------------
@@ -999,6 +1150,20 @@ async fn stop_ends_a_run_process_whose_vm_tart_no_longer_lists() {
     assert!(!calls.iter().any(|call| call.starts_with("stop ")), "{calls:?}");
 }
 
+/// Asserts that `calls` clone the slot and spawn a run process after the clone, and that the recorded run process of
+/// `worker` is not the `stale` one.
+fn assert_a_new_run_after_the_clone(fixture: &Fixture, worker: &str, calls: &[String], stale: &StaleRun) {
+    let cloned = calls.iter().position(|call| call.starts_with("clone "));
+    // The last `run`: the stale one records itself whenever its process gets to it.
+    let spawned = calls.iter().rposition(|call| call.starts_with("run "));
+    assert!(
+        matches!((cloned, spawned), (Some(cloned), Some(spawned)) if spawned > cloned),
+        "{calls:#?}"
+    );
+    let identity = tart(fixture).read_process_identity(worker).unwrap();
+    assert_ne!(identity.process.pid, stale.identity.process.pid);
+}
+
 /// A start over such a process ends it before the clone and boots a new one, rather than cloning a VM nobody boots
 /// and waiting out the boot budget.
 #[tokio::test]
@@ -1015,15 +1180,7 @@ async fn a_lazy_start_ends_a_stale_run_process_before_cloning() {
     );
     assert!(!tart(&fixture).process_alive(&ctx(), Some(&stale.identity)).await.unwrap());
     let calls = &fixture.fake.calls()[before..];
-    let cloned = calls.iter().position(|call| call.starts_with("clone "));
-    // The last `run`: the stale one records itself whenever its process gets to it.
-    let spawned = calls.iter().rposition(|call| call.starts_with("run "));
-    assert!(
-        matches!((cloned, spawned), (Some(cloned), Some(spawned)) if spawned > cloned),
-        "{calls:#?}"
-    );
-    let identity = tart(&fixture).read_process_identity(worker).unwrap();
-    assert_ne!(identity.pid, stale.identity.pid);
+    assert_a_new_run_after_the_clone(&fixture, worker, calls, &stale);
 }
 
 /// The repair after a missing-VM release: `pool recycle` ends the stale process, deletes nothing Tart does not list,
@@ -1036,23 +1193,14 @@ async fn recycle_after_a_missing_vm_release_stops_the_stale_run_process_and_clon
     let _reaper = fixture.kill_run_processes_on_drop();
     let stale = fixture.run_stale_tart_process(&worker).await;
     fixture
-        .manager
-        .pool(&ctx(), PoolCommand::Recycle(PoolTarget::Worker(worker.clone())))
+        .run_pool(PoolCommand::Recycle(PoolTarget::Worker(worker.clone())))
         .await
         .unwrap();
     assert!(!tart(&fixture).process_alive(&ctx(), Some(&stale.identity)).await.unwrap());
     let calls = fixture.fake.calls();
     assert!(!calls.iter().any(|call| call.starts_with("stop ")), "{calls:#?}");
     assert!(!calls.iter().any(|call| call.starts_with("delete ")), "{calls:#?}");
-    let cloned = calls.iter().position(|call| call.starts_with("clone "));
-    // The last `run`: the stale one records itself whenever its process gets to it.
-    let spawned = calls.iter().rposition(|call| call.starts_with("run "));
-    assert!(
-        matches!((cloned, spawned), (Some(cloned), Some(spawned)) if spawned > cloned),
-        "{calls:#?}"
-    );
-    let identity = tart(&fixture).read_process_identity(&worker).unwrap();
-    assert_ne!(identity.pid, stale.identity.pid);
+    assert_a_new_run_after_the_clone(&fixture, &worker, &calls, &stale);
 }
 
 // --- an interrupt --------------------------------------------------------------------------------------------
@@ -1072,15 +1220,31 @@ fn interruptible(fixture: &Fixture, interrupts: &Interrupts) -> Manager {
     manager
 }
 
-/// Delivers the operator's Ctrl-C once `ready` holds.
-fn interrupt_when(interrupts: &Interrupts, ready: impl Fn() -> bool + Send + 'static) -> tokio::task::JoinHandle<()> {
-    let interrupts = interrupts.clone();
-    tokio::spawn(async move {
+/// An [`interruptible`] manager of `fixture`, the interrupt service of its children, and the task that delivers the
+/// operator's Ctrl-C to that service once `ready` holds.
+fn interrupted_when(fixture: &Fixture, ready: impl Fn() -> bool + Send + 'static) -> (Interrupts, Manager, tokio::task::JoinHandle<()>) {
+    let interrupts = Interrupts::detached();
+    let manager = interruptible(fixture, &interrupts);
+    let service = interrupts.clone();
+    let interrupter = tokio::spawn(async move {
         while !ready() {
             tokio::time::sleep(Duration::from_millis(5)).await;
         }
-        interrupts.deliver(avl_host_sys::interrupt::Signal::Interrupt);
-    })
+        service.deliver(avl_host_sys::interrupt::Signal::Interrupt);
+    });
+    (interrupts, manager, interrupter)
+}
+
+/// [`interrupted_when`] the fake hypervisor saw the first `tart stop`.
+fn interrupted_at_the_stop(fixture: &Fixture) -> (Interrupts, Manager, tokio::task::JoinHandle<()>) {
+    let fake = fixture.fake.clone();
+    interrupted_when(fixture, move || fake.saw_call_containing("stop "))
+}
+
+/// [`interrupted_when`] the run process of `worker` recorded its pid.
+fn interrupted_once_running(fixture: &Fixture, worker: &str) -> (Interrupts, Manager, tokio::task::JoinHandle<()>) {
+    let pid_path = fixture.settings.pid_path(worker);
+    interrupted_when(fixture, move || pid_path.exists())
 }
 
 /// Ctrl-C during a stop keeps the run process record. The run process lives in its own session, so the interrupt
@@ -1094,10 +1258,7 @@ async fn an_interrupted_stop_keeps_the_run_process_record() {
     // A process of the fake table stands in for the run process, and `tart stop` does not end it: the wait is still
     // polling when the interrupt lands, or the interrupt reaches `tart stop` itself.
     let identity = fixture.run_as_fake_process(worker).await;
-    let interrupts = Interrupts::detached();
-    let manager = interruptible(&fixture, &interrupts);
-    let fake = fixture.fake.clone();
-    let interrupter = interrupt_when(&interrupts, move || fake.saw_call_containing("stop "));
+    let (interrupts, manager, interrupter) = interrupted_at_the_stop(&fixture);
 
     let ctx = interrupts.context();
     let refusal = manager.stop_without_lifecycle_lock(&ctx, worker, None).await.unwrap_err();
@@ -1133,10 +1294,7 @@ async fn an_interrupted_spend_of_a_suspended_state_keeps_its_records() {
         run_argv: recorded,
     };
     std::fs::write(fixture.settings.suspended_state_path(worker), serde_json::to_vec(&record).unwrap()).unwrap();
-    let interrupts = Interrupts::detached();
-    let manager = interruptible(&fixture, &interrupts);
-    let pid_path = fixture.settings.pid_path(worker);
-    let interrupter = interrupt_when(&interrupts, move || pid_path.exists());
+    let (interrupts, manager, interrupter) = interrupted_once_running(&fixture, worker);
 
     let refusal = manager
         .discard_incompatible_suspended_state(&interrupts.context(), manager.tart().expect("a Tart pool"), worker, &argv)
@@ -1165,10 +1323,7 @@ async fn an_interrupted_boot_is_not_reported_as_tart_exiting() {
     fixture.fake.answer(Answer::RunSleeps, "yes");
     fixture.guest.fail_everything();
     let _reaper = fixture.kill_run_processes_on_drop();
-    let interrupts = Interrupts::detached();
-    let manager = interruptible(&fixture, &interrupts);
-    let pid_path = fixture.settings.pid_path(worker);
-    let interrupter = interrupt_when(&interrupts, move || pid_path.exists());
+    let (interrupts, manager, interrupter) = interrupted_once_running(&fixture, worker);
 
     let refusal = manager
         .start_without_lifecycle_lock(&interrupts.context(), worker)
@@ -1177,6 +1332,55 @@ async fn an_interrupted_boot_is_not_reported_as_tart_exiting() {
     interrupter.await.unwrap();
     assert_eq!(refusal.code, "worker_interrupted", "{refusal:?}");
     assert!(tart(&fixture).read_process_identity(worker).is_some());
+}
+
+/// Ctrl-C ends `pool stop all` and `pool recycle all` at once, and the refusal of the interrupt is the answer. The
+/// verb leaves the next worker as it is, because the runner would ask each new child of that worker to stop at once.
+#[tokio::test]
+async fn an_interrupt_ends_a_pool_wide_verb_at_once() {
+    for command in [PoolCommand::Stop(PoolTarget::All), PoolCommand::Recycle(PoolTarget::All)] {
+        // With the suspendable device set off, a stop runs `tart stop` and not `tart suspend`.
+        let fixture = Fixture::builder(GuestOs::Macos).env("AIR_VM_SUSPENDABLE", "0").build();
+        let [first, second] = [0, 1].map(|index| fixture.worker(index).to_owned());
+        // Processes of the fake table stand in for the run processes, and `tart stop` ends neither of them. The wait
+        // for the first one is still polling when the interrupt lands.
+        fixture.run_as_fake_process(&first).await;
+        let untouched = fixture.run_as_fake_process(&second).await;
+        let (interrupts, manager, interrupter) = interrupted_at_the_stop(&fixture);
+
+        let refusal = manager.pool(&interrupts.context(), command.clone(), None).await.unwrap_err();
+        interrupter.await.unwrap();
+        assert_eq!(refusal.code, "worker_interrupted", "{command:?}: {refusal:?}");
+        assert!(refusal.message.contains(&first), "{refusal}");
+        let calls = fixture.fake.calls();
+        assert!(!calls.iter().any(|call| call.ends_with(second.as_str())), "{command:?}: {calls:#?}");
+        assert_eq!(tart(&fixture).read_process_identity(&second), Some(untouched));
+    }
+}
+
+/// Ctrl-C during the boot of the first worker ends `pool start all` at once. The next worker gets no clone and no run
+/// process.
+#[tokio::test]
+async fn an_interrupt_ends_a_pool_wide_start_at_once() {
+    let fixture = Fixture::macos();
+    fixture.seal_macos_golden();
+    let [first, second] = [0, 1].map(|index| fixture.worker(index).to_owned());
+    fixture.fake.answer(Answer::RunSleeps, "yes");
+    // A guest that never answers keeps the boot of the first worker polling until the interrupt.
+    fixture.guest.fail_everything();
+    let _reaper = fixture.kill_run_processes_on_drop();
+    let (interrupts, manager, interrupter) = interrupted_once_running(&fixture, &first);
+
+    let refusal = manager
+        .pool(&interrupts.context(), PoolCommand::Start(PoolTarget::All), None)
+        .await
+        .unwrap_err();
+    interrupter.await.unwrap();
+    assert_eq!(refusal.code, "worker_interrupted", "{refusal:?}");
+    assert!(refusal.message.contains(&first), "{refusal}");
+    let calls = fixture.fake.calls();
+    assert!(!calls.iter().any(|call| call.ends_with(second.as_str())), "{calls:#?}");
+    assert!(!fixture.settings.pid_path(&second).exists());
 }
 
 /// The share refresh remounts on Tart. The Docker twin, which only settles, is in the Docker lifecycle suite.

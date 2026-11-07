@@ -11,7 +11,7 @@
 //! - `GET /__air/runs`: every bundle found, grouped by run, the controller's runs from their journals, and the
 //!   roots it looked in.
 //! - `GET /__air/run/<runId>?from=<offset>`: one controller run's summary and its journal's records from the
-//!   offset on.
+//!   offset on. A run of the VM export of the checkout answers the paths of its copies, not of the host it ran on.
 //! - `GET /__air/bundle/<id>/` lists one bundle's files; `GET /__air/bundle/<id>/<path>` serves one of them, with
 //!   `Range`. The id is opaque and stable: the same bundle at the same place has the same id across restarts, so a
 //!   viewer URL survives one.
@@ -21,6 +21,12 @@
 //! - `/air/...`: the docs site from `out/air-site`, with the single-page fallback to `index.html`; `/` redirects to
 //!   `/air/runs`. A site that is missing, or older than `plugins/air/docs/src`, is built once in the background, and
 //!   a placeholder page says so meanwhile.
+//!
+//! # A TeamCity build
+//!
+//! `--teamcity <build>` resolves a build, a composite one to the builds that ran under it, and downloads the
+//! `bazel.logs.zip` of each into the cache before the server starts. Each zip is a root, and its bundles carry the
+//! build as their origin. [teamcity] has the details.
 //!
 //! # One server for each machine
 //!
@@ -44,6 +50,7 @@ mod http;
 mod journals;
 mod service;
 mod state;
+mod teamcity;
 
 use std::ffi::OsString;
 use std::fs::File;
@@ -55,15 +62,17 @@ use std::time::Duration;
 
 use avl_host_sys::viewer::{DETACH_IDLE_DEFAULT, DetachRequest, format_duration};
 use avl_host_sys::{Interrupts, Runner};
-use avl_trace_tools::discover::{Root, RootKind, VM_RUNS_DIR, default_roots};
+use avl_trace_tools::discover::{Root, RootKind, VM_EXPORT_DIR, VM_RUNS_DIR, default_roots};
 use avl_trace_tools::viewer::DEFAULT_SERVE_PORT;
 use avl_trace_tools::viewer::RUNS_ROUTE;
 use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
 
 use crate::{Exit, Refusal, code, usage};
+use journals::RunsDir;
 use service::{PidFile, detach};
 use state::{Log, Server, Settings};
+pub(crate) use state::{Runs, Scenario, group_runs, listed};
 
 pub(crate) const RUN_ROUTE: &str = "/__air/run/";
 pub(crate) const BUNDLE_ROUTE: &str = "/__air/bundle/";
@@ -85,8 +94,16 @@ pub(crate) struct ServeArgs {
     /// Another directory or zip to find bundles in; repeatable.
     #[arg(long = "root", value_name = "DIR")]
     pub roots: Vec<PathBuf>,
-    /// Look only in the --root values, not in out/air-traces, the AIR lanes' bazel-testlogs and the VM runs and
-    /// reports.
+    /// A TeamCity build to find bundles in, by its id or the URL of its page; repeatable. A composite build stands
+    /// for the builds that ran under it. The bazel.logs.zip of each is downloaded once into the cache. The token is
+    /// TEAMCITY_TOKEN, or else the one that the TeamCity CLI (`teamcity auth login`) keeps.
+    #[arg(long = "teamcity", value_name = "BUILD")]
+    pub teamcity: Vec<String>,
+    /// The TeamCity server of a --teamcity build given by its id.
+    #[arg(long, value_name = "URL", env = "TEAMCITY_URL", default_value = teamcity::DEFAULT_TEAMCITY_URL)]
+    pub teamcity_url: String,
+    /// Look only in the --root and --teamcity values, not in the AIR lanes' bazel-testlogs, the VM export of the
+    /// checkout and the VM runs and reports.
     #[arg(long)]
     pub no_default_roots: bool,
     /// Make sure a server answers on the port, starting one in the background when none does, then exit.
@@ -236,8 +253,14 @@ pub(crate) async fn serve(args: ServeArgs, program: &DetachProgram, context: Con
         err(format!("air-trace {command}: {}", refused.message));
         refused.exit.code()
     };
-    if args.no_default_roots && args.roots.is_empty() {
+    if args.no_default_roots && args.roots.is_empty() && args.teamcity.is_empty() {
         return fail("serve", usage("no roots to look in; pass --root DIR"));
+    }
+    if args.detach && !args.teamcity.is_empty() {
+        return fail(
+            "serve",
+            usage("--teamcity needs a server of its own, so it does not go with --detach; pick a --port, or 0 for a free one"),
+        );
     }
     if args.detach {
         if args.port == 0 {
@@ -318,6 +341,29 @@ pub(crate) async fn serve(args: ServeArgs, program: &DetachProgram, context: Con
             Err(error) => return fail("serve", usage(format!("--root {}: {error}", root.display()))),
         }
     }
+    if !args.teamcity.is_empty() {
+        let server = match teamcity::parse_server(&args.teamcity_url) {
+            Ok(server) => server,
+            Err(refused) => return fail("serve", refused),
+        };
+        let (given, cache) = (args.teamcity.clone(), cache_dir.clone());
+        let log = Arc::clone(&streams.out);
+        let resolved = tokio::task::spawn_blocking(move || {
+            let client = |build_server: &str| teamcity::client(build_server, &server, &|name| std::env::var(name).ok());
+            teamcity::teamcity_roots(&given, &server, &cache, &client, &|line| log(&line))
+        })
+        .await;
+        match resolved {
+            Ok(Ok(found)) => roots.extend(found),
+            Ok(Err(refused)) => return fail("serve", refused),
+            Err(_) => {
+                return fail(
+                    "serve",
+                    Refusal::new("teamcity_interrupted", Exit::Broken, "the TeamCity download was interrupted"),
+                );
+            }
+        }
+    }
     let mut settings = Settings::new(cache_dir, roots);
     settings.log = Arc::clone(&streams.err);
     settings.idle_exit = args.idle_exit.filter(|idle| !idle.is_zero());
@@ -325,13 +371,23 @@ pub(crate) async fn serve(args: ServeArgs, program: &DetachProgram, context: Con
     settings.site_dir = args.site.clone().or_else(|| Some(repo.as_ref()?.join("out").join("air-site")));
     if args.site.is_none() {
         settings.site_project = repo.as_ref().map(|repo| repo.join("plugins").join("air").join("docs"));
+        settings.site_kernel = repo.as_ref().map(|repo| repo.join("community").join("tools").join("docs-site"));
+    }
+    if !args.no_default_roots {
+        if let Ok(runtime) = &runtime_root {
+            settings.runs_dirs.push(RunsDir {
+                path: runtime.join(VM_RUNS_DIR),
+                exported: false,
+            });
+        }
+        if let Some(repo) = &repo {
+            settings.runs_dirs.push(RunsDir {
+                path: repo.join(VM_EXPORT_DIR).join(VM_RUNS_DIR),
+                exported: true,
+            });
+        }
     }
     settings.repo_root = repo;
-    if !args.no_default_roots
-        && let Ok(runtime) = &runtime_root
-    {
-        settings.runs_dir = Some(runtime.join(VM_RUNS_DIR));
-    }
     let idle_exit = settings.idle_exit;
     let pid_file = settings.pid_file.clone();
 
@@ -355,16 +411,7 @@ pub(crate) async fn serve(args: ServeArgs, program: &DetachProgram, context: Con
     }
     let first = server.blocking(Server::scan).await;
     for state in &first.found.roots {
-        let mut note = if state.exists {
-            format!("{} bundles", state.bundles)
-        } else {
-            "absent".to_owned()
-        };
-        if let Some(error) = &state.error {
-            note.push_str(": ");
-            note.push_str(error);
-        }
-        out(format!("  root ({}): {}, {note}", state.kind, state.path.display()));
+        out(format!("  root ({}): {}, {}", state.kind, state.path.display(), state.summary()));
     }
     let _pid_file = match pid_file.as_deref().map(PidFile::write).transpose() {
         Ok(pid_file) => pid_file,

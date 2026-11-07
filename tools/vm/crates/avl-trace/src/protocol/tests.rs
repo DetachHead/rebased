@@ -8,8 +8,8 @@ use serde::Deserialize;
 use super::*;
 use crate::testdata::decode_transcript;
 
-/// The golden transcript is the contract the sidecar is compared with byte for byte, so it has to be in the
-/// canonical form, or the comparison would be with a spelling no encoder produces.
+/// The golden transcripts stand for what a lane writes, and the lane writes the canonical form. So each line has to be
+/// in that form, or the recorder tests would replay a spelling that no encoder produces.
 #[test]
 fn every_transcript_line_decodes_and_is_canonical() {
     for name in [TRANSCRIPT, TRUNCATED_TRANSCRIPT] {
@@ -85,6 +85,14 @@ impl Session {
                 if span.kind == SpanKind::Assertion {
                     assert!(span.expectation.is_some(), "line {line} opens an assertion without its expectation");
                 }
+                if span.kind.is_instruction() {
+                    assert!(
+                        span.side.is_some(),
+                        "line {line} opens the {} {} without the side of its id",
+                        span.kind,
+                        span.key
+                    );
+                }
                 self.open.insert(span.id, span.clone());
                 self.stack.push(span.id);
             }
@@ -107,7 +115,8 @@ impl Session {
                 );
                 self.done = true;
             }
-            Command::Hello(_) | Command::Restart | Command::DriverSteps(_) => {}
+            Command::Attach(attach) => self.require_open(line, attach.span),
+            Command::Hello(_) | Command::Restart => {}
         }
     }
 }
@@ -259,8 +268,8 @@ fn the_transcript_program_is_the_profile_it_ran() {
     }
 }
 
-/// The truncated transcript is the shape a watchdog's `exitProcess` leaves: the full session's first lines, then
-/// EOF with an assertion running.
+/// The truncated transcript is the shape that a lane leaves when it dies: the full session's first lines, then EOF
+/// with an assertion running.
 #[test]
 fn the_truncated_transcript_stops_inside_an_assertion() {
     let full = lines(&traces::path(TRANSCRIPT));
@@ -311,8 +320,8 @@ fn decode_command_refuses_what_the_contract_does_not_name() {
         ("an unknown phase", r#"{"op":"snap","span":0,"phase":"idle"}"#),
         ("an unknown status", r#"{"op":"done","status":"green"}"#),
         (
-            "an unknown step status",
-            r#"{"op":"driverSteps","steps":[{"name":"a","start":1,"stop":2,"status":"ok"}]}"#,
+            "the removed driverSteps op",
+            r#"{"op":"driverSteps","steps":[{"name":"a","start":1,"stop":2,"status":"passed"}]}"#,
         ),
         (
             "a parent opened later",
@@ -321,6 +330,26 @@ fn decode_command_refuses_what_the_contract_does_not_name() {
         (
             "an expectation on an action",
             r#"{"op":"span","id":1,"kind":"action","key":"action:a","title":"a","expectation":"x"}"#,
+        ),
+        (
+            "a side on a step",
+            r#"{"op":"span","id":1,"kind":"step","key":"step:a","title":"[flow] a","side":"ide"}"#,
+        ),
+        (
+            "an unknown side",
+            r#"{"op":"span","id":1,"kind":"action","key":"action:a","title":"a","side":"guest"}"#,
+        ),
+        (
+            "a deadline on a step",
+            r#"{"op":"span","id":1,"kind":"step","key":"step:a","title":"[flow] a","timeoutMs":1000}"#,
+        ),
+        (
+            "a zero deadline",
+            r#"{"op":"span","id":1,"kind":"action","key":"action:a","title":"a","timeoutMs":0}"#,
+        ),
+        (
+            "a negative deadline",
+            r#"{"op":"span","id":1,"kind":"action","key":"action:a","title":"a","timeoutMs":-1}"#,
         ),
         ("a failure without a why", r#"{"op":"end","id":3,"status":"failed"}"#),
         (
@@ -332,7 +361,30 @@ fn decode_command_refuses_what_the_contract_does_not_name() {
             "a call without a start",
             r#"{"op":"call","span":0,"request":"Ping","startMs":0,"durationMs":1,"ok":true}"#,
         ),
-        ("no driver step", r#"{"op":"driverSteps","steps":[]}"#),
+        (
+            "a label without a value",
+            r#"{"op":"scenario","name":"a","testClass":"C","lane":"UI","labels":[{"name":"feature","value":""}]}"#,
+        ),
+        (
+            "an unknown label field",
+            r#"{"op":"scenario","name":"a","testClass":"C","lane":"UI","labels":[{"name":"feature","value":"f","kind":"x"}]}"#,
+        ),
+        (
+            "an attachment without a file",
+            r#"{"op":"attach","name":"a","mime":"text/plain","file":"","span":0}"#,
+        ),
+        (
+            "an attachment without a span",
+            r#"{"op":"attach","name":"a","mime":"text/plain","file":"/r/a.txt"}"#,
+        ),
+        (
+            "a pass with a failure's message",
+            r#"{"op":"done","status":"passed","message":"expected <a>"}"#,
+        ),
+        (
+            "a pass with a trace",
+            r#"{"op":"done","status":"passed","trace":"java.lang.AssertionError"}"#,
+        ),
         (
             "a program that is no JSON object",
             r#"{"op":"scenario","name":"a","testClass":"C","lane":"UI","program":"x"}"#,
@@ -348,6 +400,10 @@ fn decode_command_refuses_what_the_contract_does_not_name() {
         (
             "a screen that is no boolean",
             r#"{"op":"hello","root":"/r","runId":"r","launcher":"daemon","screen":"on"}"#,
+        ),
+        (
+            "a video retention the contract does not name",
+            r#"{"op":"hello","root":"/r","runId":"r","launcher":"bazel","keepVideo":"passed"}"#,
         ),
         ("a negative span", r#"{"op":"snap","span":-1,"phase":"check"}"#),
         ("a field on restart", r#"{"op":"restart","ide":"now"}"#),
@@ -378,10 +434,12 @@ fn encode_command_puts_the_op_first_and_refuses_an_invalid_command() {
         key: String::new(),
         title: "t".to_owned(),
         expectation: None,
+        side: None,
+        timeout_ms: None,
     });
     assert!(encode_command(&invalid).is_err(), "an invalid span was encoded");
 
-    // An expectation or a JVM frame is full of `<`, `>` and `&`, and the sidecar writes them raw.
+    // An expectation or a JVM frame is full of `<`, `>` and `&`, and the lane writes them raw.
     let failed = Command::End(EndCommand {
         id: 4,
         status: Status::Failed,
@@ -395,6 +453,93 @@ fn encode_command_puts_the_op_first_and_refuses_an_invalid_command() {
         String::from_utf8(encode_command(&failed).unwrap()).unwrap(),
         r#"{"op":"end","id":4,"status":"failed","error":{"type":"java.lang.AssertionError","message":"expected <a> & <b>","stack":["com.intellij.air.Flow.<init>(Flow.kt:1)"]}}"#
     );
+}
+
+/// The scenario `name` of the class `C` in the lane `UI`, with no other field.
+fn ui_scenario(name: &str) -> ScenarioCommand {
+    ScenarioCommand {
+        name: name.to_owned(),
+        test_class: "C".to_owned(),
+        suite: None,
+        lane: "UI".to_owned(),
+        flow: None,
+        fixture: None,
+        flags: BTreeMap::new(),
+        labels: Vec::new(),
+        bridge: None,
+        program: None,
+        log_from: None,
+    }
+}
+
+// The lane daemon reads each profile from a pretty-printed suite document, and the recorder reads one command per
+// line. So the program goes out on one line, and only the whitespace between its tokens goes. The text of a string,
+// with its spaces, its escaped quote and its escaped line break, stays.
+#[test]
+fn a_program_from_a_pretty_printed_document_is_written_on_one_line() {
+    let profile = serde_json::json!({"name": "a b", "quote": "say \"hi\" ", "steps": [{"text": "one\ntwo"}]});
+    let pretty = serde_json::to_string_pretty(&profile).unwrap();
+    assert!(pretty.contains('\n'));
+    let scenario = Command::Scenario(ScenarioCommand {
+        program: Some(RawValue::from_string(pretty).unwrap()),
+        ..ui_scenario("a b")
+    });
+    let line = String::from_utf8(encode_command(&scenario).unwrap()).unwrap();
+    assert_eq!(
+        line,
+        r#"{"op":"scenario","name":"a b","testClass":"C","lane":"UI","program":{"name":"a b","quote":"say \"hi\" ","steps":[{"text":"one\ntwo"}]}}"#
+    );
+    let Command::Scenario(decoded) = decode_command(line.as_bytes()).unwrap() else {
+        panic!("{line} is no scenario");
+    };
+    let program: serde_json::Value = serde_json::from_str(decoded.program.unwrap().get()).unwrap();
+    assert_eq!(program, profile);
+}
+
+// A lane may name the byte of the IDE's log where the slice begins. It is the last field of the canonical line, and it
+// reads back.
+#[test]
+fn a_scenario_names_the_byte_where_its_log_slice_begins() {
+    let scenario = ScenarioCommand {
+        log_from: Some(0),
+        ..ui_scenario("a")
+    };
+    let line = String::from_utf8(encode_command(&Command::Scenario(scenario)).unwrap()).unwrap();
+    assert_eq!(line, r#"{"op":"scenario","name":"a","testClass":"C","lane":"UI","logFrom":0}"#);
+    let Command::Scenario(decoded) = decode_command(line.as_bytes()).unwrap() else {
+        panic!("{line} is no scenario");
+    };
+    assert_eq!(decoded.log_from, Some(0));
+}
+
+// A hello without `keepVideo` keeps every video, so the line of an older lane means what it meant. The lane writes the
+// field only for `failed`, after the Allure flag.
+#[test]
+fn a_hello_keeps_every_video_unless_it_says_failed() {
+    let older = r#"{"op":"hello","root":"/r","runId":"r","launcher":"daemon","screen":true}"#;
+    let Command::Hello(hello) = decode_command(older.as_bytes()).unwrap() else {
+        panic!("{older} is no hello");
+    };
+    assert_eq!(hello.keep_video, VideoRetention::Always);
+    assert_eq!(
+        String::from_utf8(encode_command(&Command::Hello(hello.clone())).unwrap()).unwrap(),
+        older
+    );
+
+    let failed = HelloCommand {
+        keep_video: VideoRetention::Failed,
+        allure: true,
+        ..hello
+    };
+    let line = String::from_utf8(encode_command(&Command::Hello(failed.clone())).unwrap()).unwrap();
+    assert_eq!(
+        line,
+        r#"{"op":"hello","root":"/r","runId":"r","launcher":"daemon","screen":true,"allure":true,"keepVideo":"failed"}"#
+    );
+    let Command::Hello(decoded) = decode_command(line.as_bytes()).unwrap() else {
+        panic!("{line} is no hello");
+    };
+    assert_eq!(decoded, failed);
 }
 
 #[test]
@@ -427,23 +572,96 @@ fn every_vocabulary_declares_its_own_words_only() {
     }
     assert!(refused::<Op>("pause"));
     assert!(refused::<SpanKind>("scenario"));
+    assert!(refused::<Side>("guest"));
     assert!(refused::<SnapshotPhase>("idle"));
     assert!(refused::<Status>("skipped"));
     assert!(refused::<Launcher>("gradle"));
     assert!(refused::<CaptureSource>("vnc"));
     assert!(refused::<VideoCodec>("av1"));
-    assert!(refused::<DriverStepStatus>("ok"));
+    assert!(refused::<VideoRetention>("never"));
     assert!(refused::<crate::bundle::BundleStatus>("running"));
     for op in Op::ALL {
         assert_eq!(Op::from_word(op.as_str()), Some(*op));
         assert_eq!(serde_json::to_string(op).unwrap(), format!("{:?}", op.as_str()));
     }
-    // An Allure step without a status is accepted: an unfinished step has none.
-    let unfinished = decode_command(br#"{"op":"driverSteps","steps":[{"name":"a","start":1,"stop":0}]}"#).unwrap();
-    let Command::DriverSteps(driver) = unfinished else {
-        panic!("not driver steps")
+}
+
+/// The three report fields round-trip in their canonical form: the scenario's labels, an attachment, and the
+/// failure a done carries.
+#[test]
+fn labels_attachments_and_a_failed_done_are_canonical() {
+    for line in [
+        r#"{"op":"scenario","name":"a","testClass":"C","lane":"UI","labels":[{"name":"testMethod","value":"a()"},{"name":"feature","value":"Air <flows> & more"}]}"#,
+        r#"{"op":"attach","name":"Start-up classes","mime":"text/plain","file":"/r/run/attach/1.txt","span":3}"#,
+        r#"{"op":"done","status":"failed","message":"expected <a> & <b>","trace":"java.lang.AssertionError\nat com.intellij.air.Flow.<init>(Flow.kt:1)"}"#,
+        r#"{"op":"done","status":"aborted","message":"assumption failed"}"#,
+        r#"{"op":"done","status":"failed"}"#,
+    ] {
+        let command = decode_command(line.as_bytes()).unwrap_or_else(|error| panic!("{line}: {error}"));
+        assert_eq!(String::from_utf8(encode_command(&command).unwrap()).unwrap(), line);
+    }
+    let Command::Attach(attach) = decode_command(br#"{"op":"attach","name":"n","mime":"image/png","file":"/r/x.png","span":2}"#).unwrap()
+    else {
+        panic!("not an attach");
     };
-    assert_eq!(driver.steps[0].status, None);
+    assert_eq!((attach.span, attach.mime.as_str()), (2, "image/png"));
+    assert!(!Op::Attach.is_acked(), "an attachment costs the scenario no time");
+}
+
+/// An action or an assertion states the side and the deadline of its id. A span of any other kind states neither.
+#[test]
+fn only_an_instruction_span_states_a_side_and_a_deadline() {
+    let lines = [
+        r#"{"op":"span","id":1,"kind":"action","key":"action:a","title":"[action] a","side":"ide","timeoutMs":180000}"#,
+        r#"{"op":"span","id":2,"kind":"assertion","key":"assertion:b","title":"[assertion] b: it holds","expectation":"it holds","side":"host","timeoutMs":840000}"#,
+        r#"{"op":"span","id":3,"kind":"action","key":"action:c","title":"[action] c"}"#,
+    ];
+    let mut facts = Vec::new();
+    for line in lines {
+        let command = decode_command(line.as_bytes()).unwrap_or_else(|error| panic!("{line}: {error}"));
+        assert_eq!(String::from_utf8(encode_command(&command).unwrap()).unwrap(), line);
+        if let Command::Span(span) = command {
+            facts.push((span.side, span.timeout_ms));
+        }
+    }
+    assert_eq!(
+        facts,
+        [(Some(Side::Ide), Some(180_000)), (Some(Side::Host), Some(840_000)), (None, None)]
+    );
+
+    for kind in SpanKind::ALL.iter().filter(|kind| !kind.is_instruction()) {
+        let line = format!(r#"{{"op":"span","id":1,"kind":"{kind}","key":"{kind}:a","title":"a","side":"ide"}}"#);
+        assert!(decode_command(line.as_bytes()).is_err(), "a {kind} span with a side was accepted");
+        let line = format!(r#"{{"op":"span","id":1,"kind":"{kind}","key":"{kind}:a","title":"a","timeoutMs":1000}}"#);
+        assert!(
+            decode_command(line.as_bytes()).is_err(),
+            "a {kind} span with a deadline was accepted"
+        );
+        let line = format!(r#"{{"op":"span","id":1,"kind":"{kind}","key":"{kind}:a","title":"a"}}"#);
+        assert!(decode_command(line.as_bytes()).is_ok(), "a {kind} span without a side was refused");
+    }
+}
+
+/// A relaunch is one `restart` span, `restart:ide` or `restart:recycle`, with the restart op inside it and a
+/// `relaunch` span for each of its parts under it.
+#[test]
+fn a_relaunch_is_a_restart_span_with_its_parts_under_it() {
+    let lines = [
+        r#"{"op":"span","id":4,"parent":3,"kind":"restart","key":"restart:recycle","title":"[restart] recycle"}"#,
+        r#"{"op":"restart"}"#,
+        r#"{"op":"span","id":5,"parent":4,"kind":"relaunch","key":"relaunch:quit","title":"[relaunch] quit"}"#,
+        r#"{"op":"span","id":6,"parent":5,"kind":"relaunch","key":"relaunch:quit/exit","title":"[relaunch] process exit"}"#,
+    ];
+    let mut kinds = Vec::new();
+    for line in lines {
+        let command = decode_command(line.as_bytes()).unwrap_or_else(|error| panic!("{line}: {error}"));
+        assert_eq!(String::from_utf8(encode_command(&command).unwrap()).unwrap(), line);
+        if let Command::Span(span) = command {
+            assert_eq!(span.key, span_key(span.kind, span.key.split_once(':').unwrap().1));
+            kinds.push(span.kind);
+        }
+    }
+    assert_eq!(kinds, [SpanKind::Restart, SpanKind::Relaunch, SpanKind::Relaunch]);
 }
 
 fn command_line() -> impl Strategy<Value = String> {

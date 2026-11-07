@@ -9,31 +9,20 @@ use std::path::{Path, PathBuf};
 
 use avl_base::config::{Presentation, THEME_VARIABLE};
 use avl_base::report::{Renderer, Terminal};
-use avl_base::{Backend, Environment, Exit, GuestOs, Reporter, SCHEMA_VERSION, Selection};
-use avl_host_sys::Interrupts;
+use avl_base::{Backend, Environment, Exit, GuestOs, SCHEMA_VERSION, Selection};
 use avl_wire::progress::{Event, Verdict};
 use pretty_assertions::assert_eq;
 use serde_json::Value;
 use tempfile::TempDir;
 
 use super::*;
-use crate::controller::{resolve_selection, run};
+use crate::cli::testing::{Answer, invoke_under};
+use crate::controller::resolve_selection;
 use crate::terminal::{DEFAULT_TERMINAL_WIDTH, TerminalFacts, colors_for, screen_for, wants_dashboard};
 
 // --- fixtures ----------------------------------------------------------------------------------------------------
 
-/// One invocation's two streams and its exit status, which is the whole observable surface.
-#[derive(Debug)]
-struct Answer {
-    exit: Exit,
-    stdout: String,
-    stderr: String,
-}
-
-/// An environment whose every path is under a temporary root.
-///
-/// `BUILD_WORKSPACE_DIRECTORY` is what the skill directory resolves from, so the suite never searches upwards and
-/// never depends on where the test binary started - which under Bazel is a sandbox with no checkout above it.
+/// An environment whose every path is under a temporary root, as [`invoke_under`] builds it.
 struct Hermetic {
     root: TempDir,
 }
@@ -46,38 +35,9 @@ impl Hermetic {
         }
     }
 
-    fn pairs(&self) -> Vec<(String, String)> {
-        let root = self.root.path();
-        let path = |relative: &str| root.join(relative).to_string_lossy().into_owned();
-        [
-            ("HOME", path("")),
-            ("BUILD_WORKSPACE_DIRECTORY", path("")),
-            ("AIR_VM_RUNTIME_ROOT", path("runtime")),
-            ("AIR_VM_IMAGE_ROOT", path("image")),
-            ("AIR_VM_HOST_REPO", path("")),
-            ("AIR_VM_BAZEL_USER_ROOT", path("bazel-root")),
-        ]
-        .into_iter()
-        .map(|(name, value)| (name.to_owned(), value))
-        .collect()
-    }
-
     /// Runs the controller over in-memory writers, which is why `main` holds nothing but the process's facts.
     async fn invoke(&self, argv: &[&str]) -> Answer {
-        let (reporter, stdout, stderr) = Reporter::in_memory("vm");
-        let exit = run(
-            os(argv),
-            Environment::from_pairs(self.pairs()),
-            reporter,
-            TerminalFacts::default(),
-            Interrupts::detached(),
-        )
-        .await;
-        Answer {
-            exit,
-            stdout: stdout.text(),
-            stderr: stderr.text(),
-        }
+        invoke_under(self.root.path(), argv, &[]).await
     }
 }
 
@@ -226,6 +186,27 @@ async fn a_pool_verb_that_is_missing_unknown_or_overlong_is_a_usage_error() {
     }
 }
 
+// `pool idle-stop` is the detached process a release starts, so it parses but is not in the help of `pool`.
+#[test]
+fn the_idle_stop_verb_parses_and_stays_out_of_the_help() {
+    let parsed = invocation(
+        &["--backend", "docker", "pool", "idle-stop", "air-docker-1", "--nonce", "n-1"],
+        &terminal(),
+    );
+    let Some(Cmd::Pool { verb }) = parsed.command else {
+        panic!("not a pool command: {:?}", parsed.command);
+    };
+    assert_eq!(
+        PoolCommand::from(verb),
+        PoolCommand::IdleStop {
+            worker: "air-docker-1".to_owned(),
+            nonce: "n-1".to_owned(),
+        }
+    );
+    assert!(!long_help_of(&["pool"]).contains("idle-stop"));
+    assert!(long_help_of(&["lease", "release"]).contains("AIR_VM_IDLE_STOP"));
+}
+
 #[tokio::test]
 async fn naming_no_command_answers_the_usage_text_with_no_command_named() {
     let answer = Hermetic::new().invoke(&[]).await;
@@ -263,7 +244,7 @@ async fn a_parse_failure_is_still_reported_in_the_format_the_caller_asked_for() 
     let prose = hermetic.invoke(&["--backend", "bogus", "--text", "status"]).await;
     assert_eq!(prose.exit, Exit::USAGE);
     assert_eq!(prose.stdout, "");
-    assert_eq!(prose.stderr, "vm: --backend must be tart, parallels or docker\n");
+    assert_eq!(prose.stderr, "vm: --backend must be tart, parallels, docker or container-linux\n");
 
     // The same invocation without `--text` is the JSON control: the difference between the two is the form, not the
     // refusal.
@@ -333,6 +314,19 @@ fn a_global_option_after_the_command_is_the_same_option() {
             guest_os: GuestOs::Linux
         })
     );
+}
+
+// The controller runs the lane daemon alone, so `--runner` is no option any more: a command line that still names it is
+// a usage refusal before any command runs.
+#[test]
+fn a_command_line_with_the_retired_runner_option_is_refused() {
+    let pipe = TerminalFacts::default();
+    for argv in [&["--runner", "daemon", "status"][..], &["daemon", "status", "--runner", "jvm"][..]] {
+        let Parsed::Refused { refusal, .. } = parse_argv(argv, &pipe) else {
+            panic!("{argv:?} was accepted");
+        };
+        assert_eq!(refusal.exit, Exit::USAGE, "{argv:?}: {}", refusal.message);
+    }
 }
 
 // An acquisition that names no holder takes the invoking user's, in the shape a self-leased run uses, so a caller
@@ -490,7 +484,7 @@ async fn a_parse_failure_after_the_command_is_reported_in_the_requested_format()
     let hermetic = Hermetic::new();
     let prose = hermetic.invoke(&["status", "--backend", "bogus", "--text"]).await;
     assert_eq!(prose.stdout, "");
-    assert_eq!(prose.stderr, "vm: --backend must be tart, parallels or docker\n");
+    assert_eq!(prose.stderr, "vm: --backend must be tart, parallels, docker or container-linux\n");
     let structured = refusal(
         &hermetic
             .invoke(&["lease", "acquire", "--holder", "--text", "--backend", "bogus"])
@@ -709,12 +703,12 @@ fn the_help_names_the_wrapper_and_interpolates_the_lists_it_does_not_own() {
     // Each of these has exactly one owner; the help text reads it rather than restating it.
     let text = every_long_help().join("\n");
     for expected in [
-        "ui|ui-real|ui-live|gui-chat",
-        "explicit-only lane (ui-live)",
+        "ui|ui-real|ui-live|ui-perf|jcp|gui-chat",
+        "explicit-only lane (ui-live, ui-perf, jcp)",
         "none|fresh-ide|daemon",
         "capped at 5",
         "default --reset fresh-ide",
-        "include-tag, exclude-tag",
+        "include-classname, exclude-classname",
     ] {
         assert!(text.contains(expected), "the help text does not carry {expected:?}");
     }
@@ -895,6 +889,14 @@ fn parse_refusal(argv: &[&str]) -> Refusal {
     }
 }
 
+/// Checks that `verb` with `argv` is a usage refusal whose message contains `fragment`.
+fn assert_usage_refusal(verb: &str, argv: &[&str], fragment: &str) {
+    let argv: Vec<&str> = std::iter::once(verb).chain(argv.iter().copied()).collect();
+    let refusal = parse_refusal(&argv);
+    assert_eq!(refusal.exit, Exit::USAGE, "{argv:?}");
+    assert!(refusal.message.contains(fragment), "{argv:?}: {}", refusal.message);
+}
+
 // The command's own options refuse in the controller's words, before anything is leased: a count outside the useful
 // range, a count that is not a strict base-ten integer, and an option with no value.
 #[test]
@@ -909,10 +911,7 @@ fn a_shard_count_the_split_cannot_use_is_a_usage_refusal() {
         (&["--shards", "6", "--lane", "ui"], "--shards"),
         (&["--shards"], "--shards needs a value"),
     ] {
-        let argv: Vec<&str> = std::iter::once("shard").chain(argv.iter().copied()).collect();
-        let refusal = parse_refusal(&argv);
-        assert_eq!(refusal.exit, Exit::USAGE, "{argv:?}");
-        assert!(refusal.message.contains(fragment), "{argv:?}: {}", refusal.message);
+        assert_usage_refusal("shard", argv, fragment);
     }
 }
 
@@ -929,9 +928,26 @@ fn a_trial_count_or_reset_the_measurement_cannot_use_is_a_usage_refusal() {
         (&["--lane", "ui", "--trials", "2", "--reset", "reboot"], "none, fresh-ide, daemon"),
         (&["--lane", "ui", "--trials", "2", "--reset"], "--reset needs a value"),
     ] {
-        let argv: Vec<&str> = std::iter::once("flake").chain(argv.iter().copied()).collect();
-        let refusal = parse_refusal(&argv);
-        assert_eq!(refusal.exit, Exit::USAGE, "{argv:?}");
-        assert!(refusal.message.contains(fragment), "{argv:?}: {}", refusal.message);
+        assert_usage_refusal("flake", argv, fragment);
     }
+}
+
+// `report time` reads the runtime root of the invocation and needs no worker, so a run that is not there is its own
+// refusal in the envelope of the command.
+#[tokio::test]
+async fn report_time_answers_from_the_runtime_root_and_refuses_a_run_that_is_not_there() {
+    let envelope = refusal(&Hermetic::new().invoke(&["report", "time", "run-none", "--json"]).await);
+    assert_eq!(envelope["command"], "report");
+    assert_eq!(code(&envelope), "report_run_unknown");
+    assert!(message(&envelope).contains("runtime"), "{envelope}");
+    let Parsed::Invocation(invocation) = parse_argv(&["report", "time", "run-a", "--baseline", "iter-b"], &TerminalFacts::default()) else {
+        panic!("report time did not parse");
+    };
+    let Some(Cmd::Report {
+        verb: ReportVerb::Time(args),
+    }) = invocation.command
+    else {
+        panic!("not report time");
+    };
+    assert_eq!((args.run.as_str(), args.baseline.as_deref()), ("run-a", Some("iter-b")));
 }

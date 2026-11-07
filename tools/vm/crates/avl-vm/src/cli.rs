@@ -36,6 +36,7 @@ use crate::daemon::flake::{DEFAULT_FLAKE_RESET, FlakeArgs, flake_reset_names};
 use crate::daemon::shard::{MAX_USEFUL_SHARDS, ShardArgs};
 use crate::daemon::{DaemonVerb, Junit5FilterKind, RunCommandArgs};
 use crate::lane::{LsArgs, PeekabooArgs};
+use crate::report::ReportVerb;
 use crate::worker::lease::{AcquireRequest, LeaseCommand, parse_count};
 use crate::worker::worker::{PoolCommand, PoolTarget};
 use avl_base::{Environment, Exit, Refusal, Selection};
@@ -47,6 +48,8 @@ use crate::terminal::{Form, Output, TerminalFacts};
 use avl_base::RefusalExt;
 
 #[cfg(test)]
+pub(crate) mod testing;
+#[cfg(test)]
 mod tests;
 
 /// How the help text spells this controller: the wrapper, by its repository-relative path.
@@ -57,18 +60,16 @@ pub(crate) const PROGRAM: &str = "./community/tools/vm.cmd";
 
 /// The paragraphs under the help of `vm`: the pools, the global options, and the form of the output.
 const AFTER_HELP: &str = "--backend names a pool: docker (the default) is the Ubuntu guest in a container, with its own \
-air-docker-N slots and an image the controller builds; on macOS its engine is a Lima VM the controller starts, and \
-elsewhere it is the engine DOCKER_HOST names or the host's own. tart is a sealed macOS guest with its own \
+air-docker-N slots and an image the controller builds; its engine is the one DOCKER_BIN or DOCKER_HOST names, else \
+Apple container on macOS 26 or newer on Apple silicon, else the host's own. tart is a sealed macOS guest with its own \
 air-macos-N slots, and parallels is the single pre-existing macOS VM. A command without --backend, such as \
 pool stop, acts on the docker pool. A lease receipt records the selection, so later receipt-bearing commands \
 infer it.
 
 Global options, accepted before or after the command and anywhere before a literal --: --json and --text choose the \
-output form, --stream adds NDJSON progress, --backend selects the pool, and --lease-file passes the receipt. So \
-\"run --stream flow-x\" and \"--stream run flow-x\" are the same command. The value of a command option stays that \
-value: in \"lease acquire --holder --text\", --text is the holder. --help (-h), before the command, prints this text \
-- as JSON data under --json, as prose under --text; after the command it prints that command's own help the same \
-way.
+output form, --stream adds NDJSON progress, --backend selects the pool, and --lease-file passes the receipt. So \"run --stream flow-x\" and \"--stream run flow-x\" are the same command. The value of a command option stays that \
+value: in \"lease acquire --holder --text\", --text is the holder. --help (-h), before the command, prints this text - \
+as JSON data under --json, as prose under --text; after the command it prints that command's own help the same way.
 
 The form follows the reader: text when stdout is a terminal, JSON when it is not. --json and --text choose it. In \
 JSON, success writes one envelope to stdout and failure writes one to stderr; --stream additionally emits NDJSON \
@@ -93,10 +94,11 @@ Test-code changes are pushed over HTTP and need no remount, and the IDE relaunch
 
 The selection is a flow id, a suite id, --changed PATH..., a TestClass or FQN[#method], or --lane {lanes}. A flow id \
 selects every generated suite whose scenarios tell or walk the flow, and a suite id selects that one suite, as one \
-lane's tag and one class filter per suite. An unknown id names the nearest ids, and a flow no generated suite tests \
+lane and one class filter per suite. An unknown id names the nearest ids, and a flow no generated suite tests \
 is refused, because an iteration that runs nothing is not a passing run. With --changed, every argument that is not \
 an option is a changed path, so \"--changed A B\" and \"--changed A --changed B\" are the same run, and a change no \
-generated suite covers is refused, naming each path.
+generated suite covers is refused, naming each path. --base REV compares a changed Kotlin file of the test bridge \
+with REV, as suites --base does; it needs --changed.
 
 For a flow, a suite or --changed without --lane: one iteration per reached lane, in the order {lanes}, on one worker \
 of the selected backend, in one reply. More than one lane answers {{worker, lanes: [{{lane, exitCode, code, message, \
@@ -112,14 +114,15 @@ With --lease-file it runs on that receipt's worker: the warm inner loop.
 --filter narrows what the iteration runs, on top of whatever the lane or selector already asks for; it is \
 repeatable, and OPTION is one of {filters}.
 
---test-env NAME=@- hands the guest test JVM a secret read from a pipe, as in \"central login export | vm.cmd run \
---lane ui-live --test-env AIR_LIVE_CENTRAL_LOGIN=@-\", so no host file exists. --test-env NAME=@FILE reads a host \
-file instead. The guest gets a file, never a variable, because the daemon's environment is fixed at boot. The option \
-is repeatable and run's alone, and @- may appear once; stdin on a terminal is refused. Each source is read once before \
-any lease, and refused when it is missing, not a regular file, over 1 MiB, or holds fewer than 16 bytes. It travels \
-on the exec channel's stdin to AIR_VM_RUN_SECRETS/NAME, a 0600 file on the guest's tmpfs, and is removed when the \
-iteration ends or an interrupt abandons it. A fetched artifact that holds a value refuses the run with \
-secret_in_artifact and is moved aside."
+--test-env NAME=@- hands the guest a secret read from a pipe, as in \"central login export | vm.cmd run --lane \
+ui-live --test-env AIR_LIVE_CENTRAL_LOGIN=@-\", so no host file exists. A run of ui-live without that input is refused \
+with lane_live_input before any build or lease. --test-env NAME=@FILE reads a host file instead. The \
+guest gets a file, never a variable, because the daemon's environment is fixed at boot. The option is repeatable and \
+run's alone, and @- may appear once; stdin on a terminal is refused. Each source is read once before any lease, and \
+refused when it is missing, not a regular file, over 1 MiB, or holds fewer than 16 bytes. It travels on the exec \
+channel's stdin to AIR_VM_RUN_SECRETS/NAME, a 0600 file on the guest's tmpfs, and is removed when the iteration ends \
+or an interrupt abandons it. A fetched artifact that holds a value refuses the run with secret_in_artifact and is \
+moved aside."
     )
 }
 
@@ -181,8 +184,9 @@ pub(crate) struct Global {
     /// Adds NDJSON progress on stderr.
     #[arg(long, global = true)]
     pub stream: bool,
-    /// The pool: tart, parallels or docker. docker is the Ubuntu guest in a container.
-    #[arg(long, global = true, value_name = "tart|parallels|docker")]
+    /// The pool: tart, parallels, docker or container-linux. docker is the Ubuntu guest in a container, and
+    /// container-linux is the container of the testing-ui skill.
+    #[arg(long, global = true, value_name = "tart|parallels|docker|container-linux")]
     pub backend: Option<String>,
     /// The mode-0600 lease receipt.
     #[arg(long = "lease-file", global = true, value_name = "FILE")]
@@ -198,6 +202,10 @@ pub(crate) enum Cmd {
         action: ImageAction,
     },
     /// Materializes, starts, stops, collects or recycles the pool.
+    ///
+    /// The pool has two slots. On the Apple container engine the default follows the host memory instead: the workers
+    /// get at most a quarter of it, from 2 to 16 slots, so a host of 128 GiB with workers of 8 GiB has 4. status names
+    /// the size and its reason. AIR_VM_MAX_WORKERS sets the count, and AIR_VM_WORKERS names the slots.
     Pool {
         #[command(subcommand)]
         verb: PoolVerb,
@@ -220,6 +228,11 @@ pub(crate) enum Cmd {
     Suites {
         #[arg(value_name = "CHANGED_PATH")]
         paths: Vec<String>,
+        /// The revision that a changed Kotlin file of the test bridge is compared with, to find its changed
+        /// declarations. The default is the commit where HEAD meets its upstream, so every change that is not pushed
+        /// yet counts.
+        #[arg(long, value_name = "REV")]
+        base: Option<String>,
     },
     /// Builds on the host and runs one selection in a worker's warm daemon.
     #[command(long_about = run_long_about())]
@@ -260,13 +273,18 @@ pub(crate) enum Cmd {
         #[arg(value_name = "RELATIVE_ARTIFACT_PATH")]
         destination: String,
     },
-    /// Where the worker's VNC endpoint is; needs --lease-file.
+    /// Where the worker's VNC endpoint is; needs --lease-file, except on container-linux, whose pool has one worker.
     Vnc,
     /// Measures the start-up of the IDE on this host, from a staged copy of its dev distribution.
     #[command(long_about = crate::bench::LONG_ABOUT, after_help = crate::bench::EXIT_CODES)]
     Bench {
         #[command(subcommand)]
         verb: BenchVerb,
+    },
+    /// Reads what a run left on this host; needs no worker.
+    Report {
+        #[command(subcommand)]
+        verb: ReportVerb,
     },
 }
 
@@ -289,6 +307,7 @@ impl Cmd {
             Self::Pull { .. } => "pull",
             Self::Vnc => "vnc",
             Self::Bench { .. } => "bench",
+            Self::Report { .. } => "report",
         }
     }
 
@@ -309,11 +328,17 @@ pub(crate) enum PoolVerb {
         golden: Option<String>,
     },
     /// Starts every worker, or one.
+    ///
+    /// A named worker answers its own refusal. "all" starts the other workers and then refuses start_incomplete,
+    /// naming each refused worker: 75 when a lease or a lock was the only thing in its way, 1 when something is broken.
     Start {
         #[arg(value_name = "all|worker", default_value = "all", value_parser = pool_target)]
         target: PoolTarget,
     },
     /// Stops every worker, or one.
+    ///
+    /// A named worker answers its own refusal. "all" stops the other workers and then refuses stop_incomplete,
+    /// naming each refused worker: 75 when a lease or a lock was the only thing in its way, 1 when something is broken.
     Stop {
         #[arg(value_name = "all|worker", default_value = "all", value_parser = pool_target)]
         target: PoolTarget,
@@ -328,11 +353,21 @@ pub(crate) enum PoolVerb {
     /// The repair for a worker whose guest is unusable: stop, delete the clone, re-clone, start, provision. The target
     /// is never defaulted, because this deletes clones. A leased worker is refused when it is named, and reported
     /// unrecycled by "all", which recycles the rest and then refuses: 75 when a lease was the only thing in its way, 1
-    /// when something is broken. On the macOS pool the sealed golden and the per-worker provenance still hold: a
-    /// recycle is pool gc plus a re-clone, not a way around the image.
+    /// when something is broken. With --lease-file, the holder recycles the worker of its lease and gives the lease
+    /// back, also when the guest refuses a release. On the macOS pool the sealed golden and the per-worker provenance
+    /// still hold: a recycle is pool gc plus a re-clone, not a way around the image.
     Recycle {
         #[arg(value_name = "all|worker", value_parser = pool_target)]
         target: PoolTarget,
+    },
+    /// The detached process of an idle stop, which a lease release on the Apple container engine starts.
+    #[command(hide = true)]
+    IdleStop {
+        #[arg(value_name = "WORKER")]
+        worker: String,
+        /// The nonce of the idle stop record that the release wrote.
+        #[arg(long, value_name = "NONCE")]
+        nonce: String,
     },
 }
 
@@ -348,6 +383,7 @@ impl From<PoolVerb> for PoolCommand {
             PoolVerb::Stop { target } => Self::Stop(target),
             PoolVerb::Gc => Self::Gc,
             PoolVerb::Recycle { target } => Self::Recycle(target),
+            PoolVerb::IdleStop { worker, nonce } => Self::IdleStop { worker, nonce },
         }
     }
 }
@@ -374,6 +410,10 @@ pub(crate) enum LeaseVerb {
     /// The pool's leases; with a receipt, that worker's holder too.
     Show,
     /// Releases the receipt's lease.
+    ///
+    /// The worker keeps its warm daemon for the next lease. On the Apple container engine an unleased worker stops
+    /// AIR_VM_IDLE_STOP seconds after the release, 3600 by default, and the reply names the deadline as idleStopAt.
+    /// `off` keeps it running, and 0 stops it at the release. The next run starts it again with a cold daemon.
     Release,
 }
 

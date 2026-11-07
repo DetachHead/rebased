@@ -11,7 +11,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use avl_base::format::words;
 use avl_base::{Exit, GuestOs, SCHEMA_VERSION};
-use avl_host_sys::Ctx;
+use avl_host_sys::PsField;
 use avl_host_sys::share::{SHARE_MODE, SharedFolder};
 use avl_host_testkit::path_runner;
 use avl_testkit::tartfake::Answer;
@@ -19,7 +19,7 @@ use pretty_assertions::assert_eq;
 
 use super::*;
 use crate::worker::hypervisor::is_unsupported;
-use crate::worker::testing::Fixture;
+use crate::worker::testing::{Fixture, assert_probe_unanswered, ctx};
 
 const BASE_DIGEST: &str = "sha256:fa96c198dd980ae41914db6dd8621e6120d01ba0cd66754dcb4238e072a87444";
 const MACOS_VERSION: &str = "26.6.2";
@@ -27,10 +27,6 @@ const GOLDEN: &str = "air-macos-26.6.2-golden";
 
 fn tart(fixture: &Fixture) -> &Tart {
     fixture.manager.tart().expect("a Tart pool")
-}
-
-fn ctx() -> Ctx {
-    Ctx::background()
 }
 
 /// Puts one file of a VM in place and answers its path.
@@ -133,13 +129,10 @@ async fn the_version_gate_refuses_an_old_tart_and_names_the_way_past() {
 #[tokio::test]
 async fn a_version_without_an_answer_is_refused_and_not_a_missing_tart() {
     let fixture = Fixture::macos();
-    for (answer, code) in [(Answer::KilledVerb, 137), (Answer::SilentVerb, 0)] {
-        fixture.fake.answer(answer, "--version");
-        let refusal = tart(&fixture).require_available(&ctx(), "air-macos-1").await.unwrap_err();
-        assert_eq!(refusal.code, "probe_unanswered", "{refusal:?}");
-        assert!(refusal.message.contains(&format!("exited with {code}")), "{}", refusal.message);
-        fixture.fake.forget(answer);
-    }
+    assert_probe_unanswered(&fixture.fake, "--version", async || {
+        tart(&fixture).require_available(&ctx(), "air-macos-1").await
+    })
+    .await;
     tart(&fixture).require_available(&ctx(), "air-macos-1").await.unwrap();
 }
 
@@ -184,7 +177,9 @@ fn a_share_is_declared_by_name_never_by_tag() {
 #[tokio::test]
 async fn the_guest_command_line_is_tart_exec() {
     let fixture = Fixture::macos();
-    let line = tart(&fixture)
+    let line = fixture
+        .manager
+        .machine()
         .guest_argv(&ctx(), "air-macos-1", &words(["/bin/echo", "one two"]), true)
         .await
         .unwrap();
@@ -454,7 +449,7 @@ fn worker_provenance_ties_a_worker_to_the_seal_it_was_cloned_from() {
 
 // --- liveness --------------------------------------------------------------------------------------------------
 
-fn write_identity(fixture: &Fixture, worker: &str, identity: &ProcessIdentity) {
+fn write_identity(fixture: &Fixture, worker: &str, identity: &PidReceipt) {
     let mut encoded = serde_json::to_vec(identity).unwrap();
     encoded.push(b'\n');
     std::fs::write(fixture.settings.pid_path(worker), encoded).unwrap();
@@ -472,24 +467,22 @@ async fn liveness_needs_the_whole_identity_triple() {
     let runner = path_runner();
     let own = i32::try_from(std::process::id()).unwrap();
 
-    let live = ProcessIdentity {
+    let live = PidReceipt {
         schema_version: SCHEMA_VERSION,
         worker: worker.to_owned(),
-        pid: own,
-        process_start: host_process_start(&ctx, &runner, own).await.unwrap().unwrap(),
-        process_command: host_process_command(&ctx, &runner, own).await.unwrap().unwrap(),
+        process: runner.identify(&ctx, own).await.unwrap().unwrap(),
     };
     // `lstart` pads the day of the month, so the recorded form has to be collapsed or a worker started in the first
     // nine days of a month never matches itself.
-    assert!(!live.process_start.contains("  "), "{live:?}");
+    assert!(!live.process.process_start.contains("  "), "{live:?}");
 
     // Written by hand, not by this crate's serializer, so the reader is held to the document's keys.
     std::fs::write(
         fixture.settings.pid_path(worker),
         format!(
             "{{\"schemaVersion\":1,\"worker\":\"{worker}\",\"pid\":{own},\"processStart\":{},\"processCommand\":{}}}\n",
-            serde_json::to_string(&live.process_start).unwrap(),
-            serde_json::to_string(&live.process_command).unwrap()
+            serde_json::to_string(&live.process.process_start).unwrap(),
+            serde_json::to_string(&live.process.process_command).unwrap()
         ),
     )
     .unwrap();
@@ -497,18 +490,25 @@ async fn liveness_needs_the_whole_identity_triple() {
     assert!(tart.running(&ctx, worker).await.unwrap());
 
     // Each leg of the triple on its own is enough to disqualify it.
-    let stale = ProcessIdentity {
-        process_start: "Sat Jan 1 00:00:00 2000".to_owned(),
-        ..live.clone()
-    };
-    write_identity(&fixture, worker, &stale);
-    assert!(!tart.running(&ctx, worker).await.unwrap());
-    let stale = ProcessIdentity {
-        process_command: "/opt/homebrew/bin/tart run something-else".to_owned(),
-        ..live.clone()
-    };
-    write_identity(&fixture, worker, &stale);
-    assert!(!tart.running(&ctx, worker).await.unwrap());
+    for (leg, process) in [
+        (
+            "another start time",
+            ProcessIdentity {
+                process_start: "Sat Jan 1 00:00:00 2000".to_owned(),
+                ..live.process.clone()
+            },
+        ),
+        (
+            "another command",
+            ProcessIdentity {
+                process_command: "/opt/homebrew/bin/tart run something-else".to_owned(),
+                ..live.process.clone()
+            },
+        ),
+    ] {
+        write_identity(&fixture, worker, &PidReceipt { process, ..live.clone() });
+        assert!(!tart.running(&ctx, worker).await.unwrap(), "a run process of {leg} is running");
+    }
 
     // A zombie is the one dead process `ps` still answers for: the spawn releases the run process without reaping it,
     // so an identity recorded after a boot-time death carries the zombie's own answers and matches them
@@ -518,16 +518,19 @@ async fn liveness_needs_the_whole_identity_triple() {
     // Deliberately never reaped; the zombie leaves the process table with this test process.
     drop(child);
     let deadline = std::time::Instant::now() + Duration::from_secs(10);
-    while !host_process_defunct(&ctx, &runner, zombie_pid).await.unwrap() {
+    while !runner
+        .probe_process(&ctx, zombie_pid, PsField::State)
+        .await
+        .unwrap()
+        .is_some_and(|state| state.starts_with('Z'))
+    {
         assert!(std::time::Instant::now() < deadline, "the child never became a zombie");
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
-    let zombie = ProcessIdentity {
+    let zombie = PidReceipt {
         schema_version: SCHEMA_VERSION,
         worker: worker.to_owned(),
-        pid: zombie_pid,
-        process_start: host_process_start(&ctx, &runner, zombie_pid).await.unwrap().unwrap(),
-        process_command: host_process_command(&ctx, &runner, zombie_pid).await.unwrap().unwrap(),
+        process: runner.identify(&ctx, zombie_pid).await.unwrap().unwrap(),
     };
     write_identity(&fixture, worker, &zombie);
     assert!(!tart.running(&ctx, worker).await.unwrap());
@@ -546,7 +549,7 @@ async fn liveness_needs_the_whole_identity_triple() {
     }
     std::fs::remove_file(fixture.settings.pid_path(worker)).unwrap();
     assert!(!tart.running(&ctx, worker).await.unwrap());
-    assert_eq!(host_process_start(&ctx, &runner, 0).await, Ok(None));
+    assert_eq!(runner.identify(&ctx, 0).await, Ok(None));
 }
 
 // --- what Tart knows about a VM --------------------------------------------------------------------------------

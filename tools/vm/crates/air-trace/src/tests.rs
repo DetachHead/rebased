@@ -31,7 +31,7 @@ fn the_dispatcher_routes_every_declared_subcommand_and_refuses_the_rest() {
         .get_subcommands()
         .map(|subcommand| subcommand.get_name().to_owned())
         .collect();
-    assert_eq!(names, ["pack", "serve", "plan"]);
+    assert_eq!(names, ["pack", "serve", "plan", "teamcity-publish"]);
 
     // No subcommand: the usage, on stderr, as a usage error.
     let (error, text) = refused(&[]);
@@ -220,7 +220,7 @@ fn pack_of_a_missing_tree_exits_1_with_the_reason_on_stderr() {
     let code = run_pack(&args, &mut stdout, &mut stderr);
     let stderr = String::from_utf8(stderr).unwrap();
     assert_eq!(code, 1);
-    assert!(stdout.is_empty());
+    assert_eq!(stdout, Vec::<u8>::new());
     assert!(stderr.starts_with("air-trace pack: "), "{stderr}");
     assert!(stderr.contains("absent"), "{stderr}");
 }

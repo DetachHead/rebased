@@ -196,6 +196,31 @@ async fn checked_quietly_withholds_guest_output() {
     assert_eq!(refusal.details(), Some(json!({ "exitCode": 1 })));
 }
 
+// A child in a session of its own runs in the directory that the caller names, and not in the directory of the
+// caller. A relative path of the child then lands in that directory.
+#[test]
+fn a_session_child_runs_in_the_directory_it_was_given() {
+    let runner = Runner::new(std::iter::empty::<(String, String)>(), Interrupts::detached());
+    let directory = tempfile::tempdir().expect("a directory");
+    let log = File::create(directory.path().join("detached.log")).expect("the log");
+    let mut child = runner
+        .spawn_session(
+            &["/bin/sh", "-c", "echo here > session-directory.marker"],
+            directory.path(),
+            log.try_clone().expect("the log is shared"),
+            log,
+        )
+        .expect("the child starts");
+    assert!(child.wait().expect("the child is reaped").success());
+    assert!(directory.path().join("session-directory.marker").exists());
+    let caller = std::env::current_dir().expect("the directory of the test");
+    assert!(
+        !caller.join("session-directory.marker").exists(),
+        "the child ran in {}",
+        caller.display()
+    );
+}
+
 // A spawn in a session of its own answers at once, before its child has done anything, and the child's output lands
 // in the files it was given. It is a host child like any other, so the bridge credentials do not reach it either.
 #[test]
@@ -211,7 +236,7 @@ fn a_session_spawn_does_not_wait_and_is_scrubbed_too() {
     let mut child = runner
         .spawn_session(
             &["/bin/sh", "-c", "sleep 1; /usr/bin/env; echo done"],
-            Some(directory.path()),
+            directory.path(),
             log.try_clone().expect("the log is shared"),
             log,
         )
@@ -327,23 +352,8 @@ async fn a_timeout_kills_the_group_and_names_its_code() {
 async fn a_cancelled_operation_stops_the_child() {
     let directory = tempfile::tempdir().unwrap();
     let pid_file = directory.path().join("grandchild.pid");
-    let token = CancellationToken::new();
-    let ctx = Ctx::new(token.clone());
-    let cancel = tokio::spawn(async move {
-        tokio::time::sleep(Duration::from_millis(200)).await;
-        token.cancel();
-    });
-    let started = Instant::now();
-    let captured = runner()
-        .capture(
-            &ctx,
-            &sh(&format!("sleep 30 & echo $! > {}; wait", pid_file.display())),
-            &SpawnOptions::within(Duration::from_mins(1)),
-        )
-        .await
-        .expect("a cancelled child is still answered");
-    cancel.await.unwrap();
-    assert!(started.elapsed() < Duration::from_secs(10));
+    let command = sh(&format!("sleep 30 & echo $! > {}; wait", pid_file.display()));
+    let captured = capture_cancelled(&command, Duration::from_millis(200)).await;
     // SIGTERM, as a shell reports it.
     assert_eq!(captured.exit_code, 128 + libc::SIGTERM);
     let grandchild = read_pid(&pid_file).await;
@@ -355,15 +365,39 @@ async fn a_cancelled_operation_stops_the_child() {
 async fn dropping_a_spawn_signals_its_group() {
     let directory = tempfile::tempdir().unwrap();
     let pid_file = directory.path().join("grandchild.pid");
+    assert_a_dropped_spawn_signals_its_group(&sh(&format!("sleep 30 & echo $! > {}; wait", pid_file.display())), &pid_file).await;
+}
+
+/// Cancels the operation of `command` after `delay`, and answers what the cancelled child said. The cancellation must
+/// end the run in less than ten seconds.
+async fn capture_cancelled(command: &[String], delay: Duration) -> Captured {
+    let token = CancellationToken::new();
+    let ctx = Ctx::new(token.clone());
+    let cancel = tokio::spawn(async move {
+        tokio::time::sleep(delay).await;
+        token.cancel();
+    });
+    let started = Instant::now();
+    let captured = runner()
+        .capture(&ctx, command, &SpawnOptions::within(Duration::from_mins(1)))
+        .await
+        .expect("a cancelled child is still answered");
+    cancel.await.unwrap();
+    assert!(started.elapsed() < Duration::from_secs(10));
+    captured
+}
+
+/// Drops the spawn of `command` after half a second, and asserts that the grandchild whose pid `command` writes to
+/// `pid_file` is gone.
+async fn assert_a_dropped_spawn_signals_its_group(command: &[String], pid_file: &Path) {
     let runner = runner();
-    let command = sh(&format!("sleep 30 & echo $! > {}; wait", pid_file.display()));
     let abandoned = tokio::time::timeout(
         Duration::from_millis(500),
-        runner.capture(&Ctx::background(), &command, &SpawnOptions::within(Duration::from_mins(1))),
+        runner.capture(&Ctx::background(), command, &SpawnOptions::within(Duration::from_mins(1))),
     )
     .await;
     assert!(abandoned.is_err(), "the spawn finished on its own: {abandoned:?}");
-    let grandchild = read_pid(&pid_file).await;
+    let grandchild = read_pid(pid_file).await;
     assert!(gone(grandchild).await, "the grandchild {grandchild} outlived its spawn");
 }
 
@@ -399,19 +433,7 @@ async fn a_timeout_still_fires_after_the_leader_exited() {
 async fn a_cancellation_still_reaches_the_group_after_the_leader_exited() {
     let directory = tempfile::tempdir().unwrap();
     let pid_file = directory.path().join("grandchild.pid");
-    let token = CancellationToken::new();
-    let ctx = Ctx::new(token.clone());
-    let cancel = tokio::spawn(async move {
-        tokio::time::sleep(Duration::from_millis(300)).await;
-        token.cancel();
-    });
-    let started = Instant::now();
-    let captured = runner()
-        .capture(&ctx, &leader_exits_first(&pid_file), &SpawnOptions::within(Duration::from_mins(1)))
-        .await
-        .expect("a cancelled child is still answered");
-    cancel.await.unwrap();
-    assert!(started.elapsed() < Duration::from_secs(10));
+    let captured = capture_cancelled(&leader_exits_first(&pid_file), Duration::from_millis(300)).await;
     // The leader's own exit, and what it said before it.
     assert_eq!((captured.exit_code, captured.stdout.as_str()), (0, "hi\n"));
     let grandchild = read_pid(&pid_file).await;
@@ -422,16 +444,7 @@ async fn a_cancellation_still_reaches_the_group_after_the_leader_exited() {
 async fn dropping_a_spawn_signals_its_group_after_the_leader_exited() {
     let directory = tempfile::tempdir().unwrap();
     let pid_file = directory.path().join("grandchild.pid");
-    let runner = runner();
-    let command = leader_exits_first(&pid_file);
-    let abandoned = tokio::time::timeout(
-        Duration::from_millis(500),
-        runner.capture(&Ctx::background(), &command, &SpawnOptions::within(Duration::from_mins(1))),
-    )
-    .await;
-    assert!(abandoned.is_err(), "the spawn finished on its own: {abandoned:?}");
-    let grandchild = read_pid(&pid_file).await;
-    assert!(gone(grandchild).await, "the grandchild {grandchild} outlived its spawn");
+    assert_a_dropped_spawn_signals_its_group(&leader_exits_first(&pid_file), &pid_file).await;
 }
 
 // The interrupt service reaches a child in its own group, which the terminal's Ctrl-C does not.
@@ -623,9 +636,9 @@ async fn a_process_table_answers_the_probe_in_place_of_the_host() {
             matches!(pid, 7 | 8)
         }
 
-        fn field(&self, pid: i32, field: PsField) -> Option<String> {
+        fn field(&self, pid: i32, field: PsField) -> Result<Option<String>, Refusal> {
             assert!(self.holds(pid), "the table was asked about pid {pid}, which it does not hold");
-            (pid == 7).then(|| format!("{field:?}"))
+            Ok((pid == 7).then(|| format!("{field:?}")))
         }
     }
     let ctx = Ctx::background();
@@ -813,7 +826,7 @@ async fn spawn_piped_ends_with_an_eof_after_the_first_byte() {
         .read_to_end(&mut received)
         .await
         .expect("a clean exit is an EOF");
-    assert!(received.is_empty());
+    assert_eq!(received, Vec::<u8>::new());
 }
 
 // A dropped HTTP connection must strand no `tart exec` and no guest relay, so the drop takes the whole group.

@@ -6,13 +6,14 @@ use std::time::Duration;
 
 use avl_base::GuestOs;
 use avl_host_sys::Signal;
-use avl_wire::progress::{Kind, Phase, PhaseChange, PhaseState};
+use avl_host_testkit::refusal as refused;
+use avl_wire::progress::{Kind, Phase, PhaseState};
 use avl_wire::report::{EntryStatus, Status};
 use pretty_assertions::assert_eq;
 use tokio_util::sync::CancellationToken;
 
 use super::*;
-use crate::daemon::fixture::{Fixture, baseline_report, passing_run, write_report};
+use crate::daemon::fixture::{Fixture, assert_aggregate_id, assert_kept_lease, baseline_report, passing_run, write_report};
 use crate::daemon::testing::{FakeDaemon, Recorded};
 
 // --- the decisions -------------------------------------------------------------------------------------------
@@ -27,8 +28,8 @@ fn the_decisions_of_a_shard_run_need_no_worker() {
         floor_ms: 0.0,
         makespan_ms: 0.0,
     };
-    assert!(shard_attempts(&plan, &[], Vec::new(), None).is_empty());
-    assert!(plan_data(&plan, &[]).shards.is_empty());
+    assert_eq!(shard_attempts(&plan, &[], Vec::new(), None), []);
+    assert_eq!(plan_data(&plan, &[]).shards, []);
     let refusal = shard_interrupted("SIGTERM", &[], &plan, "/agg/shard-1.json", "`vm.cmd lease release`");
     assert_eq!((refusal.code.as_ref(), refusal.exit), ("shard_interrupted", Exit::SOFTWARE));
     assert_eq!(
@@ -66,13 +67,6 @@ async fn run(fixture: &Fixture, argv: &[&str]) -> Result<Outcome, Refusal> {
         .expect("the shard run settles")
 }
 
-fn refused(result: Result<Outcome, Refusal>) -> Refusal {
-    match result {
-        Ok(outcome) => panic!("the command was expected to refuse and answered {outcome:?}"),
-        Err(refusal) => refusal,
-    }
-}
-
 fn data_of(outcome: &Outcome) -> ShardData {
     serde_json::from_value(outcome.data.clone()).expect("the outcome is shard data")
 }
@@ -101,12 +95,7 @@ async fn warm_pool(fixture: &Fixture) -> Vec<Arc<FakeDaemon>> {
     let mut daemons = Vec::new();
     for (index, worker) in fixture.workers().iter().enumerate() {
         let daemon = fixture.warm_daemon(worker, &prep).await;
-        let (lines, xml) = passing_run(&format!("iter-{worker}"), &format!("com.example.Shard{}Test", index + 1));
-        {
-            let mut script = daemon.script();
-            script.run_lines = lines;
-            script.results_xml = xml.into_bytes();
-        }
+        daemon.script().run_lines = passing_run(&format!("iter-{worker}"), &format!("com.example.Shard{}Test", index + 1));
         daemons.push(daemon);
     }
     daemons
@@ -149,7 +138,7 @@ fn shard_owns_three_options_and_hands_every_other_one_to_the_run_grammar() {
         "--lane",
         "ui",
         "--filter",
-        "exclude-tag=slow",
+        "exclude-classname=.*Slow.*",
         "--timeout",
         "600",
         "--fresh-ide",
@@ -158,7 +147,15 @@ fn shard_owns_three_options_and_hands_every_other_one_to_the_run_grammar() {
     // `run`'s grammar is the one owner of what a lane selects, and a second parser here would be a second answer.
     assert_eq!(
         parsed.run.argv(),
-        ["--lane", "ui", "--filter", "exclude-tag=slow", "--timeout", "600", "--fresh-ide"]
+        [
+            "--lane",
+            "ui",
+            "--filter",
+            "exclude-classname=.*Slow.*",
+            "--timeout",
+            "600",
+            "--fresh-ide"
+        ]
     );
     let joined = shard_args(&["--shards=2", "--lane=ui"]);
     assert_eq!((joined.shards, joined.run.lane.as_deref()), (2, Some("ui")));
@@ -239,14 +236,7 @@ async fn a_sharded_run_keeps_a_journal_whose_id_is_its_holder() {
         .unwrap_or_else(|refusal| panic!("both shards passed: {refusal:?}"));
     let data = data_of(&outcome);
     assert!(data.holder.starts_with("suite-user-shard-"), "{}", data.holder);
-    let aggregate_shaped = data
-        .shard_run_id
-        .strip_prefix("shard-")
-        .and_then(|rest| rest.split_once('-'))
-        .is_some_and(|(stamp, tail)| {
-            stamp.bytes().all(|byte| byte.is_ascii_digit()) && tail.len() == 8 && tail.bytes().all(|byte| byte.is_ascii_hexdigit())
-        });
-    assert!(aggregate_shaped, "{}", data.shard_run_id);
+    assert_aggregate_id(&data.shard_run_id, "shard");
     let journal = std::fs::read_to_string(fixture.settings.runtime_root.join("runs").join(&data.holder).join("events.ndjson"))
         .unwrap_or_else(|error| panic!("no journal for {}: {error}", data.holder));
     let records: Vec<serde_json::Value> = journal
@@ -318,7 +308,7 @@ async fn two_shards_run_at_once_on_one_build_and_their_verdict_is_merged() {
     );
     // Every lease this command placed is given back, and each row says so of itself.
     assert_eq!(data.lease_disposition, Some(LeaseDisposition::Released));
-    assert!(data.release_failures.is_empty());
+    assert_eq!(data.release_failures, Vec::<String>::new());
     assert!(data.leases.iter().all(|lease| lease.released), "{:?}", data.leases);
     for worker in &workers {
         assert!(!fixture.leased(worker), "{worker} is still leased after the run finished");
@@ -392,7 +382,6 @@ async fn a_daemon_that_dies_mid_stream_cannot_make_the_run_green() {
         let mut dying = daemons[1].script();
         dying.run_lines.truncate(1);
         dying.close_mid_stream = true;
-        dying.results_status = Some(404);
     }
 
     let refusal = refused(run(&fixture, &["--shards", "2", "--holder", "suite", "--lane", "ui"]).await);
@@ -460,11 +449,7 @@ async fn a_refused_release_is_not_reported_as_released() {
         .await
         .unwrap_or_else(|refusal| panic!("a release failure must not turn a green lane red: {refusal:?}"));
     // The release phase fails where a person reads it, and names the command that frees the worker.
-    let release = recorded
-        .data_of::<PhaseChange>(Kind::Phase)
-        .into_iter()
-        .rfind(|change| change.phase == Phase::Release)
-        .expect("a release phase");
+    let release = recorded.last_phase(Phase::Release);
     assert_eq!(release.state, PhaseState::Failed);
     assert!(
         release.error.as_deref().is_some_and(|error| error.contains("lease release")),
@@ -538,15 +523,7 @@ async fn an_interrupt_keeps_the_leases_and_still_writes_the_aggregate() {
     // release.
     assert_eq!(data.leases.len(), 2);
     for lease in &data.leases {
-        assert!(!lease.released, "{lease:?}");
-        assert!(Path::new(&lease.lease_file).is_file(), "{lease:?}");
-        assert!(
-            refusal
-                .message
-                .contains(&format!("--lease-file {} lease release", lease.lease_file)),
-            "{}",
-            refusal.message
-        );
+        assert_kept_lease(lease, &refusal.message);
     }
     assert!(!refusal.message.contains("FILE"), "{}", refusal.message);
     // And the aggregate is on disk, with the abandoned shards named rather than missing.

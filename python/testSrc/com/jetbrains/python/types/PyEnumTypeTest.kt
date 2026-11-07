@@ -167,6 +167,79 @@ class PyEnumTypeTest : PyCodeInsightTestCase() {
       """.trimIndent())
 
     @Test
+    @TestFor(issues = ["PY-91925"])
+    fun `custom new receives the member value`() = test("""
+      from enum import StrEnum
+
+      class Greeting(StrEnum):
+          def __new__(cls, value: str, is_fancy: bool = False):
+              obj = str.__new__(cls, value)
+              obj._value_ = value
+      #           ^^^^^^^ WARNING Unresolved attribute reference '_value_' for class 'str' FIXME # `str.__new__(cls)` must be `Self`
+              return obj
+
+          ONE = "Hello", True
+          TWO = "World"
+      """.trimIndent())
+
+    @Test
+    @TestFor(issues = ["PY-92177"])
+    fun `custom metaclass new keeps the member value check`() = test("""
+      from enum import EnumType, StrEnum
+
+      class LabelledType(EnumType):
+          def __new__(metacls, classname, bases, classdict, **kwds):
+              return super().__new__(metacls, classname, bases, classdict, **kwds)
+
+      class Labelled(StrEnum, metaclass=LabelledType):
+          pass
+
+      class Provider(Labelled):
+          OTHER = "other", "Other" # WARNING Expected type 'str', got 'tuple[Literal["other"], Literal["Other"]]' instead
+      """.trimIndent())
+
+    @Test
+    @TestFor(issues = ["PY-92177"])
+    fun `django choices metaclass drops the member label`() {
+      myFixture.addFileToProject("django/db/models/enums.py", """
+        import enum
+
+        class ChoicesType(enum.EnumType):
+            def __new__(metacls, classname, bases, classdict, **kwds):
+                return super().__new__(metacls, classname, bases, classdict, **kwds)
+
+        class Choices(enum.Enum, metaclass=ChoicesType):
+            pass
+
+        class TextChoices(str, Choices):
+            pass
+        """.trimIndent())
+      test("""
+        from django.db.models.enums import TextChoices
+
+        class Provider(TextChoices):
+            OTHER = "other", "Other"
+        """.trimIndent())
+    }
+
+    @Test
+    @TestFor(issues = ["PY-37455"])
+    fun `member name in the class body refers to the assigned value`() = test("""
+      from enum import Enum
+
+      class Color(Enum):
+          RED = 1
+          PINK = 8 + RED
+          lookup = {2: 1}
+          GREEN = lookup.get(2)
+          BLUE = lookup[2]
+          R = RED
+
+      expr = Color.PINK.value, Color.GREEN.value, Color.BLUE.value, Color.R
+      #└ TYPE tuple[int, int | None, int, Literal[Color.RED]]
+      """.trimIndent())
+
+    @Test
     @TestFor(issues = ["PY-90192"])
     fun `init enum member custom new`() = test("""
       from enum import Enum
@@ -469,6 +542,40 @@ class PyEnumTypeTest : PyCodeInsightTestCase() {
       
       expr = Color.BLUE.value
       # └ TYPE tuple[Literal[2], Literal["blue"]]
+      """.trimIndent())
+
+    @Test
+    @TestFor(issues = ["PY-51981"])
+    fun `value type of enum member with a named tuple data type`() = test("""
+      from collections import namedtuple
+      from enum import Enum
+
+      Point = namedtuple("Point", ["x", "y"])
+
+      class Points(Point, Enum):
+          POINT_1 = 10, 20
+          POINT_2 = 30, 40
+
+      expr = Points.POINT_1.value, Points.POINT_1.value.x
+      # └ TYPE tuple[Point, Unknown]
+      """.trimIndent())
+
+    @Test
+    @TestFor(issues = ["PY-51981"])
+    fun `value type of enum member with a typing named tuple data type`() = test("""
+      from enum import Enum
+      from typing import NamedTuple
+
+      class Point(NamedTuple):
+          x: int
+          y: int
+
+      class Points(Point, Enum):
+          POINT_1 = 10, 20
+          POINT_2 = 30, 40
+
+      expr = Points.POINT_1.value, Points.POINT_1.value.x
+      # └ TYPE tuple[Point, int]
       """.trimIndent())
 
     @Test
@@ -928,6 +1035,27 @@ class PyEnumTypeTest : PyCodeInsightTestCase() {
       expr = Color["RED"]
       #└ TYPE Color
       """.trimIndent())
+
+    @Test
+    @TestFor(issues = ["PY-77355"])
+    fun `indexer of a str enum yields enum instance`() = test("""
+      from enum import Enum, StrEnum
+
+      class Color(StrEnum):
+          RED = "red"
+
+      expr = Color["RED"]
+      #└ TYPE Color
+
+      class StrMixinEnum(str, Enum):
+          pass
+
+      class Kind(StrMixinEnum):
+          A = "a"
+
+      def to_kind(s: str) -> Kind:
+          return Kind[s]
+      """.trimIndent())
   }
 
   @Nested
@@ -1115,6 +1243,205 @@ class PyEnumTypeTest : PyCodeInsightTestCase() {
           def foo(self):
               # StrEnum inherits str which inherits Iterable[str], thus, iterable for both instance and definition
               return set(self) # OK
+      """.trimIndent())
+  }
+
+  @Nested
+  inner class DefinitionErrors {
+
+    @Test
+    @TestFor(issues = ["PY-79199"])
+    fun `enum base must be the last base class`() = test("""
+      from enum import Enum, IntEnum
+
+      class Mixin: ...
+
+      class A(Enum, Mixin):
+      #       ^^^^ ERROR Enum class 'Enum' must be the last base class
+          a = 1
+
+      class B(Mixin, Enum):
+          b = 1
+
+      # The enum machinery accepts this order. The class still fails at run time, but for its MRO, not for this rule.
+      class C(int, Mixin, IntEnum):
+          c = 1
+      """.trimIndent())
+
+    @Test
+    @TestFor(issues = ["PY-90287"])
+    @TestCaseOptions(languageLevel = LanguageLevel.PYTHON312)
+    fun `reserved sunder names in Python 3_12`() = test("""
+      from enum import Enum
+
+      class E(Enum):
+          _numeric_repr_ = repr
+          _iter_member_ = None
+          _add_alias_ = None
+      #   ^^^^^^^^^^^ ERROR The name '_add_alias_' is reserved for future Enum use
+          _create_pseudo_member_ = None
+      #   ^^^^^^^^^^^^^^^^^^^^^^ ERROR The name '_create_pseudo_member_' is reserved for future Enum use
+          b = 1
+
+          def _repr_html_(self): ...
+      #       ^^^^^^^^^^^ ERROR The name '_repr_html_' is reserved for future Enum use
+      """.trimIndent())
+
+    @Test
+    @TestFor(issues = ["PY-90287"])
+    @TestCaseOptions(languageLevel = LanguageLevel.PYTHON310)
+    fun `reserved sunder names in Python 3_10`() = test("""
+      from enum import Enum
+
+      class E(Enum):
+          _create_pseudo_member_ = None
+          _numeric_repr_ = repr
+      #   ^^^^^^^^^^^^^^ ERROR The name '_numeric_repr_' is reserved for future Enum use
+          _iter_member_ = None
+      #   ^^^^^^^^^^^^^ ERROR The name '_iter_member_' is reserved for future Enum use
+          b = 1
+      """.trimIndent())
+
+    @Test
+    @TestFor(issues = ["PY-90287"])
+    fun `reserved sunder names`() = test("""
+      from enum import Enum
+
+      class E(Enum):
+          _a_ = 1
+      #   ^^^ ERROR The name '_a_' is reserved for future Enum use
+          _value_: int
+          _order_ = "b"
+          _ignore_ = ["tmp"]
+          b = 1
+
+          def _foo_(self): ...
+      #       ^^^^^ ERROR The name '_foo_' is reserved for future Enum use
+
+          @classmethod
+          def _missing_(cls, value): ...
+
+          def _repr_html_(self): ...
+      """.trimIndent())
+
+    @Test
+    @TestFor(issues = ["PY-16077", "PY-90288"])
+    fun `unique enum ignores a name that _ignore_ lists`() = test("""
+      from enum import Enum, unique
+
+      @unique
+      class Color(Enum):
+          _ignore_ = ["tmp", "other"]
+          tmp = 1
+          other = 2
+          RED = 1
+
+      def f(c: Color):
+          expr = c.value
+      #   └ TYPE Literal[1]
+      """.trimIndent())
+
+    @Test
+    @TestFor(issues = ["PY-90288"])
+    fun `_ignore_ as a string or a tuple`() = test("""
+      from enum import Enum, unique
+
+      @unique
+      class BySpace(Enum):
+          _ignore_ = "tmp other"
+          tmp = 1
+          other = 2
+          RED = 1
+
+      @unique
+      class ByComma(Enum):
+          _ignore_ = "tmp, other"
+          tmp = 1
+          other = 2
+          RED = 1
+
+      @unique
+      class ByTuple(Enum):
+          _ignore_ = ("tmp", "other")
+          tmp = 1
+          other = 2
+          RED = 1
+
+      def f(a: BySpace, b: ByComma, c: ByTuple):
+          expr = a.name, b.name, c.name
+      #   └ TYPE tuple[Literal["RED"], Literal["RED"], Literal["RED"]]
+      """.trimIndent())
+
+    @Test
+    @TestFor(issues = ["PY-90288"])
+    fun `name that _ignore_ lists is no member`() = test("""
+      from enum import Enum
+
+      class Color(Enum):
+          _ignore_ = ["tmp"]
+          tmp = 1
+          RED = 1
+          GREEN = 2
+
+      def f(c: Color):
+          expr = c.name
+      #   └ TYPE Literal["RED", "GREEN"]
+      """.trimIndent())
+
+    @Test
+    @TestFor(issues = ["PY-16077"])
+    fun `unique enum with values that compare equal`() = test("""
+      from enum import Enum, unique
+
+      @unique
+      class Color(Enum):
+          RED = 1
+          TRUE = True
+      #          ^^^^ ERROR Unique enum member 'TRUE' has the same value as 'RED'
+          ONE_POINT_O = 1.0
+      #                 ^^^ ERROR Unique enum member 'ONE_POINT_O' has the same value as 'RED'
+          TEN = 10
+          TEN_POINT_O = 10.0
+      #                 ^^^^ ERROR Unique enum member 'TEN_POINT_O' has the same value as 'TEN'
+      """.trimIndent())
+
+    @Test
+    @TestFor(issues = ["PY-16077"])
+    fun `unique enum with values that only look equal`() = test("""
+      from enum import Enum, unique
+
+      @unique
+      class Color(Enum):
+          S = "s"
+          BYTES_S = b"s"
+          ONE = 1
+          IMAGINARY_ONE = 1j
+      """.trimIndent())
+
+    @Test
+    @TestFor(issues = ["PY-16077"])
+    fun `unique enum with duplicate values`() = test("""
+      from enum import Enum, unique
+      import enum
+
+      @unique
+      class Color(Enum):
+          RED = 1
+          GREEN = 2
+          CRIMSON = 1
+      #             └ ERROR Unique enum member 'CRIMSON' has the same value as 'RED'
+          R = RED
+      #       ^^^ ERROR Unique enum member 'R' has the same value as 'RED'
+
+      @enum.unique
+      class Size(Enum):
+          SMALL = "s"
+          LITTLE = "s"
+      #            ^^^ ERROR Unique enum member 'LITTLE' has the same value as 'SMALL'
+
+      class NotUnique(Enum):
+          A = 1
+          B = 1
       """.trimIndent())
   }
 

@@ -15,6 +15,7 @@ use std::time::{Duration, Instant, SystemTime};
 use avl_base::sync::lock;
 use avl_host_sys::Runner;
 use avl_host_sys::private::{PrivateOpen, open_private_file};
+use avl_host_sys::proc::ChildGroup;
 use avl_host_sys::viewer::{DetachRequest, PROBE_TIMEOUT, Started, format_duration, probe_viewer, start_detached};
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio_util::sync::CancellationToken;
@@ -166,7 +167,16 @@ fn find_or_start(
             format!("the controller's runtime root is unknown: {}", refused.message),
         )
     })?;
-    let Started { mut child, log_path } = start_detached(runner, command, None, request, &root)
+    // Without `BUILD_WORKSPACE_DIRECTORY` the server finds its checkout from its directory, so it runs where the caller
+    // runs.
+    let directory = std::env::current_dir().map_err(|error| {
+        Refusal::new(
+            "viewer_start_failed",
+            Exit::Broken,
+            format!("cannot name the current directory: {error}"),
+        )
+    })?;
+    let Started { mut child, log_path } = start_detached(runner, command, &directory, request, &root)
         .map_err(|refused| Refusal::new(refused.code, Exit::Broken, refused.message))?;
     let deadline = Instant::now() + DETACH_WAIT;
     loop {
@@ -223,6 +233,9 @@ const SITE_BUILD_OUTPUT_LINES: usize = 30;
 
 /// The directory of the site's sources, under its project directory.
 pub(crate) const SITE_SOURCES_DIR: &str = "src";
+/// The directories of the kernel's sources, under the kernel directory: the shell, the scripts the build runs, and
+/// the styles.
+pub(crate) const KERNEL_SOURCES_DIRS: [&str; 3] = ["src", "scripts", "styles"];
 
 impl SiteBuild {
     fn keep(&mut self, chunk: &str) {
@@ -237,24 +250,43 @@ impl SiteBuild {
     }
 }
 
+/// The directories whose files the site is built from: the project's sources, then the kernel's.
+pub(crate) fn site_source_dirs(project: &Path, kernel: Option<&Path>) -> Vec<PathBuf> {
+    let kernel_dirs = kernel
+        .into_iter()
+        .flat_map(|kernel| KERNEL_SOURCES_DIRS.map(|dir| kernel.join(dir)));
+    std::iter::once(project.join(SITE_SOURCES_DIR)).chain(kernel_dirs).collect()
+}
+
 /// Why the site needs a build: its `index.html` is missing, or older than the newest file under the project's
-/// sources. `None` when the site is current, or when there is no project to build it from.
-pub(crate) fn site_needs_build(project: Option<&Path>, site: Option<&Path>) -> Option<&'static str> {
+/// sources or the kernel's. `None` when the site is current, or when there is no project to build it from.
+pub(crate) fn site_needs_build(project: Option<&Path>, kernel: Option<&Path>, site: Option<&Path>) -> Option<&'static str> {
     let (project, site) = (project?, site?);
     if !project.join("package.json").exists() {
         return None;
     }
-    let Ok(index) = fs::metadata(site.join("index.html")).and_then(|info| info.modified()) else {
+    let index = site.join("index.html");
+    if fs::metadata(&index).and_then(|info| info.modified()).is_err() {
         return Some("the site is not built");
+    }
+    newer_sources(&index, &site_source_dirs(project, kernel)).then_some("the site is older than its sources")
+}
+
+/// Whether a file under `sources`, each a directory or a file, is newer than the built `index`. An `index` that does
+/// not read counts as older than every source.
+pub(crate) fn newer_sources(index: &Path, sources: &[PathBuf]) -> bool {
+    let Ok(built) = fs::metadata(index).and_then(|info| info.modified()) else {
+        return true;
     };
-    let newest = walkdir::WalkDir::new(project.join(SITE_SOURCES_DIR))
-        .into_iter()
+    let newest = sources
+        .iter()
+        .flat_map(walkdir::WalkDir::new)
         .filter_map(Result::ok)
         .filter(|entry| !entry.file_type().is_dir())
         .filter_map(|entry| entry.metadata().ok()?.modified().ok())
         .max()
         .unwrap_or(SystemTime::UNIX_EPOCH);
-    (newest > index).then_some("the site is older than its sources")
+    newest > built
 }
 
 impl Server {
@@ -262,7 +294,13 @@ impl Server {
     /// build stays failed until the server starts again, and the placeholder page says why.
     pub(crate) async fn build_site_once(self: Arc<Self>, cancel: CancellationToken) {
         let reason = self
-            .blocking(|server| site_needs_build(server.settings.site_project.as_deref(), server.settings.site_dir.as_deref()))
+            .blocking(|server| {
+                site_needs_build(
+                    server.settings.site_project.as_deref(),
+                    server.settings.site_kernel.as_deref(),
+                    server.settings.site_dir.as_deref(),
+                )
+            })
             .await;
         let (Some(reason), Some(project)) = (reason, self.settings.site_project.clone()) else {
             return;
@@ -274,7 +312,7 @@ impl Server {
             (server.settings.log)(chunk.trim_end_matches('\n'));
             lock(&server.site_build).keep(chunk);
         });
-        let built = (self.settings.build_site)(project, output, cancel).await;
+        let built = (self.settings.build_site)(project, self.settings.site_kernel.clone(), output, cancel).await;
         {
             let mut state = lock(&self.site_build);
             state.running = false;
@@ -291,25 +329,24 @@ impl Server {
 
 // --- the site build ------------------------------------------------------------------------------------------
 
-/// The Bazel labels of the node and the pnpm the site is built with; `//:MODULE.bazel` pins their versions.
-pub(crate) const SITE_NODE_LABEL: &str = "//build:air_docs_node";
-pub(crate) const SITE_PNPM_LABEL: &str = "//build:air_docs_pnpm";
+/// The Bazel labels of the node and the pnpm that every docs site is built with; `//:MODULE.bazel` pins their versions.
+pub(crate) const SITE_NODE_LABEL: &str = "//build:docs_site_node";
+pub(crate) const SITE_PNPM_LABEL: &str = "//build:docs_site_pnpm";
 /// Name the site's node and pnpm directly, together. For a server started outside a checkout, and for a test.
 pub(crate) const SITE_NODE_VARIABLE: &str = "AIR_TRACE_NODE";
 pub(crate) const SITE_PNPM_VARIABLE: &str = "AIR_TRACE_PNPM";
 /// The checkout the wrapper ran from, which it exports and a detached server inherits; `bazel.cmd` is there.
 const CHECKOUT_VARIABLE: &str = "BUILD_WORKSPACE_DIRECTORY";
 const BAZEL_WRAPPER: &str = "bazel.cmd";
-/// The options of every Bazel call here. `trace.cmd` builds with `--config=air-lane-linux`, and Bazel keys its
-/// analysis cache on build options, so a call without it would discard the analysis the last lane build made; see
-/// `host_bazel_argv` in the `lane` module of the controller. The convenience symlinks of a working copy that several sessions share are left
+/// The options of every Bazel call here. None is a build option, because Bazel keys its analysis cache on build options,
+/// and a call with one of its own would discard the analysis of the last lane build; see `host_bazel_argv` in the
+/// `lane` module of the controller. The convenience symlinks of a working copy that several sessions share are left
 /// alone, and Bazel's progress is kept out of the log.
-const BAZEL_OPTIONS: [&str; 6] = [
+const BAZEL_OPTIONS: [&str; 5] = [
     "--color=no",
     "--curses=no",
     "--noshow_progress",
     "--ui_event_filters=-info",
-    "--config=air-lane-linux",
     "--experimental_convenience_symlinks=ignore",
 ];
 
@@ -338,55 +375,74 @@ pub(crate) struct SiteStep {
 /// spawn finds a `.cmd` on the PATH only by its full name.
 pub(crate) const PATH_PNPM: &str = if cfg!(windows) { "pnpm.cmd" } else { "pnpm" };
 
-/// The steps that build the site: `pnpm install --frozen-lockfile` when `install` says the dependencies are
-/// missing, then `pnpm build`, which harvests the model and runs Vite.
-pub(crate) fn site_steps(tools: &SiteTools, project: &Path, install: bool) -> Vec<SiteStep> {
+/// The last step of the site build: `pnpm build`, which harvests the model and runs Vite.
+const SITE_BUILD: [&str; 1] = ["build"];
+
+/// The steps that build a docs project. First `pnpm install --frozen-lockfile` runs in each directory of `installs`, in
+/// order. Then [SITE_BUILD] runs in the project.
+pub(crate) fn site_steps(tools: &SiteTools, installs: &[&Path], project: &Path) -> Vec<SiteStep> {
     let (program, path_prefix) = match tools {
         SiteTools::Pinned { node, pnpm } => (pnpm.clone(), node.parent().map(Path::to_path_buf)),
         SiteTools::Path => (PathBuf::from(PATH_PNPM), None),
     };
-    let step = |verb: &[&str]| SiteStep {
-        label: format!("pnpm --dir {} {}", project.display(), verb.join(" ")),
+    let step = |dir: &Path, verb: &[&str]| SiteStep {
+        label: format!("pnpm --dir {} {}", dir.display(), verb.join(" ")),
         program: program.clone(),
-        args: [OsString::from("--dir"), project.as_os_str().to_owned()]
+        args: [OsString::from("--dir"), dir.as_os_str().to_owned()]
             .into_iter()
             .chain(verb.iter().map(OsString::from))
             .collect(),
         path_prefix: path_prefix.clone(),
     };
-    let mut steps = Vec::new();
-    if install {
-        steps.push(step(&["install", "--frozen-lockfile"]));
-    }
-    steps.push(step(&["build"]));
-    steps
+    installs
+        .iter()
+        .map(|dir| step(dir, &["install", "--frozen-lockfile"]))
+        .chain([step(project, &SITE_BUILD)])
+        .collect()
 }
 
-/// The site build with the tools the environment provides. The dependencies are installed first when the
-/// project has no `node_modules`.
-pub(crate) async fn build_site(project: PathBuf, output: BuildOutput, cancel: CancellationToken) -> Result<(), Refusal> {
+/// The directories that need `pnpm install` before the build, because they have no `node_modules`: the kernel
+/// first, since the project links it, then the project. A kernel without `package.json` is not one.
+pub(crate) fn site_installs<'a>(project: &'a Path, kernel: Option<&'a Path>) -> Vec<&'a Path> {
+    let kernel = kernel.filter(|kernel| kernel.join("package.json").is_file());
+    kernel
+        .into_iter()
+        .chain([project])
+        .filter(|dir| !dir.join("node_modules").exists())
+        .collect()
+}
+
+/// The site build with the tools the environment provides. The dependencies of the kernel and of the project are
+/// installed first where they are missing, per [`site_installs`].
+pub(crate) async fn build_site(
+    project: PathBuf,
+    kernel: Option<PathBuf>,
+    output: BuildOutput,
+    cancel: CancellationToken,
+) -> Result<(), Refusal> {
     let tools = site_tools(&output, &cancel).await?;
-    let install = !project.join("node_modules").exists();
-    build_site_with(&tools, &project, install, &output, &cancel).await
+    let installs = site_installs(&project, kernel.as_deref());
+    output(&format!("air-trace serve: building the site {}\n", tools_text(&tools)));
+    build_site_with(&tools, &installs, &project, &output, &cancel).await
+}
+
+/// The tools of a build as a log line names them: `with <node> and <pnpm>`, or `with the pnpm on the PATH`.
+pub(crate) fn tools_text(tools: &SiteTools) -> String {
+    match tools {
+        SiteTools::Pinned { node, pnpm } => format!("with {} and {}", node.display(), pnpm.display()),
+        SiteTools::Path => "with the pnpm on the PATH".to_owned(),
+    }
 }
 
 /// Runs [`site_steps`] in order, and stops at the first that fails.
 pub(crate) async fn build_site_with(
     tools: &SiteTools,
+    installs: &[&Path],
     project: &Path,
-    install: bool,
     output: &BuildOutput,
     cancel: &CancellationToken,
 ) -> Result<(), Refusal> {
-    match tools {
-        SiteTools::Pinned { node, pnpm } => output(&format!(
-            "air-trace serve: building the site with {} and {}\n",
-            node.display(),
-            pnpm.display()
-        )),
-        SiteTools::Path => output("air-trace serve: building the site with the pnpm on the PATH\n"),
-    }
-    for step in site_steps(tools, project, install) {
+    for step in site_steps(tools, installs, project) {
         output(&format!("$ {}\n", step.label));
         run_step(&step, output, cancel).await?;
     }
@@ -456,7 +512,8 @@ async fn bazel_file(
     Ok(Path::new(root.trim()).join(path))
 }
 
-/// Runs the checkout's `bazel.cmd` with [`BAZEL_OPTIONS`] and answers its stdout; its stderr goes to `output`.
+/// Runs the checkout's `bazel.cmd` with [`BAZEL_OPTIONS`] and answers its stdout; its stderr goes to `output`. The
+/// client runs in a process group of its own, as a step does ([run_step]).
 async fn bazel(checkout: &Path, args: &[&str], output: &BuildOutput, cancel: &CancellationToken) -> Result<String, Refusal> {
     let (command, rest) = args.split_first().expect("a bazel command");
     let label = format!("bazel {}", args.join(" "));
@@ -470,7 +527,11 @@ async fn bazel(checkout: &Path, args: &[&str], output: &BuildOutput, cancel: &Ca
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .kill_on_drop(true);
+    ChildGroup::prepare(&mut process);
     let mut child = process.spawn().map_err(|error| build_failed(format!("{label}: {error}")))?;
+    // After the child, so it drops first, while the unreaped leader still holds the group id.
+    let tree =
+        ChildGroup::attach(&child).map_err(|error| build_failed(format!("{label}: cannot take it into a process group: {error}")))?;
     let stdout = child.stdout.take();
     let err = forward_lines(child.stderr.take().map(|stream| Box::new(stream) as _), output);
     let out = tokio::spawn(async move {
@@ -485,6 +546,8 @@ async fn bazel(checkout: &Path, args: &[&str], output: &BuildOutput, cancel: &Ca
         text
     });
     let status = wait_or_cancel(&mut child, cancel, &label).await?;
+    // What the client left running ends with it, so its pipes close.
+    drop(tree);
     let text = out.await.unwrap_or_default();
     let _ = err.await;
     if !status.success() {
@@ -493,7 +556,9 @@ async fn bazel(checkout: &Path, args: &[&str], output: &BuildOutput, cancel: &Ca
     Ok(text)
 }
 
-/// Runs one step with its output forwarded, and fails with the step's label and its exit status.
+/// Runs one step with its output forwarded, and fails with the step's label and its exit status. The step runs in a
+/// process group of its own. A build can be dropped at a timeout or when the server stops. Then every process that the
+/// step started ends. What a step leaves running when it ends is stopped too.
 async fn run_step(step: &SiteStep, output: &BuildOutput, cancel: &CancellationToken) -> Result<(), Refusal> {
     let mut command = tokio::process::Command::new(&step.program);
     command
@@ -502,6 +567,7 @@ async fn run_step(step: &SiteStep, output: &BuildOutput, cancel: &CancellationTo
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .kill_on_drop(true);
+    ChildGroup::prepare(&mut command);
     if let Some(prefix) = &step.path_prefix {
         let rest = std::env::var_os("PATH").unwrap_or_default();
         let entries = std::iter::once(prefix.clone()).chain(std::env::split_paths(&rest));
@@ -513,9 +579,13 @@ async fn run_step(step: &SiteStep, output: &BuildOutput, cancel: &CancellationTo
         (io::ErrorKind::NotFound, None) => Refusal::new("site_pnpm_missing", Exit::Broken, "pnpm is not on the PATH of the server"),
         _ => build_failed(format!("{}: {}: {error}", step.label, step.program.display())),
     })?;
+    // After the child, so it drops first, while the unreaped leader still holds the group id.
+    let tree = ChildGroup::attach(&child)
+        .map_err(|error| build_failed(format!("{}: cannot take it into a process group: {error}", step.label)))?;
     let out = forward_lines(child.stdout.take().map(|stream| Box::new(stream) as _), output);
     let err = forward_lines(child.stderr.take().map(|stream| Box::new(stream) as _), output);
     let status = wait_or_cancel(&mut child, cancel, &step.label).await?;
+    drop(tree);
     let _ = out.await;
     let _ = err.await;
     if !status.success() {

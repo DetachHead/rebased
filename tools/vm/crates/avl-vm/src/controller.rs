@@ -8,9 +8,9 @@ use std::sync::Arc;
 use crate::daemon::{Host, flake, parked_daemon_probe, shard};
 use crate::worker::lease::{LeaseCommand, command_lease, receipt_backend};
 use crate::worker::worker::{Dependencies, Manager};
-use avl_base::config::{Presentation, WORKSPACE_DIR};
+use avl_base::config::{MacosHost, Presentation, WORKSPACE_DIR};
 use avl_base::report::{self, Mode, Terminal};
-use avl_base::{Config, Environment, Exit, Outcome, Refusal, Reporter, Selection};
+use avl_base::{Config, Environment, Exit, HostFacts, Outcome, Refusal, Reporter, Selection};
 use avl_host_sys::lock::LockManager;
 use avl_host_sys::{Ctx, Interrupts, Runner};
 use serde::Serialize;
@@ -140,7 +140,7 @@ impl Controller {
         let manager = self.manager.as_ref();
         match command {
             Cmd::Image { action } => command_image(ctx, manager, action, output).await,
-            Cmd::Pool { verb } => manager.pool(ctx, verb.into()).await,
+            Cmd::Pool { verb } => manager.pool(ctx, verb.into(), lease_file).await,
             Cmd::Status => crate::lane::command_status(ctx, manager).await,
             Cmd::Lease { verb } => {
                 let command = match verb {
@@ -150,7 +150,9 @@ impl Controller {
                 let probe = parked_daemon_probe(Arc::clone(&self.settings), self.host.daemon().clone());
                 command_lease(ctx, manager, &command, lease_file, &probe).await
             }
-            Cmd::Suites { paths } => crate::lane::command_suites(ctx, &self.settings, &self.runner, paths, &self.reporter).await,
+            Cmd::Suites { paths, base } => {
+                crate::lane::command_suites(ctx, &self.settings, &self.runner, paths, base.as_deref(), &self.reporter).await
+            }
             Cmd::Run(args) => self.host.command_run(ctx, &args, lease_file).await,
             Cmd::Shard(args) => shard::command_shard(ctx, &self.host, args).await,
             Cmd::Flake(args) => flake::command_flake(ctx, &self.host, args, lease_file).await,
@@ -171,6 +173,7 @@ impl Controller {
                 };
                 bench.command(ctx, verb).await
             }
+            Cmd::Report { verb } => crate::report::command_report(&self.settings, verb),
         }
     }
 }
@@ -241,7 +244,11 @@ pub(crate) async fn run(
     let result = async {
         let selection = resolve_selection(selection, lease_file.as_deref())?;
         let root = resolve_checkout_root(&variables)?;
-        let settings = Config::load(selection, &variables, &root.join(WORKSPACE_DIR))?;
+        let facts = HostFacts {
+            macos: MacosHost::read(),
+            memory_mib: avl_host_sys::host::memory_mib(),
+        };
+        let settings = Config::load(facts, selection, &variables, &root.join(WORKSPACE_DIR))?;
         let ctx = interrupts.context();
         let controller = Controller::new(settings, variables.clone(), reporter.clone(), interrupts.clone());
         if form.output == Output::Text && command.is_run() {

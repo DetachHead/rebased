@@ -1,8 +1,8 @@
 //! The golden replay and the process loop.
 //!
 //! The golden bundle is not a hand-written example of the format but what the recorder writes for the golden
-//! transcript. The viewer's tests read it, so this is the test that keeps the viewer honest about the recorder, and
-//! the transcript is the one the sidecar's contract test holds the lane to: the three ends meet here.
+//! transcript. The viewer's tests read it, so this is the test that keeps the viewer honest about the recorder. The
+//! transcript is in the canonical form that the lane writes, so the three ends meet here.
 //!
 //! This recorder wrote the goldens, so every file is compared byte for byte: a change of key order, float or escape
 //! formatting fails the replay. A deliberate format change regenerates the text files under cargo with
@@ -16,8 +16,12 @@ use std::path::Path;
 use std::thread;
 use std::time::{Duration, Instant};
 
+use avl_testkit::ClosedPipe;
 use avl_testkit::traces::{self, EXAMPLE_BUNDLE, TRANSCRIPT, TRUNCATED_EXAMPLE_BUNDLE, TRUNCATED_TRANSCRIPT};
-use avl_trace::bundle::{BundleStatus, IDEA_LOG_FILE, SNAP_DIR, bundle_file};
+use avl_trace::bundle::{
+    ALLURE_RESULT_SUFFIX, BundleStatus, IDEA_LOG_FILE, SNAP_DIR, StillEncoding, allure_result_file, allure_results_dir, bundle_file,
+    decode_allure_result, picture_mime, snap_image_path,
+};
 use avl_trace::otlp::{attr, event, lookup_str, span_id};
 use avl_trace::protocol::{CaptureSource, Status, VideoCodec, decode_command, decode_hello_ack};
 use expect_test::expect_file;
@@ -50,7 +54,7 @@ fn assert_golden_files(produced: &BTreeMap<String, Vec<u8>>, golden: &Path, what
 
 /// Whether a bundle path names a still, the one binary file of a golden bundle.
 fn is_still(name: &str) -> bool {
-    name.starts_with(&format!("{SNAP_DIR}/")) && name.ends_with(".webp")
+    name.starts_with(&format!("{SNAP_DIR}/")) && picture_mime(name).is_some()
 }
 
 /// Holds a produced file to its golden one, byte for byte: a still, which `expect-test` cannot hold, or a snapshot of
@@ -89,6 +93,50 @@ fn the_golden_transcript_replays_into_the_golden_bundle() {
     expect_file![absolute(&record_testdata(GOLDEN_ACKS))].assert_eq(&h.acks.text());
 }
 
+/// With the Allure results asked for, the golden transcript's Allure result is `example.allure-result.json` of the
+/// recorder's testdata, and every file it names is in the results directory, a picture with the bytes of the bundle's
+/// still.
+#[test]
+fn the_golden_transcript_writes_the_golden_allure_result() {
+    let h = Harness::new();
+    h.replay(&Harness::with_allure(&traces::file_lines(TRANSCRIPT)));
+    let manifest = manifest_of(&h.bundle());
+    let results = allure_results_dir(&h.root, &manifest.run_id);
+    let names: Vec<String> = fs::read_dir(&results)
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+        .filter(|name| name.ends_with(ALLURE_RESULT_SUFFIX))
+        .collect();
+    let [name] = names.as_slice() else {
+        panic!("the golden scenario writes one result: {names:?}");
+    };
+    let document = fs::read(results.join(name)).unwrap();
+    expect_file![absolute(&record_testdata(GOLDEN_ALLURE_RESULT))].assert_eq(std::str::from_utf8(&document).unwrap());
+    let result = decode_allure_result(&document).unwrap();
+    assert_eq!(name, &allure_result_file(&result.uuid));
+    for source in result.sources() {
+        assert!(results.join(source).is_file(), "the result names {source}, which is not there");
+    }
+    let still = |ordinal| fs::read(bundle_file(&h.bundle(), &snap_image_path(ordinal, StillEncoding::Lossless))).unwrap();
+    // The reset before the setup takes no snapshot, so the setup's Before is the first picture.
+    let setup = &result.steps[1];
+    assert_eq!(
+        (result.steps[0].attachments.len(), setup.attachments[0].name.as_str()),
+        (0, "Before")
+    );
+    assert_eq!(fs::read(results.join(&setup.attachments[0].source)).unwrap(), still(1));
+}
+
+/// The golden hello does not ask for the Allure results, so the replay writes the bundle and no results directory.
+#[test]
+fn the_golden_transcript_writes_no_allure_result_unasked() {
+    let h = Harness::new();
+    h.replay(&traces::file_lines(TRANSCRIPT));
+    let manifest = manifest_of(&h.bundle());
+    let results = allure_results_dir(&h.root, &manifest.run_id);
+    assert!(!results.exists(), "{} exists", results.display());
+}
+
 /// Every acked line of the golden transcript is answered, positively and in order, with the line it answers.
 #[test]
 fn every_acked_line_is_answered_with_its_line_number() {
@@ -112,7 +160,7 @@ fn every_acked_line_is_answered_with_its_line_number() {
     );
 }
 
-/// A watchdog's `exitProcess` leaves the recorder reading EOF inside an assertion. The bundle is still finished:
+/// A lane that dies inside an assertion leaves the recorder reading EOF. The bundle is still finished:
 /// every span that was open is written as aborted, and the manifest names the assertion.
 #[test]
 fn a_truncated_transcript_closes_the_bundle_naming_the_running_span() {
@@ -170,8 +218,8 @@ fn compare_truncated_golden(produced: &BTreeMap<String, Vec<u8>>) {
     }
 }
 
-/// `AirTraceRecorderProcess` starts `air-trace-record` with no argument, and the recorder takes none. The argv an
-/// older lane passed, `record`, is refused as a usage error rather than taken for a session, and no refusal exits
+/// `RecorderProcess` of `avl-guest` starts `air-trace-record` with no argument, and the recorder takes none. The argv
+/// an older lane passed, `record`, is refused as a usage error rather than taken for a session, and no refusal exits
 /// with 78, which `trace.cmd` keeps for its own failures. `tests/cli.rs` holds the binary to the same.
 #[test]
 fn an_argument_is_refused_before_a_session_starts() {
@@ -252,15 +300,6 @@ fn a_cancelled_run_finishes_the_bundle_too() {
 /// the end and finishes the bundle.
 #[test]
 fn acks_to_a_closed_pipe_do_not_stop_the_session() {
-    struct ClosedPipe;
-    impl Write for ClosedPipe {
-        fn write(&mut self, _: &[u8]) -> io::Result<usize> {
-            Err(io::ErrorKind::BrokenPipe.into())
-        }
-        fn flush(&mut self) -> io::Result<()> {
-            Err(io::ErrorKind::BrokenPipe.into())
-        }
-    }
     let h = Harness::new();
     let mut lines = traces::file_lines(TRANSCRIPT);
     lines[0] = h.rooted(&lines[0]);

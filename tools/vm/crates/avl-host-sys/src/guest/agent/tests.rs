@@ -76,7 +76,8 @@ async fn install_agent_skips_when_the_guest_already_runs_these_bytes() {
     let contract = format!(r#"{{"selfDigest":"{}"}}"#, agent_digest(b"agent bytes"));
     let channel = FakeChannel::spoke("air-docker-1", contract);
     let bazel = FakeBazel::default();
-    host.guest(&channel).install_agent(&bazel).await.unwrap();
+    let installed = host.guest(&channel).install_agent(&bazel).await.unwrap();
+    assert_eq!(installed, agent_digest(b"agent bytes"));
     // Exactly the one `contract` round-trip: no push, and - the expensive half - no resolution either, which is only
     // skippable because the comparison is against a host-side receipt rather than against the binary.
     let calls = channel.calls();
@@ -91,7 +92,8 @@ async fn install_agent_renames_onto_the_running_binary_and_records_what_it_pushe
     let source = host.agent_source("new agent bytes");
     host.settings.vm_agent_source = Some(source.clone());
     let channel = FakeChannel::new("air-docker-1");
-    host.guest(&channel).install_agent(&ForbiddenBazel).await.unwrap();
+    let pushed = host.guest(&channel).install_agent(&ForbiddenBazel).await.unwrap();
+    assert_eq!(pushed, agent_digest(b"new agent bytes"));
     let settings = &host.settings;
     let as_user = format!("/usr/bin/sudo -H -u {}", settings.vm_user);
     let incoming = format!("{}.incoming", settings.vm_agent);
@@ -107,6 +109,12 @@ async fn install_agent_renames_onto_the_running_binary_and_records_what_it_pushe
         ]
     );
     assert_eq!(channel.calls()[0].options.stdin.as_deref(), Some(&b"new agent bytes"[..]));
+    // `tee` echoes the binary to stdout. The agent of 2026-10-15 is 8.4 MB, above the capture limit of 8 MiB, so the
+    // write permits a truncated capture; the install failed as `subprocess_output_limit` without it.
+    assert!(
+        channel.calls()[0].options.allow_truncated,
+        "the agent write must permit the tee echo past the capture limit"
+    );
     let installed = installed_agent_receipt(settings, "air-docker-1", &host.quiet).unwrap();
     assert_eq!(installed, receipt(&host, &source, "new agent bytes"));
 }
@@ -204,19 +212,25 @@ async fn resolving_the_agent_takes_the_last_cquery_line() {
     assert_eq!((state.queries, state.root_requests), (1, 1));
 }
 
+/// Installs the agent on the guest of `host` with a Bazel whose cquery prints `stdout` under `root`, and answers the
+/// refusal of the install.
+async fn install_refusal(host: &Host, stdout: &str, root: &Path) -> Refusal {
+    let bazel = FakeBazel {
+        stdout: stdout.to_owned(),
+        root: root.to_owned(),
+        ..FakeBazel::default()
+    };
+    let channel = FakeChannel::new("air-docker-1");
+    host.guest(&channel).install_agent(&bazel).await.unwrap_err()
+}
+
 // Resolution never builds: a `bazel build` from inside a lease operation would spend minutes while holding the lease
 // lock, so a missing binary is a refusal naming the one command that fixes it.
 #[tokio::test]
 async fn resolving_the_agent_refuses_with_the_build_to_run() {
     let host = Host::new(GuestOs::Linux);
     let root = tempfile::tempdir().unwrap();
-    let bazel = FakeBazel {
-        stdout: "bazel-out/linux-arm64/vm-guest-agent\n".to_owned(),
-        root: root.path().to_owned(),
-        ..FakeBazel::default()
-    };
-    let channel = FakeChannel::new("air-docker-1");
-    let refusal = host.guest(&channel).install_agent(&bazel).await.unwrap_err();
+    let refusal = install_refusal(&host, "bazel-out/linux-arm64/vm-guest-agent\n", root.path()).await;
     assert_eq!(refusal.code, "guest_agent_missing");
     assert!(
         refusal
@@ -230,13 +244,7 @@ async fn resolving_the_agent_refuses_with_the_build_to_run() {
 #[tokio::test]
 async fn resolving_the_agent_refuses_an_empty_cquery_answer() {
     let host = Host::new(GuestOs::Linux);
-    let bazel = FakeBazel {
-        stdout: "\n\n".to_owned(),
-        root: host.dir().to_owned(),
-        ..FakeBazel::default()
-    };
-    let channel = FakeChannel::new("air-docker-1");
-    let refusal = host.guest(&channel).install_agent(&bazel).await.unwrap_err();
+    let refusal = install_refusal(&host, "\n\n", host.dir()).await;
     assert_eq!(refusal.code, "guest_agent_unresolved");
 }
 

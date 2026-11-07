@@ -1108,6 +1108,7 @@ plugins/gradle/completion/kotlin
 plugins/gradle/completion/toml
 plugins/gradle/java
 plugins/gradle/java/coverage
+plugins/gradle/java/coverage/tests
 plugins/gradle/java/groovy
 plugins/gradle/java/groovy/ml
 plugins/gradle/java/groovy/toml
@@ -1451,6 +1452,7 @@ plugins/maven/testFramework
 plugins/mcp-server
 plugins/mcp-server/mcpserver.frontend
 plugins/mcp-server/mcpserver.plugin
+plugins/mcp-server/mcpserver.skills
 plugins/mcp-server/mcpserver.stdio
 plugins/mcp-server/mcpserver.terminal
 plugins/mcp-server/mcpserver.terminal.frontend

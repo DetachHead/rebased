@@ -1,5 +1,5 @@
 //! The verbs: a `welcome`, an `open-project` or a `project` session from the build to the summary, `replay`, `gc`,
-//! `trace`, `activities`, `classes`, `compare` and `ls`.
+//! `trace`, `activities`, `classes`, `triggers`, `compare` and `ls`.
 
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
@@ -15,26 +15,29 @@ use jiff::tz::TimeZone;
 use serde_json::json;
 
 use super::activities;
-use super::arm::Arm;
+use super::arm::{Arm, ArmKind};
 use super::binary::{self, BinaryAge};
 use super::classes;
 use super::compare::{self, Compared};
 use super::digest;
 use super::files;
 use super::gc;
-use super::launch::{Launcher, RunPlan};
+use super::launch::{Launcher, Profiler, RunPlan};
 use super::load;
 use super::ls;
 use super::options::{BenchVerb, LaunchArgs};
+use super::profile::ProfileEvent;
 use super::record::{self, RunId, RunKind, RunRecord};
 use super::resolve;
 use super::session::{
-    self, BENCH_DIR, GenerationRef, GitInfo, MARKDOWN_PROJECT, Project, ProjectSource, RESULT_FILE, SESSION_FILE, SUMMARY_FILE, Sandbox,
-    SessionInfo, TEMPLATE_DIR,
+    self, BENCH_DIR, GenerationRef, GitInfo, MARKDOWN_PROJECT, MeasureModel, Project, ProjectSource, RESULT_FILE, SESSION_FILE,
+    SUMMARY_FILE, Sandbox, SessionInfo, TEMPLATE_DIR,
 };
+use super::spanclasses;
 use super::spans;
 use super::stage::{self, Generation};
 use super::summary::Summary;
+use super::triggers;
 use crate::lane::Bazel;
 
 /// The directories below a run sandbox that a copy must not carry: the FUS logs of the run that wrote the source.
@@ -60,7 +63,10 @@ struct Plan {
     runs: u32,
     cold: bool,
     profile: bool,
+    profile_event: ProfileEvent,
     project: Option<PlannedProject>,
+    /// The plugin that the twin arms suppress.
+    suppressed_plugin: Option<String>,
 }
 
 /// The project of a session.
@@ -98,11 +104,13 @@ impl Bench<'_> {
             BenchVerb::Welcome(args) => {
                 let plan = Plan {
                     command: "welcome",
-                    arms: args.arm.arms(),
+                    arms: args.arms(),
                     runs: args.runs,
-                    cold: args.cold,
-                    profile: args.profile,
+                    cold: args.measure.cold,
+                    profile: args.measure.profile,
+                    profile_event: args.measure.profile_event,
                     project: None,
+                    suppressed_plugin: args.measure.suppress.plugin.clone(),
                 };
                 self.session(ctx, &plan, &args.launch).await
             }
@@ -113,11 +121,13 @@ impl Bench<'_> {
                 }
                 let plan = Plan {
                     command: "open-project",
-                    arms: vec![Arm::OpenProject],
+                    arms: vec![Arm::OPEN_PROJECT],
                     runs: args.runs,
                     cold: false,
                     profile: false,
+                    profile_event: ProfileEvent::Cpu,
                     project: Some(PlannedProject::Open(project)),
+                    suppressed_plugin: None,
                 };
                 self.session(ctx, &plan, &args.launch).await
             }
@@ -126,9 +136,11 @@ impl Bench<'_> {
                     command: "project",
                     arms: args.arms().map_err(Refusal::usage)?,
                     runs: args.runs,
-                    cold: args.cold,
-                    profile: false,
+                    cold: args.cold(),
+                    profile: args.measure.profile,
+                    profile_event: args.measure.profile_event,
                     project: Some(PlannedProject::Start(project_source(&args.project, &working_dir()?)?)),
+                    suppressed_plugin: args.measure.suppress.plugin.clone(),
                 };
                 self.session(ctx, &plan, &args.launch).await
             }
@@ -141,8 +153,16 @@ impl Bench<'_> {
                 let report = activities::report(&self.locate(&args.selection.session)?, &args)?;
                 Outcome::new(&report, report.text())
             }
+            BenchVerb::Classes(args) if args.span.is_some() => {
+                let report = spanclasses::report(&self.locate(&args.session)?, &args)?;
+                Outcome::new(&report, report.text())
+            }
             BenchVerb::Classes(args) => {
                 let report = classes::report(&self.locate(&args.session)?, &args)?;
+                Outcome::new(&report, report.text())
+            }
+            BenchVerb::Triggers(args) => {
+                let report = triggers::report(&self.locate(&args.selection.session)?, &args)?;
                 Outcome::new(&report, report.text())
             }
             BenchVerb::Compare(args) => {
@@ -179,7 +199,7 @@ impl Bench<'_> {
                 ),
             ));
         }
-        let launcher_label = resolve::launcher_label(&args.target)?;
+        resolve::check_dist_label(&args.target)?;
         ensure_host_paths(ctx, self.runner, self.settings).await?;
         let repo = self.settings.host_repo()?.to_path_buf();
         let binary_age = binary::age(self.environment, &repo);
@@ -227,9 +247,7 @@ impl Bench<'_> {
         let _journal = journal::attach(&bench_root, self.reporter, &actor);
         std::fs::create_dir_all(&session).map_err(|error| session_failed(format!("cannot create {}: {error}", session.display())))?;
         self.reporter.note(format!("session {}", session.display()), None);
-        let result = self
-            .measure(ctx, plan, args, max_load, &repo, &license, &session, &launcher_label, warnings)
-            .await;
+        let result = self.measure(ctx, plan, args, max_load, &repo, &license, &session, warnings).await;
         self.reporter
             .publish(Event::RunFinished(journal::run_finished(result.as_ref().err())), None);
         result
@@ -244,19 +262,30 @@ impl Bench<'_> {
         repo: &Path,
         license: &Path,
         session: &Path,
-        launcher_label: &str,
         mut warnings: Vec<String>,
     ) -> Result<Outcome, Refusal> {
-        let build_log = session.join("build.log");
-        let labels = [args.target.clone(), launcher_label.to_owned()];
-        self.bazel.build_labels(ctx, &build_log, &labels).await?;
-        let sources = resolve::sources(ctx, self.bazel, repo, &args.target, launcher_label).await?;
-        let generation = stage::stage(ctx, self.locks, &self.settings.runtime_root, &sources, self.reporter).await?;
+        let (generation, git, target) = if let Some(prefix) = &args.generation {
+            let staged = stage::open(&self.settings.runtime_root, prefix)?;
+            let (git, warning) = session::staged_commit(&staged.generation.digest, staged.git);
+            warnings.extend(warning);
+            (staged.generation, git, staged.target)
+        } else {
+            let build_log = session.join("build.log");
+            self.bazel.build_labels(ctx, &build_log, std::slice::from_ref(&args.target)).await?;
+            let sources = resolve::sources(ctx, self.bazel, repo, &args.target).await?;
+            let git = self.git_info(ctx, repo).await;
+            let generation = stage::stage(ctx, self.locks, &self.settings.runtime_root, &sources, &git, self.reporter).await?;
+            (generation, git, args.target.clone())
+        };
+        let how = match (&args.generation, generation.reused) {
+            (Some(_), _) => "opened by --generation, without a build",
+            (None, true) => "reused",
+            (None, false) => "staged",
+        };
         self.reporter.note(
             format!(
-                "generation {} ({}): {}",
+                "generation {} ({how}): {}",
                 &generation.digest[..12.min(generation.digest.len())],
-                if generation.reused { "reused" } else { "staged" },
                 generation.root.display()
             ),
             None,
@@ -265,15 +294,18 @@ impl Bench<'_> {
         let profiler = if plan.profile {
             self.reporter.note("resolving the async-profiler library", None);
             warnings.push("the profile adds the async-profiler agent; its runs are slower than a run without it".to_owned());
-            Some(resolve::profiler(ctx, self.bazel, self.runner, session).await?)
+            Some(Profiler {
+                library: resolve::profiler(ctx, self.bazel, self.runner, session).await?,
+                event: plan.profile_event,
+            })
         } else {
             None
         };
-        let git = self.git_info(ctx, repo).await;
         let launcher = Launcher::of(&generation, self.runner.clone(), repo, profiler, args.hold)?;
 
         let template = Sandbox::new(session.join(TEMPLATE_DIR));
-        session::write_template(&template, license).map_err(|error| session_failed(format!("{error:#}")))?;
+        session::write_template(&template, license, generation.config.platform_prefix.as_deref())
+            .map_err(|error| session_failed(format!("{error:#}")))?;
         let project = match &plan.project {
             Some(PlannedProject::Start(source)) => {
                 Some(session::write_project(&template, source).map_err(|error| session_failed(format!("{error:#}")))?)
@@ -288,17 +320,19 @@ impl Bench<'_> {
 
         let info = SessionInfo {
             command: plan.command.to_owned(),
-            target: args.target.clone(),
+            target,
             git,
             generation: GenerationRef {
                 path: generation.root.display().to_string(),
                 dist_digest: generation.digest.clone(),
             },
+            measure_model: Some(MeasureModel::current()),
             arms: plan.arms.clone(),
             runs: plan.runs,
             cold: plan.cold,
             hold_ms: u64::try_from(args.hold.as_millis()).unwrap_or(u64::MAX),
             profile: plan.profile,
+            profile_event: plan.profile_event,
             project: match (&plan.project, &project) {
                 (_, Some(project)) => Some(project.paths(&template).dir.display().to_string()),
                 (Some(PlannedProject::Open(dir)), None) => Some(dir.display().to_string()),
@@ -306,10 +340,11 @@ impl Bench<'_> {
             },
             project_file: project
                 .as_ref()
-                .filter(|_| plan.arms.contains(&Arm::Project))
+                .filter(|_| plan.arms.iter().any(|arm| arm.kind == ArmKind::Project))
                 .map(|project| project.file.display().to_string()),
             additional_modules: generation.config.additional_modules.clone(),
             max_load,
+            suppressed_plugin: plan.suppressed_plugin.clone(),
             warnings,
         };
         files::write_json(&session.join(SESSION_FILE), &info).map_err(|error| session_failed(format!("{error:#}")))?;
@@ -326,7 +361,7 @@ impl Bench<'_> {
         if !plan.cold {
             for arm in &plan.arms {
                 let id = RunId {
-                    arm: *arm,
+                    arm: arm.clone(),
                     kind: RunKind::Prime,
                     index: 0,
                 };
@@ -336,7 +371,7 @@ impl Bench<'_> {
         for index in 1..=plan.runs {
             for arm in &plan.arms {
                 let id = RunId {
-                    arm: *arm,
+                    arm: arm.clone(),
                     kind: RunKind::Measured,
                     index,
                 };
@@ -344,7 +379,7 @@ impl Bench<'_> {
                     template.clone()
                 } else {
                     let prime = RunId {
-                        arm: *arm,
+                        arm: arm.clone(),
                         kind: RunKind::Prime,
                         index: 0,
                     };
@@ -365,7 +400,7 @@ impl Bench<'_> {
         // than the session is not appended.
         let digest = stage::read_digest(&running.generation.root)?;
         session::check_digest(running.info, Some(&digest)).map_err(|reason| digest_mismatch(&reason))?;
-        let sandbox = session::live_sandbox(session, id.arm);
+        let sandbox = session::live_sandbox(session, &id.arm);
         if sandbox.root.exists() {
             std::fs::remove_dir_all(&sandbox.root)
                 .map_err(|error| session_failed(format!("cannot remove {}: {error}", sandbox.root.display())))?;
@@ -375,7 +410,7 @@ impl Bench<'_> {
             let _ = std::fs::remove_dir_all(sandbox.root.join(stale));
         }
         session::own_welcome_project(&sandbox).map_err(failed)?;
-        if id.arm == Arm::EmptyEditor {
+        if matches!(id.arm.kind, ArmKind::EmptyEditor | ArmKind::CargoSync) {
             session::open_no_readme(&sandbox).map_err(failed)?;
         }
         let name = match id.kind {
@@ -394,7 +429,7 @@ impl Bench<'_> {
             .unwrap_or_default();
         self.reporter.note(format!("{name}: starting{load_text}"), None);
         let plan = RunPlan {
-            arm: id.arm,
+            arm: id.arm.clone(),
             kind: id.kind,
             project: running.project.map(|project| project.paths(&sandbox)),
             open_project: match &running.plan.project {
@@ -471,7 +506,7 @@ impl Bench<'_> {
     /// the reasons in prose too.
     fn answer(&self, summary: &Summary) -> Result<Outcome, Refusal> {
         let text = digest::render(summary);
-        let failed: Vec<&str> = summary.arms_without_valid_run().iter().map(|arm| arm.label()).collect();
+        let failed: Vec<String> = summary.arms_without_valid_run().iter().map(Arm::label).collect();
         if failed.is_empty() {
             return Outcome::new(summary, text);
         }

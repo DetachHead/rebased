@@ -60,9 +60,12 @@ vocabulary! {
     pub enum Phase {
         /// The `bazel build` of the lane on the host.
         HostBuild = "host-build",
+        /// Reading what the host build produced and hashing it: the runtime descriptor, the identities of the daemon
+        /// and the files of the push. It touches no worker.
+        Prepare = "prepare",
         /// Taking a worker. A worker that is not warm is cloned, booted and provisioned here.
         Lease = "lease",
-        /// Staging the guest runtime and starting the daemon and its IDE.
+        /// Checking the guest and starting the daemon and its IDE.
         DaemonStart = "daemon-start",
         /// The daemon running the selected tests.
         Iteration = "iteration",
@@ -78,6 +81,7 @@ impl Phase {
     pub const fn label(self) -> &'static str {
         match self {
             Self::HostBuild => "building on the host",
+            Self::Prepare => "hashing the build",
             Self::Lease => "leasing a worker",
             Self::DaemonStart => "starting the daemon",
             Self::Iteration => "running the tests",
@@ -205,6 +209,23 @@ pub struct RunStarted {
     /// The repository the run builds.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub checkout: Option<String>,
+    /// When the process of the command started, in RFC 3339, to the second on Unix. The `vm.cmd` wrapper builds the
+    /// controller and then replaces itself with it, so the time from here to this record is the wrapper's build.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub process_started_at: Option<String>,
+}
+
+impl RunStarted {
+    /// A run of `command` with `args`, and no checkout or process start.
+    pub fn new(run_id: impl Into<String>, command: impl Into<String>, args: impl IntoIterator<Item = impl Into<String>>) -> Self {
+        Self {
+            run_id: run_id.into(),
+            command: command.into(),
+            args: args.into_iter().map(Into::into).collect(),
+            checkout: None,
+            process_started_at: None,
+        }
+    }
 }
 
 /// One iteration a run will execute. `lane` is absent for a class, an FQN or a whole lane.
@@ -324,7 +345,7 @@ pub struct Decision {
 }
 
 impl Decision {
-    /// The decision as one line of prose: `daemon restart: the stable runtime or JBR changed`.
+    /// The decision as one line of prose: `daemon restart: the launch of the daemon changed`.
     pub fn line(&self) -> String {
         match &self.reason {
             Some(reason) => format!("{} {}: {reason}", self.subject, self.action),
@@ -435,6 +456,27 @@ pub struct Verdict {
 }
 
 impl Verdict {
+    /// A verdict with its status and its summary, and no count, code, failure, lane, lease or trace yet.
+    pub fn new(status: Status, summary: impl Into<String>) -> Self {
+        Self {
+            status,
+            code: None,
+            summary: summary.into(),
+            counts: VerdictCounts::default(),
+            failures: Vec::new(),
+            rerun: Vec::new(),
+            skipped: Vec::new(),
+            unreported: Vec::new(),
+            lanes: Vec::new(),
+            shards: None,
+            lease: None,
+            checkout: None,
+            traces: None,
+            timing: None,
+            report: None,
+        }
+    }
+
     pub fn passed(&self) -> bool {
         self.status == Status::Passed
     }

@@ -1,5 +1,9 @@
 adler2
 anyhow
+arrayvec
+avif_serialize
+avl_aom_sys
+avl_bridge
 avl_trace
 block_buffer
 bytemuck

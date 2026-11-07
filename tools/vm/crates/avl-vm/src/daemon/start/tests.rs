@@ -1,16 +1,32 @@
-use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
 
 use avl_base::phase::Timeline;
+use avl_base::sync::lock;
 use avl_host_sys::{Captured, Signal};
 use avl_host_testkit::agent::{agent_reply, argv_value, run_state};
-use avl_host_testkit::{answer_exit, answer_text, handler, refusal};
-use avl_wire::stage::decode_launch_prep;
+use avl_host_testkit::{Call, answer_exit, answer_text, failed, handler, has, refusal, said};
 use pretty_assertions::assert_eq;
 use serde_json::json;
 
 use super::*;
 use crate::daemon::fixture::Fixture;
+use crate::daemon::testing::{DAEMON_PID, daemon_run_state, df_with_free_kib};
+
+/// The index of the first of `calls` whose line contains `fragment`.
+fn position_of(calls: &[Call], fragment: &str) -> usize {
+    calls
+        .iter()
+        .position(|call| call.line().contains(fragment))
+        .unwrap_or_else(|| panic!("no call contains {fragment:?}"))
+}
+
+/// Checks that a start kept the lane IDE of the product of `prep` and refreshed no share.
+fn assert_kept_the_ide_of_the_product(fixture: &Fixture, prep: &PreparedBuild, ides: &IdeGcResult) {
+    fixture.assert_one_ide_gc(&format!("--keep-product {}", prep.product_digest));
+    assert_eq!((ides.kept.len(), ides.stopped.len()), (1, 0));
+    assert_eq!(remounts(fixture), 0);
+}
 
 /// The remount script *executions* the scripted guest saw: writing and chmodding the script name it too, and they
 /// are not remounts.
@@ -61,7 +77,7 @@ async fn start_ready_with(extra: &[(&str, &str)]) -> (Fixture, PreparedBuild) {
 /// Scripts `fixture` to the point where a start reaches its boot poll.
 async fn ready(fixture: Fixture) -> (Fixture, PreparedBuild) {
     let prep = fixture.prepared().await;
-    fixture.install_happy_guest(&prep);
+    fixture.install_happy_guest();
     fixture.daemon.script().launch_digest = prep.launch_digest.clone();
     (fixture, prep)
 }
@@ -71,7 +87,7 @@ async fn ready(fixture: Fixture) -> (Fixture, PreparedBuild) {
 fn ready_again(fixture: &Fixture, prep: &PreparedBuild) {
     fixture.forget_calls();
     fixture.forget_worker_records();
-    fixture.install_happy_guest(prep);
+    fixture.install_happy_guest();
     fixture.daemon.script().launch_digest = prep.launch_digest.clone();
 }
 
@@ -447,8 +463,8 @@ async fn an_interrupted_start_is_daemon_start_interrupted() {
             .as_str()
             .is_some_and(|run| run.starts_with("run-ui-daemon-"))
     );
-    assert!(cancels(&fixture).is_empty());
-    assert!(fixture.channel().calls_containing("vm-guest-agent log").is_empty());
+    assert_eq!(cancels(&fixture), Vec::<String>::new());
+    assert_eq!(fixture.channel().calls_containing("vm-guest-agent log"), Vec::<String>::new());
     assert_eq!(HostState::read(&fixture.settings, &fixture.worker), None);
 
     // In the health poll: the record is written, and it stays for `daemon stop`.
@@ -473,20 +489,12 @@ async fn an_interrupted_start_is_daemon_start_interrupted() {
     interrupter.await.unwrap();
     assert_eq!(failure.code, "daemon_start_interrupted", "{}", failure.message);
     assert!(HostState::read(&fixture.settings, &fixture.worker).is_some());
-    assert!(cancels(&fixture).is_empty());
+    assert_eq!(cancels(&fixture), Vec::<String>::new());
 }
 
-/// The launch-prep document the start sent, decoded by the guest's own decoder.
-fn launch_prep_request(fixture: &Fixture) -> LaunchPrep {
-    let options = fixture
-        .channel()
-        .options_for_call_containing("vm-guest-agent launch-prep")
-        .expect("a launch-prep call was made");
-    decode_launch_prep(options.stdin.as_deref().unwrap_or_default()).expect("the controller sent a request its own guest accepts")
-}
-
-// The full start: agent installed, runtime staged, the launch prepared, supervisor started, state file read, health
-// proven, state recorded, old generations collected - with the phase table naming each step.
+// The full start: agent installed, retired runtime generations removed, free space checked, state directory made,
+// state file of the previous daemon removed, supervisor started, state file read, health proven, state recorded - with
+// the phase table naming each step.
 #[tokio::test]
 async fn a_full_start_boots_polls_and_records_its_state() {
     let (fixture, prep) = start_ready().await;
@@ -499,167 +507,328 @@ async fn a_full_start_boots_polls_and_records_its_state() {
         "the state aims at the daemon the guest named"
     );
     assert_eq!(
-        (
-            &state.launch_digest,
-            &state.runtime_digest,
-            &state.last_product_digest,
-            &state.last_mount_digest
-        ),
-        (&prep.launch_digest, &prep.runtime_digest, &prep.product_digest, &prep.mount_digest)
+        (&state.launch_digest, &state.last_product_digest, &state.last_mount_digest),
+        (&prep.launch_digest, &prep.product_digest, &prep.mount_digest)
     );
     assert_eq!(
         HostState::read(&fixture.settings, &fixture.worker).as_ref(),
         Some(&state),
         "the state is recorded for the next iteration"
     );
+    // The start records the agent it installed, which a lane daemon runs from.
+    let source = fixture.settings.vm_agent_source.as_ref().expect("the pool names the agent source");
+    assert_eq!(
+        state.agent_digest,
+        avl_host_sys::guest::agent_digest(&std::fs::read(source).unwrap())
+    );
 
     let channel = fixture.channel();
-    // One guest call prepares the launch, and the round-trips it replaced are gone rather than moved.
-    assert_eq!(channel.calls_containing("vm-guest-agent launch-prep").len(), 1);
-    for retired in ["/usr/bin/tee /vm/data/daemon/daemon-jvm.args", "/bin/rm -f"] {
-        assert!(channel.calls_containing(retired).is_empty(), "{retired}");
-    }
-
-    // The launch identity is the controller's, whichever half writes the file: every `-D` property is in the prefix
-    // it sent, and the main class is named outright.
-    let request = launch_prep_request(&fixture);
-    let prefix = request.arg_file.prefix.join("\n");
-    for fragment in [
-        format!("-Dair.ui.daemon.controller.launch.digest={}", prep.launch_digest),
-        "-Dair.ui.daemon.port=27100".to_owned(),
-        format!("-Didea.home.path={}", fixture.root().display()),
-    ] {
-        assert!(prefix.contains(&fragment), "{fragment} missing from\n{prefix}");
-    }
-    assert_eq!(request.arg_file.main_class, "com.example.Main");
-    assert_eq!(request.arg_file.destination, "/vm/data/daemon/daemon-jvm.args");
-    assert_eq!(request.remove_files, ["/vm/data/daemon/daemon.json"]);
-    assert_eq!(request.directories.len(), 2);
-
-    // The supervisor start runs the staged JVM under /usr/bin/env with the run environment.
+    // The supervisor start runs the lane-daemon verb of the installed agent under /usr/bin/env with the run environment.
+    // The run starts in the state directory. The verb gets the home in the state directory and the IDE root, and its
+    // boot makes them. No guest call of the controller prepares the launch.
     let starts = channel.calls_containing("vm-guest-agent start");
     assert_eq!(starts.len(), 1, "{starts:?}");
+    for fragment in [
+        " --cwd /vm/data/daemon -- ",
+        " lane-daemon --state-dir /vm/data/daemon ",
+        " LANG=C.UTF-8 ",
+        " --home /vm/data/daemon/home",
+        " --ide-root /vm/data/ide ",
+    ] {
+        assert!(starts[0].contains(fragment), "{fragment} missing from {}", starts[0]);
+    }
+    // The lane daemon is no Bazel test, so the start sets no variable of one.
+    for bazel in [
+        "TEST_TMPDIR=",
+        "TEST_UNDECLARED_OUTPUTS_DIR=",
+        "XML_OUTPUT_FILE=",
+        "RUNFILES_DIR=",
+        "SELF_LOCATION=",
+    ] {
+        assert!(!starts[0].contains(bazel), "{bazel} in {}", starts[0]);
+    }
+    assert_eq!(channel.calls_containing("vm-guest-agent launch-prep"), Vec::<String>::new());
+    // The start stages no runtime generation and collects none. The agent has no verb for either, and no guest call
+    // names one.
+    for retired in ["vm-guest-agent stage", "vm-guest-agent gc "] {
+        assert!(channel.calls_containing(retired).is_empty(), "{retired}");
+    }
+    // The start checks the free space of the guest once. Then it makes the state directory, which is the working
+    // directory of the run, and the directory of the agent, before the supervisor starts the run.
+    let calls = channel.calls();
+    let at = |fragment: &str| position_of(&calls, fragment);
+    assert_eq!(channel.calls_containing("/bin/df").len(), 1);
+    let directories = at("/bin/mkdir -p /vm/data/daemon /vm/data/state");
+    assert!(at("/bin/df") < directories && directories < at("vm-guest-agent start"));
+    // Then it removes the state file that the previous daemon left, once, so the boot poll reads only the file of this
+    // run.
+    let state_file_removals = channel.calls_containing("/bin/rm -f ");
+    assert_eq!(state_file_removals.len(), 1, "{state_file_removals:?}");
+    let state_file_removal = at("/bin/rm -f /vm/data/daemon/daemon.json");
+    assert!(directories < state_file_removal && state_file_removal < at("vm-guest-agent start"));
+    // Before the free-space check the start removes the retired roots once, so the check counts their space.
+    let retired = "/bin/rm -rf /vm/data/daemon-runtime /vm/data/out /vm/data/build-download";
+    let removals = channel.calls_containing("/bin/rm -rf");
+    assert_eq!(removals.len(), 1, "{removals:?}");
+    assert!(removals[0].ends_with(retired), "{}", removals[0]);
+    assert!(at(retired) < at("/bin/df"));
+    // No argument names the checkout: the guest has none.
     assert!(
-        starts[0].contains("@/vm/data/daemon/daemon-jvm.args") && starts[0].contains("SELF_LOCATION="),
-        "{}",
+        !starts[0].contains(&fixture.root().display().to_string()),
+        "the start names the checkout {}: {}",
+        fixture.root().display(),
         starts[0]
     );
 
-    // Old generations are collected keeping the current digest; the previous state had none.
-    let collections = channel.calls_containing("vm-guest-agent gc");
-    assert_eq!(collections.len(), 1);
-    assert!(
-        collections[0].ends_with(&format!("gc /vm/data/daemon-runtime {}", prep.runtime_digest)),
-        "{}",
-        collections[0]
-    );
+    // A start with no record of the daemon keeps no lane IDE.
+    fixture.assert_one_ide_gc("--stop-all");
 
     // A green start cancels nothing.
-    assert!(cancels(&fixture).is_empty());
+    assert_eq!(cancels(&fixture), Vec::<String>::new());
 
     // The phase table names the fixed sequence, in order.
     let names: Vec<String> = timeline.take().into_iter().map(|timing| timing.name).collect();
     assert_eq!(names, PHASES);
 }
 
+// The previous daemon leaves its state file: a `/shutdown`, a cancel and a stop of the worker all keep it. The new
+// daemon removes it only late in its boot, so the first read of the boot poll can come first. The start removes the
+// file before the supervisor start, so the boot poll never records the token of the previous daemon. Here the old file
+// names the pid of the new run, as after a restart of a container, so only the removal keeps the token apart.
+#[tokio::test]
+async fn the_start_removes_the_state_file_of_the_previous_daemon_before_the_supervisor_start() {
+    let (fixture, prep) = start_ready().await;
+    let mut previous: Value = serde_json::from_str(&fixture.daemon.state_file_json()).unwrap();
+    previous["token"] = json!("token-of-the-previous-daemon");
+    let guest_file = Arc::new(Mutex::new(Some(previous.to_string())));
+    let removed = Arc::clone(&guest_file);
+    fixture.on(
+        "rm",
+        handler(move |argv, _| {
+            if has(argv, "/vm/data/daemon/daemon.json") {
+                *lock(&removed) = None;
+            }
+            Ok(Captured::default())
+        }),
+    );
+    // The first read finds what the guest holds, because the daemon is still in its boot. Each later read finds the
+    // file that the boot of this run published.
+    let held = Arc::clone(&guest_file);
+    let published = fixture.daemon.state_file_json();
+    let reads = Arc::new(AtomicUsize::new(0));
+    let counted = Arc::clone(&reads);
+    fixture.on(
+        "cat",
+        handler(move |_, _| {
+            let file = if counted.fetch_add(1, Ordering::SeqCst) == 0 {
+                lock(&held).clone()
+            } else {
+                Some(published.clone())
+            };
+            Ok(file.map_or_else(|| failed(1, "No such file or directory"), |document| said(&document)))
+        }),
+    );
+
+    let state = start(&fixture, &prep).await.unwrap();
+    assert_eq!(
+        state.token, fixture.daemon.token,
+        "the start records the token of the daemon of this run"
+    );
+    assert_eq!(reads.load(Ordering::SeqCst), 2, "the first read finds no file");
+    let calls = fixture.channel().calls();
+    let at = |fragment: &str| position_of(&calls, fragment);
+    assert!(at("/bin/rm -f /vm/data/daemon/daemon.json") < at("vm-guest-agent start"));
+}
+
+// The boot poll accepts only the state file that names the pid of its run. A file of another pid is not the file of
+// this run, so the poll goes on. A run that is still starting names no pid, so the poll waits for one. A budget that
+// ends on a file of another pid refuses `daemon_state_file_foreign` and names both pids.
+#[tokio::test]
+async fn the_boot_poll_reads_only_the_state_file_of_the_process_of_its_run() {
+    let (fixture, prep) = start_ready().await;
+    let mut other: Value = serde_json::from_str(&fixture.daemon.state_file_json()).unwrap();
+    other["token"] = json!("token-of-another-process");
+    other["pid"] = json!(99);
+    let other = other.to_string();
+    let own = fixture.daemon.state_file_json();
+    let reads = Arc::new(AtomicUsize::new(0));
+    let counted = Arc::clone(&reads);
+    let foreign = other.clone();
+    fixture.on(
+        "cat",
+        handler(move |_, _| {
+            let early = counted.fetch_add(1, Ordering::SeqCst) < 2;
+            Ok(said(if early { &foreign } else { &own }))
+        }),
+    );
+    let state = start(&fixture, &prep).await.unwrap();
+    assert_eq!(state.token, fixture.daemon.token);
+    assert_eq!(reads.load(Ordering::SeqCst), 3, "two files of another pid keep the poll going");
+
+    // The first status names a run that is still starting.
+    ready_again(&fixture, &prep);
+    let probes = Arc::new(AtomicUsize::new(0));
+    let counted = Arc::clone(&probes);
+    fixture.on(
+        "status",
+        handler(move |argv, _| {
+            let first = counted.fetch_add(1, Ordering::SeqCst) == 0;
+            let phase = if first { "starting" } else { "running" };
+            Ok(agent_reply("status", &daemon_run_state(argv_value(argv, "--run"), phase)))
+        }),
+    );
+    let state = start(&fixture, &prep).await.unwrap();
+    assert_eq!(state.token, fixture.daemon.token);
+    assert_eq!(
+        fixture.channel().calls_containing("/bin/cat").len(),
+        2,
+        "a run with no pid keeps the poll going"
+    );
+
+    // A file of another pid until the end of the budget.
+    ready_again(&fixture, &prep);
+    fixture.on("cat", answer_text(other));
+    let failure = refusal(start(&fixture, &prep).await);
+    assert_eq!(
+        (failure.code.as_ref(), failure.exit),
+        ("daemon_state_file_foreign", Exit::SOFTWARE),
+        "{}",
+        failure.message
+    );
+    assert!(
+        failure.message.contains("names pid 99") && failure.message.contains(&format!("is pid {DAEMON_PID}")),
+        "{}",
+        failure.message
+    );
+    let details = details_of(&failure);
+    assert_eq!(
+        (&details["filePid"], &details["runPid"]),
+        (&json!(99), &json!(DAEMON_PID)),
+        "{details}"
+    );
+    assert_retired_without_a_record(&fixture, &failure);
+}
+
 /// The phase table of a green start, in order.
-const PHASES: [&str; 11] = [
+const PHASES: [&str; 10] = [
     "install-agent",
     "stop-daemon",
+    "ide-gc",
     "reject-active-run",
     "remount",
     "parity-probe",
-    "stage-runtime",
-    "prepare-launch",
+    "free-space",
     "supervisor-start",
     "boot-poll",
     "health-poll",
-    "gc-runtimes",
 ];
 
-// The regression tripwire. What the collapse bought is that the ~1000 staged classpath paths stop crossing the exec
-// channel, and nothing about the request's shape would fail if a later change put them back - the start would
-// simply be 10.6 s slower again. So the bytes are searched for one.
-#[tokio::test]
-async fn the_launch_prep_request_carries_no_classpath() {
-    let (fixture, prep) = start_ready().await;
-    start(&fixture, &prep).await.unwrap();
-    let options = fixture
-        .channel()
-        .options_for_call_containing("vm-guest-agent launch-prep")
-        .expect("a launch-prep call was made");
-    let sent = String::from_utf8(options.stdin.unwrap()).unwrap();
-    let generation = format!("/vm/data/daemon-runtime/generations/{}", prep.runtime_digest);
-    for staged in [format!("{generation}/classpath/000.jar"), "-cp".to_owned()] {
-        assert!(
-            !sent.contains(&staged),
-            "the request names {staged:?}; the guest joins its own classpath:\n{sent}"
-        );
-    }
-    // The count does cross, and it is what the guest holds its own list against.
-    let request = launch_prep_request(&fixture);
-    assert_eq!(request.stable_count, 2);
-    assert_eq!(request.runtime_digest, prep.runtime_digest);
+/// An `ide-gc` double that keeps one IDE when it is asked to keep a product, and stops one otherwise.
+fn answer_ide_gc(fixture: &Fixture) {
+    fixture.on(
+        "ide-gc",
+        handler(|argv, _| {
+            Ok(said(if has(argv, "--keep-product") {
+                r#"{"stopped":[],"kept":[{"launchKey":"launch-key-1","runId":"run-ide-launch-key-1"}],"removed":[]}"#
+            } else {
+                r#"{"stopped":[{"launchKey":"launch-key-1","runId":"run-ide-launch-key-1"}],"kept":[],"removed":[]}"#
+            }))
+        }),
+    );
 }
 
-// The guest composes the @-file; it does not decide it. A reply whose digest is not the one the controller computed
-// from the staged classpath is a refused start.
+// A restart keeps the lane IDEs of its product only when it refreshes no VirtioFS share: a remount unmounts the share
+// that the IDE runs from. The answer says what the gc did, which is what the timing line reads.
 #[tokio::test]
-async fn a_guest_answer_whose_argfile_hash_differs_is_refused() {
-    let answer = |arg_file: &str, entries: u32| LaunchPrepResult {
-        arg_file: arg_file.to_owned(),
-        sha256: "e".repeat(64),
-        bytes: 4096,
-        entries,
-    };
-    let (fixture, prep) = start_ready().await;
-    for (name, reply) in [
-        ("another digest", answer("/vm/data/daemon/daemon-jvm.args", 2)),
-        ("another destination", answer("/vm/tmp/somewhere-else.args", 2)),
-        ("another entry count", answer("/vm/data/daemon/daemon-jvm.args", 1)),
-        (
-            "no answer at all",
-            LaunchPrepResult {
-                arg_file: String::new(),
-                sha256: String::new(),
-                bytes: 0,
-                entries: 0,
-            },
-        ),
-    ] {
-        ready_again(&fixture, &prep);
-        fixture.on("launch-prep", answer_text(serde_json::to_string(&reply).unwrap()));
-        let failure = refusal(start(&fixture, &prep).await);
-        assert_eq!(
-            (failure.code.as_ref(), failure.exit),
-            ("daemon_launch_prep_failed", Exit::SOFTWARE),
-            "{name}"
-        );
-        assert!(failure.message.contains("this controller expected"), "{name}: {}", failure.message);
-        assert!(
-            fixture.channel().calls_containing("vm-guest-agent start").is_empty(),
-            "{name}: no daemon may be started from an @-file this controller did not verify"
-        );
-    }
-    // Output that is not a reply at all names itself rather than being read as a mismatch.
+async fn a_start_keeps_the_ides_of_its_product_only_when_it_does_not_remount() {
+    let (fixture, prep) = ready(Fixture::tart_macos().await).await;
+    answer_ide_gc(&fixture);
+    let keep = IdeRetention::KeepProduct(&prep.product_digest);
+    let ctx = Ctx::background();
+
+    // No record: the start remounts, so it stops every IDE.
+    let (_, ides) = fixture.host.start_daemon_keeping(&ctx, &fixture.worker, &prep, keep).await.unwrap();
+    fixture.assert_one_ide_gc("--stop-all");
+    assert_eq!((ides.kept.len(), ides.stopped.len()), (0, 1));
+    assert_eq!(remounts(&fixture), 1);
+
+    // A record of this launch and this mount: the start refreshes nothing, so the gc keeps the product.
     ready_again(&fixture, &prep);
-    fixture.on("launch-prep", answer_text("Killed: 9"));
-    let failure = refusal(start(&fixture, &prep).await);
-    assert_eq!(failure.code, "daemon_launch_prep_failed");
-    assert!(failure.message.contains("invalid JSON: Killed: 9"), "{}", failure.message);
+    answer_ide_gc(&fixture);
+    let mut previous = fixture.daemon.host_state("run-ui-daemon-previous", &prep.launch_digest);
+    previous.last_mount_digest = prep.mount_digest.clone();
+    previous.write(&fixture.settings, &fixture.worker).unwrap();
+    let (_, ides) = fixture.host.start_daemon_keeping(&ctx, &fixture.worker, &prep, keep).await.unwrap();
+    assert_kept_the_ide_of_the_product(&fixture, &prep, &ides);
 }
 
-// A parity layout that does not show the descriptor refuses before anything is staged, at 65.
+// On Docker the refresh of the shares is a settle of the bind mounts and unmounts nothing. So a start without a record
+// still keeps the lane IDEs of its product.
 #[tokio::test]
-async fn a_stale_parity_layout_refuses_before_staging() {
+async fn a_start_on_docker_keeps_the_ides_of_its_product_without_a_record() {
+    let (fixture, prep) = start_ready().await;
+    answer_ide_gc(&fixture);
+    let keep = IdeRetention::KeepProduct(&prep.product_digest);
+    let (_, ides) = fixture
+        .host
+        .start_daemon_keeping(&Ctx::background(), &fixture.worker, &prep, keep)
+        .await
+        .unwrap();
+    assert_kept_the_ide_of_the_product(&fixture, &prep, &ides);
+}
+
+// An IDE that the gc could not stop holds the shares and the slot root of its context, so the start refuses before it
+// remounts or starts anything.
+#[tokio::test]
+async fn a_failed_ide_gc_refuses_the_start() {
+    let (fixture, prep) = start_ready().await;
+    fixture.on("ide-gc", answer_exit(1));
+    let failure = refusal(start(&fixture, &prep).await);
+    assert_eq!(failure.code, "guest_agent_failed");
+    assert_eq!(remounts(&fixture), 0);
+    assert_eq!(fixture.channel().calls_containing("vm-guest-agent start"), Vec::<String>::new());
+}
+
+// A parity layout that does not show the descriptor refuses before the supervisor start, at 65.
+#[tokio::test]
+async fn a_stale_parity_layout_refuses_before_the_supervisor_start() {
     let (fixture, prep) = start_ready().await;
     fixture.on("test", answer_exit(1));
     let failure = refusal(start(&fixture, &prep).await);
     assert_eq!((failure.code.as_ref(), failure.exit), ("guest_runtime_unreachable", Exit::DATA_ERR));
     assert!(
-        fixture.channel().calls_containing("vm-guest-agent stage").is_empty(),
-        "nothing may be staged over a stale layout"
+        fixture.channel().calls_containing("vm-guest-agent start").is_empty(),
+        "nothing may start over a stale layout"
     );
+}
+
+// A guest whose disk is full after the removal of the retired roots refuses the start in the `free-space` phase. The
+// refusal comes before the supervisor start, so no daemon writes into a full disk. A removal of the retired roots that
+// fails is a note, and the free-space check still decides.
+#[tokio::test]
+async fn a_full_guest_disk_refuses_the_start_before_the_supervisor_start() {
+    let (fixture, prep) = start_ready().await;
+    // 1 GiB free: below the floor of 5 GiB.
+    fixture.on("df", answer_text(df_with_free_kib("1048576")));
+    fixture.on("rm", answer_exit(1));
+    let timeline = Timeline::collecting();
+    let ctx = Ctx::background().with_timeline(timeline.clone());
+    let failure = refusal(fixture.host.start_daemon(&ctx, &fixture.worker, &prep).await);
+    assert_eq!((failure.code.as_ref(), failure.exit), ("guest_disk_full", Exit::UNAVAILABLE));
+    assert!(
+        fixture
+            .stderr
+            .text()
+            .contains("keeps the retired roots /vm/data/daemon-runtime, /vm/data/out, /vm/data/build-download"),
+        "{}",
+        fixture.stderr.text()
+    );
+    let channel = fixture.channel();
+    for retired in ["vm-guest-agent start", "/bin/mkdir -p /vm/data/daemon"] {
+        assert!(channel.calls_containing(retired).is_empty(), "{retired}");
+    }
+    let names: Vec<String> = timeline.take().into_iter().map(|timing| timing.name).collect();
+    assert_eq!(names.last().map(String::as_str), Some("free-space"), "{names:?}");
 }
 
 // With no state a stop is a no-op: no HTTP and no guest command.
@@ -787,44 +956,62 @@ async fn a_start_over_a_record_whose_run_will_not_finish_refuses_and_launches_no
     );
 }
 
-/// A host that keeps no tree has the guest build it: inside the parity probe phase, before the probe and before the
-/// stage, with the MANIFEST by its guest path, and at the root the launch already names.
+/// The guest builds its own tree inside the parity probe phase, before the probe and before the supervisor start, at
+/// the root the launch already names. The first request carries no bytes; a guest without the tree refuses it, and the
+/// second request carries the bytes of every staged runfile after the request line.
 #[tokio::test]
-async fn a_host_without_a_tree_has_the_guest_build_it_before_the_probe() {
-    let fixture = Fixture::new().await;
-    crate::daemon::testing::replace_tree_with_manifest(&fixture.bazel.descriptor_path);
-    let (fixture, prep) = ready(fixture).await;
+async fn the_guest_builds_its_tree_before_the_probe_and_gets_the_bytes_when_it_has_none() {
+    let (fixture, prep) = start_ready().await;
     let root = prep.guest_runfiles_root.clone();
     fixture.on(
         "runfiles-tree",
-        handler(move |_, _| {
+        handler(move |_, options| {
+            let stdin = options.stdin.as_deref().unwrap_or_default();
+            let (line, _) = avl_wire::runfiles::split_request_stdin(stdin);
+            let request: avl_wire::runfiles::RunfilesTreeRequest = serde_json::from_slice(line).unwrap();
+            if !request.with_bytes {
+                return Ok(Captured {
+                    exit_code: 70,
+                    stderr: json!({"schemaVersion": 1, "ok": false, "command": "runfiles-tree",
+                        "error": {"code": avl_wire::runfiles::STAGED_BYTES_MISSING_CODE, "message": "no tree"}})
+                    .to_string(),
+                    ..Captured::default()
+                });
+            }
             Ok(agent_reply(
                 "runfiles-tree",
-                &json!({"root": root, "digest": "d", "entries": 9, "reused": false}),
+                &json!({"root": root, "digest": "d", "entries": 11, "reused": false}),
             ))
         }),
     );
     start(&fixture, &prep).await.unwrap();
 
     let calls = fixture.channel().calls();
-    let at = |fragment: &str| {
-        calls
-            .iter()
-            .position(|call| call.line().contains(fragment))
-            .unwrap_or_else(|| panic!("no call contains {fragment:?}"))
-    };
-    let built = at(" runfiles-tree");
-    assert!(built < at(&format!("/bin/test -f {}", self_location(&prep))));
-    assert!(built < at(" stage "));
-    let request: avl_wire::runfiles::RunfilesTreeRequest = serde_json::from_slice(calls[built].options.stdin.as_deref().unwrap()).unwrap();
-    let paths = GuestPaths::of(&fixture.settings).unwrap();
+    let trees: Vec<usize> = (0..calls.len())
+        .filter(|index| calls[*index].line().contains(" runfiles-tree"))
+        .collect();
+    assert_eq!(trees.len(), 2, "{:?}", fixture.channel().lines());
+    let at = |fragment: &str| position_of(&calls, fragment);
+    assert!(trees[1] < at(&format!("/bin/test -f {}", self_location(&prep))));
+    assert!(trees[1] < at("vm-guest-agent start"));
+    let stdin = |index: usize| calls[index].options.stdin.clone().unwrap();
+    let first = stdin(trees[0]);
+    let (line, bytes) = avl_wire::runfiles::split_request_stdin(&first);
+    let request: avl_wire::runfiles::RunfilesTreeRequest = serde_json::from_slice(line).unwrap();
+    assert_eq!((request.with_bytes, bytes.len()), (false, 0));
     assert_eq!(
-        request.manifest,
-        paths
-            .to_guest(&avl_host_sys::runfiles::manifest_paths(&fixture.bazel.descriptor_path)[0])
-            .unwrap()
+        request.path_map,
+        *avl_host_sys::paths::GuestPaths::of(&fixture.settings).unwrap().map()
     );
-    assert_eq!(request.path_map, *paths.map());
+    let second = stdin(trees[1]);
+    let (_, bytes) = avl_wire::runfiles::split_request_stdin(&second);
+    let expected: Vec<u8> = prep
+        .guest_tree
+        .staged_files
+        .iter()
+        .flat_map(|file| std::fs::read(file).unwrap())
+        .collect();
+    assert_eq!(bytes, expected.as_slice());
     // What the guest runs from is the built tree.
     assert!(
         self_location(&prep).starts_with(&format!("{}/", prep.guest_runfiles_root)),
@@ -839,11 +1026,60 @@ async fn a_host_without_a_tree_has_the_guest_build_it_before_the_probe() {
 async fn the_parity_probe_asks_for_the_label_derived_descriptor() {
     let (fixture, prep) = start_ready().await;
     start(&fixture, &prep).await.unwrap();
+    // The fixture is a Linux guest, so the descriptor is the one of the Linux-guest daemon target.
+    assert_eq!(prep.label, avl_wire::daemon::LINUX_GUEST_LABEL);
     let expected = format!(
-        "{}/_main/plugins/air/tests/integration/ui/ui_daemon.runtime.json",
+        "{}/_main/plugins/air/tests/integration/ui/ui_daemon_linux_guest.runtime.json",
         prep.guest_runfiles_root
     );
     assert_eq!(self_location(&prep), expected);
     let probes = fixture.channel().calls_containing(&format!("/bin/test -f {expected}"));
     assert_eq!(probes.len(), 1, "{:?}", fixture.channel().calls_containing("/bin/test -f"));
+}
+
+/// On container-linux the daemon binds every interface of the container, because the published port forwards to
+/// the container's address and not to its loopback. The argument of the lane-daemon verb says so, and the other
+/// backends keep the loopback default.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_container_linux_launch_binds_every_interface_of_the_container() {
+    let started = |fixture: &Fixture| fixture.channel().calls_containing("vm-guest-agent start").concat();
+    let (fixture, prep) = ready(Fixture::over_container_linux().await).await;
+    start(&fixture, &prep).await.unwrap();
+    let call = started(&fixture);
+    assert!(call.contains(" lane-daemon ") && call.ends_with(" --bind 0.0.0.0"), "{call}");
+
+    let (tart, prep) = start_ready().await;
+    start(&tart, &prep).await.unwrap();
+    let call = started(&tart);
+    assert!(call.contains(" lane-daemon ") && !call.contains("--bind"), "{call}");
+}
+
+// The run slot holds the `lane-daemon` verb of the installed guest agent. It gets the state directory, the port, the
+// launch digest, the runtime descriptor, the runfiles root, the IDE root and the home in the state directory.
+#[tokio::test]
+async fn the_daemon_runner_starts_the_lane_daemon_verb_of_the_installed_agent() {
+    let (fixture, prep) = start_ready().await;
+    let settings = &fixture.settings;
+    assert_eq!(
+        daemon_command(settings, &prep, "/vm/data/daemon", "/runfiles/_main/ui_daemon.runtime.json"),
+        [
+            settings.vm_agent.as_str(),
+            "lane-daemon",
+            "--state-dir",
+            "/vm/data/daemon",
+            "--port",
+            "27100",
+            "--launch-digest",
+            &prep.launch_digest,
+            "--descriptor",
+            "/runfiles/_main/ui_daemon.runtime.json",
+            "--runfiles-root",
+            &prep.guest_runfiles_root,
+            "--ide-root",
+            "/vm/data/ide",
+            "--home",
+            "/vm/data/daemon/home",
+        ]
+    );
 }

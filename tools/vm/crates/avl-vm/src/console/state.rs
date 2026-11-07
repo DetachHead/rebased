@@ -19,12 +19,13 @@ use avl_wire::progress::{
 use crate::console::paint::{Hue, Paint};
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
 
 /// The order a run goes through its phases. Before the first phase starts, the dashboard shows each of them as
 /// pending, so a person sees the whole plan.
-const CANONICAL_PHASES: [Phase; 6] = [
+const CANONICAL_PHASES: [Phase; 7] = [
     Phase::HostBuild,
+    Phase::Prepare,
     Phase::Lease,
     Phase::DaemonStart,
     Phase::Iteration,
@@ -558,7 +559,7 @@ impl State {
                 } else {
                     self.failed += 1;
                     lines.push(format!("{indent}{} {took}", paint.fail(&format!("✗ {name}"))));
-                    let message = first_line(finished.error.as_deref().unwrap_or(""));
+                    let message = finished.failure.headline().unwrap_or_default();
                     if !message.is_empty() {
                         lines.push(format!("{indent}    {}", paint.fail(message)));
                     }
@@ -585,7 +586,7 @@ impl State {
                 let name = container_name(&failed.execution);
                 let prefix = self.worker_prefix(worker);
                 let mut lines = vec![format!("  {}", paint.fail(&format!("✗ {prefix}{name} (container)")))];
-                let message = first_line(failed.error.as_deref().unwrap_or(""));
+                let message = failed.failure.headline().unwrap_or_default();
                 if !message.is_empty() {
                     lines.push(format!("      {}", paint.fail(message)));
                 }
@@ -628,7 +629,37 @@ impl State {
                 self.running.remove(worker);
                 self.per_worker.remove(worker);
             }
-            RunEventKind::WatchdogState(_) | RunEventKind::Output(_) => {}
+            RunEventKind::SlowStep(slow) => {
+                let prefix = self.worker_prefix(worker);
+                let elapsed = avl_base::format::format_elapsed_ms(u64::try_from(slow.elapsed_ms).unwrap_or(0));
+                let dumps: Vec<&str> = slow.dumps().map(String::as_str).collect();
+                let line = format!(
+                    "  {}",
+                    paint.muted(&format!(
+                        "⏱ {prefix}slow step {} after {elapsed}; dumps: {}",
+                        slow.path,
+                        dumps.join(", ")
+                    ))
+                );
+                self.push_line_entry(vec![line]);
+            }
+            RunEventKind::TraceFailed(failed) => {
+                let prefix = self.worker_prefix(worker);
+                let line = format!(
+                    "  {}",
+                    paint.warn(&format!("⚠ {prefix}trace failed: {}", first_line(&failed.reason)))
+                );
+                self.push_line_entry(vec![line]);
+            }
+            // The lane IDE's life is the run journal's and the viewer's, not a line of the console. The controller
+            // publishes a decision of the daemon as its own decision, which the console renders.
+            RunEventKind::WatchdogState(_)
+            | RunEventKind::Output(_)
+            | RunEventKind::IdeLaunched(_)
+            | RunEventKind::IdeExited(_)
+            | RunEventKind::IdeReady(_)
+            | RunEventKind::Timing(_)
+            | RunEventKind::Decision(_) => {}
         }
     }
 
@@ -801,6 +832,7 @@ pub(crate) fn short_class(class_name: &str) -> &str {
 pub(crate) const fn phase_label(phase: Phase) -> &'static str {
     match phase {
         Phase::HostBuild => "host build",
+        Phase::Prepare => "prepare",
         Phase::Lease => "lease",
         Phase::DaemonStart => "daemon start",
         Phase::Iteration => "tests",

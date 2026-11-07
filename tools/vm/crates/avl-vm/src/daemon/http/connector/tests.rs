@@ -34,15 +34,16 @@ fn state(worker: &str, port: u16) -> HostState {
         token: "token".to_owned(),
         worker: worker.to_owned(),
         daemon_boot_stamp: "boot-1".to_owned(),
-        runtime_digest: String::new(),
         launch_digest: String::new(),
         last_product_digest: String::new(),
         last_mount_digest: String::new(),
+        last_plugins_digest: String::new(),
+        agent_digest: String::new(),
     }
 }
 
 /// The server end of each relay: HTTP/1.1 over the stream, served by `router` on a task of its own.
-fn served_by(router: axum::Router) -> impl Fn(DuplexStream) + Send + Sync + 'static {
+pub(crate) fn served_by(router: axum::Router) -> impl Fn(DuplexStream) + Send + Sync + 'static {
     move |server_end| {
         let service = TowerToHyperService::new(router.clone());
         tokio::spawn(async move {

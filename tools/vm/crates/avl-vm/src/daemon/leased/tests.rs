@@ -6,12 +6,14 @@ use std::time::Duration;
 
 use avl_base::{Exit, GuestOs};
 use avl_host_sys::Signal;
-use avl_wire::progress::{Kind, PhaseChange};
+use avl_wire::progress::{Kind, PhaseChange, PhaseState};
 use pretty_assertions::assert_eq;
 
 use super::*;
+use crate::daemon::build::DaemonTarget;
 use crate::daemon::fixture::Fixture;
 use crate::daemon::testing::Recorded;
+use crate::worker::run_marker::read_run_marker;
 use avl_base::RefusalExt;
 
 /// The run id every case but the journal one passes.
@@ -30,6 +32,46 @@ async fn bounded<T>(future: impl Future<Output = T>) -> T {
     tokio::time::timeout(Duration::from_secs(120), future)
         .await
         .expect("the leased run settles")
+}
+
+/// [`Host::leased_run`] of [`RUN_ID`] on two workers of the lanes, with the receipt `borrowed` of the caller, bounded.
+async fn two_leased<P, T>(
+    fixture: &Fixture,
+    borrowed: Option<&Path>,
+    divide: impl FnOnce(&[HeldWorker]) -> Result<P, Refusal>,
+    body: impl AsyncFn(&P, usize, Lease, &Arc<PreparedBuild>) -> T,
+) -> Result<Leased<P, T>, Refusal> {
+    bounded(
+        fixture
+            .host
+            .leased_run(&Ctx::background(), RUN_ID, "test", two(borrowed), DaemonTarget::Lanes, divide, body),
+    )
+    .await
+}
+
+/// A [`two_leased`] that must refuse before any body runs: the refusal. No worker is leased after it.
+async fn refused_before_any_body(fixture: &Fixture, divide: impl FnOnce(&[HeldWorker]) -> Result<(), Refusal>) -> Refusal {
+    let ran = AtomicUsize::new(0);
+    let refusal = refused(
+        two_leased(
+            fixture,
+            None,
+            divide,
+            async |(): &(), _: usize, _: Lease, _: &Arc<PreparedBuild>| {
+                ran.fetch_add(1, Ordering::SeqCst);
+            },
+        )
+        .await,
+    );
+    for worker in fixture.workers() {
+        assert!(
+            !fixture.leased(&worker),
+            "{worker} is still leased after the refusal {}",
+            refusal.code
+        );
+    }
+    assert_eq!(ran.load(Ordering::SeqCst), 0, "no body ran");
+    refusal
 }
 
 fn refused<T>(result: Result<T, Refusal>) -> Refusal {
@@ -55,29 +97,12 @@ fn held_workers<P, T>(leased: &Leased<P, T>) -> Vec<String> {
 #[tokio::test]
 async fn the_build_comes_before_the_lease() {
     let fixture = Fixture::pool().await;
-    let ran = AtomicUsize::new(0);
     let recorded = Recorded::start(fixture.host.reporter());
     fixture
         .bazel
         .fail_builds(Refusal::new("host_build_failed", Exit::SOFTWARE, "the lane does not compile"));
-    let refusal = refused(
-        bounded(fixture.host.leased_run(
-            &Ctx::background(),
-            RUN_ID,
-            "test",
-            two(None),
-            |_| Ok(()),
-            async |(): &(), _: usize, _: Lease, _: &Arc<PreparedBuild>| {
-                ran.fetch_add(1, Ordering::SeqCst);
-            },
-        ))
-        .await,
-    );
+    let refusal = refused_before_any_body(&fixture, |_| Ok(())).await;
     assert_eq!(refusal.code, "host_build_failed");
-    for worker in fixture.workers() {
-        assert!(!fixture.leased(&worker), "{worker} was leased for a failed build");
-    }
-    assert_eq!(ran.load(Ordering::SeqCst), 0, "no body ran");
     assert!(
         !phases(&recorded).iter().any(|phase| phase.starts_with("lease:")),
         "{:?}",
@@ -88,21 +113,38 @@ async fn the_build_comes_before_the_lease() {
     fixture.bazel.pass_builds();
     let builds = fixture.bazel.build_calls();
     let recorded = Recorded::start(fixture.host.reporter());
-    let leased = bounded(fixture.host.leased_run(
-        &Ctx::background(),
-        RUN_ID,
-        "test",
-        two(None),
+    let leased = two_leased(
+        &fixture,
+        None,
         |_| Ok(()),
         async |(): &(), _: usize, _: Lease, _: &Arc<PreparedBuild>| {},
-    ))
+    )
     .await
     .unwrap_or_else(|refusal| panic!("the run leases two workers: {refusal:?}"));
     assert_eq!(fixture.bazel.build_calls() - builds, 1);
+    // The digest sweep of the build is its own phase, and it too comes before the lease. Its progress names the
+    // time of each of its parts.
     assert_eq!(
         phases(&recorded),
-        ["lease:started", "lease:finished", "release:started", "release:finished"]
+        [
+            "prepare:started",
+            "prepare:progress",
+            "prepare:finished",
+            "lease:started",
+            "lease:finished",
+            "release:started",
+            "release:finished"
+        ]
     );
+    let progress = recorded
+        .data_of::<PhaseChange>(Kind::Phase)
+        .into_iter()
+        .find(|change| change.phase == Phase::Prepare && change.state == PhaseState::Progress)
+        .and_then(|change| change.detail)
+        .unwrap_or_default();
+    for part in ["descriptor ", "cache open ", "digests ", "cache save ", "runfiles tree "] {
+        assert!(progress.contains(part), "the prepare phase does not time {part:?}: {progress:?}");
+    }
     assert_eq!(leased.settlement.disposition, LeaseDisposition::Released);
 }
 
@@ -110,32 +152,16 @@ async fn the_build_comes_before_the_lease() {
 #[tokio::test]
 async fn a_refused_division_gives_back_every_worker_it_acquired() {
     let fixture = Fixture::pool().await;
-    let ran = AtomicUsize::new(0);
     let recorded = Recorded::start(fixture.host.reporter());
-    let refusal = refused(
-        bounded(fixture.host.leased_run(
-            &Ctx::background(),
-            RUN_ID,
-            "test",
-            two(None),
-            |held: &[HeldWorker]| -> Result<(), Refusal> {
-                assert_eq!(held.len(), 2, "the division sees every held worker");
-                Err(Refusal::usage("this split cannot be planned"))
-            },
-            async |(): &(), _: usize, _: Lease, _: &Arc<PreparedBuild>| {
-                ran.fetch_add(1, Ordering::SeqCst);
-            },
-        ))
-        .await,
-    );
+    let refusal = refused_before_any_body(&fixture, |held: &[HeldWorker]| {
+        assert_eq!(held.len(), 2, "the division sees every held worker");
+        Err(Refusal::usage("this split cannot be planned"))
+    })
+    .await;
     assert_eq!(
         (refusal.exit, refusal.message.as_str()),
         (Exit::USAGE, "this split cannot be planned")
     );
-    for worker in fixture.workers() {
-        assert!(!fixture.leased(&worker), "{worker} is still leased");
-    }
-    assert_eq!(ran.load(Ordering::SeqCst), 0, "no body ran");
     assert!(
         phases(&recorded).contains(&"release:finished".to_owned()),
         "{:?}",
@@ -147,18 +173,16 @@ async fn a_refused_division_gives_back_every_worker_it_acquired() {
 #[tokio::test]
 async fn a_lock_refusal_is_one_settled_entry_and_its_siblings_still_run() {
     let fixture = Fixture::pool().await;
-    let leased = bounded(fixture.host.leased_run(
-        &Ctx::background(),
-        RUN_ID,
-        "test",
-        two(None),
+    let leased = two_leased(
+        &fixture,
+        None,
         |held: &[HeldWorker]| {
             // The second worker's lease changes under the run: another holder's token is on disk now.
             fixture.leased_by(&held[1].lease.worker, "somebody-else", GuestOs::Macos);
             Ok(())
         },
         async |(): &(), index: usize, current: Lease, _: &Arc<PreparedBuild>| (index, current.worker),
-    ))
+    )
     .await
     .unwrap_or_else(|refusal| panic!("a lock refusal is an entry, not a refusal: {refusal:?}"));
     let workers = held_workers(&leased);
@@ -182,11 +206,9 @@ async fn an_interrupt_keeps_every_acquired_lease_and_names_each_receipt() {
     let fixture = Fixture::pool().await;
     let recorded = Recorded::start(fixture.host.reporter());
     let interrupts = fixture.interrupts.clone();
-    let leased = bounded(fixture.host.leased_run(
-        &Ctx::background(),
-        RUN_ID,
-        "test",
-        two(None),
+    let leased = two_leased(
+        &fixture,
+        None,
         |_| Ok(()),
         async |(): &(), index: usize, _: Lease, _: &Arc<PreparedBuild>| {
             if index == 0 {
@@ -194,7 +216,7 @@ async fn an_interrupt_keeps_every_acquired_lease_and_names_each_receipt() {
             }
             std::future::pending::<()>().await;
         },
-    ))
+    )
     .await
     .unwrap_or_else(|refusal| panic!("an interrupt is a settled run: {refusal:?}"));
     assert_eq!(leased.interrupted, Some("SIGINT"));
@@ -213,11 +235,69 @@ async fn an_interrupt_keeps_every_acquired_lease_and_names_each_receipt() {
         assert!(fixture.leased(&worker), "{worker} must still be leased");
         assert!(!leased.released(&worker));
     }
+    // The body that took the interrupt was dropped after its start, so its run marker stays and goes stale with this
+    // process.
+    let marker = read_run_marker(&fixture.settings, &held_workers(&leased)[0]).unwrap();
+    assert_eq!(marker.map(|marker| marker.run_id).as_deref(), Some(RUN_ID));
     assert!(
         !phases(&recorded).iter().any(|phase| phase.starts_with("release:")),
         "{:?}",
         phases(&recorded)
     );
+}
+
+// Every body runs under the run marker of its worker, and the lifecycle lock is free while it runs. Each marker names
+// the run id of the journal, and the end of each body removes its marker.
+#[tokio::test]
+async fn every_body_runs_under_its_run_marker_with_the_lock_free() {
+    let fixture = Fixture::pool().await;
+    let host = &fixture.host;
+    let (run_id, seen) = bounded(
+        host.journaled(&Ctx::background(), "test", Vec::new(), async |ctx: &Ctx, run_id: &str| {
+            let leased = host
+                .leased_run(
+                    ctx,
+                    run_id,
+                    "test",
+                    two(None),
+                    DaemonTarget::Lanes,
+                    |_| Ok(()),
+                    async |(): &(), _: usize, current: Lease, _: &Arc<PreparedBuild>| {
+                        let lock = fixture.manager.lifecycle_lock_path(&current.worker);
+                        let free = fixture
+                            .manager
+                            .locks()
+                            .try_acquire(&Ctx::background(), &lock, "suite")
+                            .await
+                            .unwrap()
+                            .is_some();
+                        let marker = read_run_marker(&fixture.settings, &current.worker).unwrap();
+                        (free, marker.map(|marker| (marker.run_id, marker.operation)))
+                    },
+                )
+                .await?;
+            let seen: Vec<_> = leased
+                .settled
+                .into_iter()
+                .map(|settled| settled.expect("every body settled").expect("every run marker was written"))
+                .collect();
+            Ok((run_id.to_owned(), seen))
+        }),
+    )
+    .await
+    .unwrap_or_else(|refusal| panic!("the run leases two workers: {refusal:?}"));
+    assert_eq!(seen.len(), 2);
+    for (free, marker) in seen {
+        assert!(free, "a body ran under the lifecycle lock");
+        assert_eq!(marker, Some((run_id.clone(), "test".to_owned())));
+    }
+    for worker in fixture.workers() {
+        assert_eq!(
+            read_run_marker(&fixture.settings, &worker).unwrap(),
+            None,
+            "{worker} keeps a marker"
+        );
+    }
 }
 
 // `biased`: a signal that arrived before the fan-out is seen before any body is polled.
@@ -226,11 +306,9 @@ async fn a_signal_before_the_fan_out_starts_no_body() {
     let fixture = Fixture::pool().await;
     let ran = AtomicUsize::new(0);
     let interrupts = fixture.interrupts.clone();
-    let leased = bounded(fixture.host.leased_run(
-        &Ctx::background(),
-        RUN_ID,
-        "test",
-        two(None),
+    let leased = two_leased(
+        &fixture,
+        None,
         |_| {
             interrupts.deliver(Signal::Terminate);
             Ok(())
@@ -238,7 +316,7 @@ async fn a_signal_before_the_fan_out_starts_no_body() {
         async |(): &(), _: usize, _: Lease, _: &Arc<PreparedBuild>| {
             ran.fetch_add(1, Ordering::SeqCst);
         },
-    ))
+    )
     .await
     .unwrap_or_else(|refusal| panic!("an interrupt is a settled run: {refusal:?}"));
     assert_eq!(leased.interrupted, Some("SIGTERM"));
@@ -255,14 +333,12 @@ async fn a_borrowed_receipt_runs_first_and_is_never_released() {
     let fixture = Fixture::pool().await;
     let workers = fixture.workers();
     let receipt = fixture.leased_by(&workers[0], "suite", GuestOs::Macos);
-    let leased = bounded(fixture.host.leased_run(
-        &Ctx::background(),
-        RUN_ID,
-        "test",
-        two(Some(&receipt)),
+    let leased = two_leased(
+        &fixture,
+        Some(&receipt),
         |_| Ok(()),
         async |(): &(), index: usize, current: Lease, _: &Arc<PreparedBuild>| (index, current.worker),
-    ))
+    )
     .await
     .unwrap_or_else(|refusal| panic!("the run chains on the receipt: {refusal:?}"));
     assert_eq!(held_workers(&leased), workers);
@@ -287,14 +363,12 @@ async fn a_borrowed_receipt_of_another_guest_costs_no_build_and_no_lease() {
     let workers = fixture.workers();
     let receipt = fixture.leased_by(&workers[0], "suite", GuestOs::Linux);
     let refusal = refused(
-        bounded(fixture.host.leased_run(
-            &Ctx::background(),
-            RUN_ID,
-            "test",
-            two(Some(&receipt)),
+        two_leased(
+            &fixture,
+            Some(&receipt),
             |_| Ok(()),
             async |(): &(), _: usize, _: Lease, _: &Arc<PreparedBuild>| {},
-        ))
+        )
         .await,
     );
     assert_eq!((refusal.code.as_ref(), refusal.exit), ("lease_guest_os_mismatch", Exit::NO_PERM));
@@ -321,6 +395,7 @@ async fn the_run_id_is_the_holder_unless_one_is_named() {
                         run_id,
                         "test",
                         workers,
+                        DaemonTarget::Lanes,
                         |_| Ok(()),
                         async |(): &(), _: usize, current: Lease, _: &Arc<PreparedBuild>| current.holder,
                     )
@@ -349,4 +424,27 @@ async fn the_run_id_is_the_holder_unless_one_is_named() {
             "the journal is named by the run id"
         );
     }
+}
+
+/// `runStarted` carries the start of the process, so a journal shows how long the `vm.cmd` wrapper built before the
+/// controller ran. The Unix answer is local time, and the record is UTC.
+#[test]
+fn a_process_start_reads_as_rfc3339_in_utc() {
+    use super::rfc3339_of_process_start;
+    let local = |day| {
+        jiff::civil::date(2026, 10, day)
+            .at(15, 41, 37, 0)
+            .to_zoned(jiff::tz::TimeZone::system())
+            .unwrap()
+            .timestamp()
+            .to_string()
+    };
+    assert_eq!(rfc3339_of_process_start("Sat Oct 10 15:41:37 2026"), Some(local(10)));
+    // `ps` pads a day before the tenth, and the probe collapses the padding.
+    assert_eq!(rfc3339_of_process_start("Fri Oct 9 15:41:37 2026"), Some(local(9)));
+    assert_eq!(
+        rfc3339_of_process_start("2026-10-10T13:41:37.25Z").as_deref(),
+        Some("2026-10-10T13:41:37.25Z")
+    );
+    assert_eq!(rfc3339_of_process_start("yesterday"), None);
 }

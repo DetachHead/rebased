@@ -11,6 +11,7 @@ targets:
   - ../../src/com/intellij/ide/plugins/marketplace/statistics/UnifiedPluginSearchStatistics.kt
   - ../../src/com/intellij/ide/plugins/marketplace/statistics/collectors/PluginManagerFUSCollector.kt
   - ../../src/com/intellij/ide/plugins/marketplace/statistics/collectors/PluginManagerMPCollector.kt
+  - ../../src/com/intellij/ide/plugins/marketplace/statistics/enums/UnifiedPluginSearchFilterKind.kt
   - ../../src/com/intellij/ide/plugins/newui/ListPluginComponent.kt
   - ../../src/com/intellij/ide/plugins/newui/PluginDetailsPageComponent.kt
   - ../../src/com/intellij/ide/plugins/newui/PluginImagesComponent.kt
@@ -67,7 +68,7 @@ targets:
 # Unified Plugin Manager UI
 
 Status: Active
-Date: 2026-10-13
+Date: 2026-10-27
 
 ## Purpose
 
@@ -264,6 +265,11 @@ Untested: Product welcome buttons on a remote backend keep the Settings route be
     `update filter follows session enablement with cached disabled updates`
   )
 
+- Update available must exclude a plugin while its update source change is pending.
+  [@test] ../../testSrc/com/intellij/ide/plugins/UnifiedPluginsPageSessionTest.kt (
+    `pending source changes suppress row details and Update All availability`
+  )
+
 - An empty search field must show `Search all plugins` and the Filter control.
 - The Filter control must show a selected state while a represented filter is active.
   [@test] ../../testSrc/com/intellij/ide/plugins/unified/UnifiedPluginsPageViewTest.kt (
@@ -393,17 +399,34 @@ Untested: Community tests verify the Enter handler, but they do not verify the S
 ## Search Reporting
 
 - Each nonempty query must emit one unified search event after all eligible sources settle.
+- Filter selection, filter removal, and sort changes must use the same reporting path as typed queries.
+- An unchanged query must not emit another search event or advance the search index.
+- A newer query must replace an older pending search before its sources settle.
 - A pending query projection must not count as settled.
 - The event must report the query shape, filter kinds, source kinds, effective sort, and each section result count.
+- The event must distinguish `/outdated`, `/enabled`, `/disabled`, `/invalid`, and `/updatedBundled`.
+- Only the effective installed-state command must count.
+- The event must distinguish `/bundled`, `/userInstalled`, and `/downloaded`.
+- Repeated filters must count once.
+- Attribute kinds must include `UPDATE_SOURCE` without its value.
+- Source modes and sort must use their existing fields, not filter kinds.
 - The event must not report filter values or repository identities.
 - A session start event must identify the unified page.
   [@test] ../../testSrc/com/intellij/ide/plugins/UnifiedPluginsPageSessionTest.kt (
     `session reports each non-empty search after all sources settle`;
+    `session reports filter selection removal and sort changes`;
+    `session reports each installed menu filter with and without text`;
+    `session reports only the latest menu query after pending sources settle`;
     `session started identifies the unified page`
   )
   [@test] ../../testSrc/com/intellij/ide/plugins/marketplace/statistics/UnifiedPluginSearchStatisticsTest.kt (
     `MP collector inherits the unified schema`;
-    `unified search reports bounded controls sources and section counts`
+    `unified schemas validate precise filter kinds`;
+    `unified search reports bounded controls sources and section counts`;
+    `filter kinds distinguish commands with and without text`;
+    `filter kinds include attribute families without values`;
+    `filter kinds keep only effective installed state and deduplicate commands`;
+    `source modes and sort do not add filter kinds`
   )
 
 - Clearing a nonempty query must emit one search-reset event.
@@ -632,6 +655,12 @@ Untested: No focused test verifies Shift-selection across sections.
   [@test] ../../testSrc/com/intellij/ide/plugins/unified/UnifiedPluginsPageViewTest.kt (
     `sticky header is pushed off by the next section without duplicating controls`;
     `sticky expansion control collapses its section`
+  )
+
+- A section header must remain visible after the first layout, a section replacement, and a resize.
+  [@test] ../../testSrc/com/intellij/ide/plugins/unified/UnifiedPluginsPageViewTest.kt (
+    `initial layout keeps the repository header visible`;
+    `new repository header stays visible after a section replacement`
   )
 
 - A long section title must yield space to its count and actions.

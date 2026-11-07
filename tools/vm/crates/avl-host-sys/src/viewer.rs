@@ -5,7 +5,7 @@
 //! writes to `<runtime root>/viewer/serve.log` and keeps its process id in `serve.pid` beside it.
 
 use std::ffi::OsString;
-use std::io::{self, Read, Write};
+use std::io::{Read, Write};
 use std::net::{Ipv4Addr, SocketAddr, TcpStream};
 use std::path::{Path, PathBuf};
 use std::process::Child;
@@ -16,7 +16,7 @@ use avl_base::{Exit, Refusal};
 use avl_trace_tools::viewer::{IDENTITY, IDENTITY_HEADER, RUNS_ROUTE};
 
 use crate::Runner;
-use crate::private::{PrivateOpen, open_private_file};
+use crate::private::open_session_log;
 
 #[cfg(test)]
 mod tests;
@@ -170,26 +170,24 @@ pub struct Started {
 /// not, because the wrapper's `bazel run` can take longer than the run's own build. A session of its own, so the
 /// terminal that started it can close and its interrupt does not reach the server; through the runner, so a
 /// server left running for half an hour inherits no bridge credential. The directory is private and the log is the
-/// owner's alone, because the log names the checkout and the bundles.
+/// owner's alone, because the log names the checkout and the bundles. The server runs in `directory` for its whole
+/// life ([`Runner::spawn_session`]).
 pub fn start_detached(
     runner: &Runner,
     command: &[OsString],
-    directory: Option<&Path>,
+    directory: &Path,
     request: &DetachRequest,
     runtime_root: &Path,
 ) -> Result<Started, Refusal> {
     let dir = viewer_dir(runtime_root);
     create_private_dir(&dir)?;
     let log_path = dir.join(SERVE_LOG_FILE);
-    let unusable = |error: io::Error| Refusal::new("viewer_log_unusable", Exit::CANT_CREATE, format!("{}: {error}", log_path.display()));
-    let mut log = open_private_file(&log_path, PrivateOpen::Append).map_err(unusable)?;
-    let log_err = log.try_clone().map_err(unusable)?;
-    // A header the log cannot take costs only the header.
-    let _ = writeln!(
-        log,
-        "\n--- {}: air-trace serve started detached",
+    let header = format!(
+        "{}: air-trace serve started detached",
         jiff::Zoned::now().strftime("%Y-%m-%dT%H:%M:%S%:z")
     );
+    let (log, log_err) = open_session_log(&log_path, &header)
+        .map_err(|error| Refusal::new("viewer_log_unusable", Exit::CANT_CREATE, format!("{}: {error}", log_path.display())))?;
     let mut argv = command.to_vec();
     argv.extend(request.args(&dir.join(SERVE_PID_FILE)));
     let child = runner.spawn_session(&argv, directory, log, log_err).map_err(|error| {

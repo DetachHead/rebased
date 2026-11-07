@@ -23,7 +23,7 @@ use crate::{Clock, Diagnostics, lock, unix_ms};
 /// killed outright therefore leaves every line it had written, whole, and a viewer tailing the bundle while the
 /// scenario runs reads the same lines the finished bundle will hold.
 ///
-/// It is shared by the command loop and the threads that report on their own (the frame loop, the still encoder),
+/// It is shared by the command loop and the threads that report on their own (the frame loop, the still encoders),
 /// hence the lock. A write that fails is reported once on the diagnostics stream and the bundle is otherwise left
 /// alone: evidence that cannot be written must not become a failure of the scenario it watches.
 pub(crate) struct BundleWriter {
@@ -203,10 +203,21 @@ pub(crate) fn write_file_atomically(path: &Path, content: &[u8]) -> io::Result<(
     })
 }
 
+/// Copies `from` to `to` under a [PARTIAL_SUFFIX] name and renames the copy into place, so a reader never finds half a
+/// file at `to`. A failed rename removes the copy.
+pub(crate) fn copy_into_place(from: &Path, to: &Path) -> io::Result<()> {
+    let mut partial = to.as_os_str().to_owned();
+    partial.push(PARTIAL_SUFFIX);
+    fs::copy(from, &partial)?;
+    fs::rename(&partial, to).inspect_err(|_| {
+        let _ = fs::remove_file(&partial);
+    })
+}
+
 /// Epoch milliseconds as OTLP holds them.
 ///
 /// Every time the recorder writes is cut to the millisecond, its own receipt stamps included, because the lane stamps
-/// calls and driver steps in milliseconds. A span stamped in nanoseconds could start a fraction of a millisecond
+/// calls in milliseconds. A span stamped in nanoseconds could start a fraction of a millisecond
 /// after a call the lane made inside it, and the viewer's join of a record to its span would miss.
 pub(crate) fn nanos(ms: i64) -> UnixNano {
     UnixNano::from_ms(ms)

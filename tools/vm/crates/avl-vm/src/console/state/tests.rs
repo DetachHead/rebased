@@ -55,6 +55,19 @@ impl Run {
         self.publish(&Event::Daemon(event), worker);
     }
 
+    /// Starts the iteration of `flow flow-new-session` on the worker `w`.
+    fn start_iteration(&mut self) {
+        self.publish(&phase(PhaseState::Started, Phase::Iteration, "flow flow-new-session", 0), "w");
+    }
+
+    /// Publishes the `runStarted` record of the daemon on the worker `w`.
+    fn daemon_run_started(&mut self) {
+        self.daemon(
+            r#"{"event":"runStarted","iterationId":"i","daemonBootStamp":"b","startedAt":"s"}"#,
+            "w",
+        );
+    }
+
     fn advance(&mut self, seconds: u64) {
         self.now += Duration::from_secs(seconds);
     }
@@ -96,12 +109,7 @@ fn phase(state: PhaseState, which: Phase, detail: &str, elapsed_seconds: u64) ->
 }
 
 fn run_started(args: &[&str]) -> Event {
-    Event::RunStarted(RunStarted {
-        run_id: "me-run-1".to_owned(),
-        command: "run".to_owned(),
-        args: args.iter().map(|arg| (*arg).to_owned()).collect(),
-        checkout: None,
-    })
+    Event::RunStarted(RunStarted::new("me-run-1", "run", args.iter().copied()))
 }
 
 fn typical(seconds: u64) -> Typical {
@@ -173,23 +181,11 @@ fn trace_ready(scenario: &str, bundle: &str) -> Event {
     })
 }
 
-fn verdict(status: Status, code: Option<&str>, summary: &str) -> Verdict {
+/// A verdict with `status`, `code` and `summary`, and nothing else.
+pub(crate) fn verdict(status: Status, code: Option<&str>, summary: &str) -> Verdict {
     Verdict {
-        status,
         code: code.map(str::to_owned),
-        summary: summary.to_owned(),
-        counts: VerdictCounts::default(),
-        failures: Vec::new(),
-        rerun: Vec::new(),
-        skipped: Vec::new(),
-        unreported: Vec::new(),
-        lanes: Vec::new(),
-        shards: None,
-        lease: None,
-        checkout: None,
-        traces: None,
-        timing: None,
-        report: None,
+        ..Verdict::new(status, summary)
     }
 }
 
@@ -219,6 +215,7 @@ fn the_checklist_shows_the_plan_and_the_usual_times() {
     expect![[r"
         |
         |  ⠦ host build         12s  usual 40s    [12 / 90] Compiling Kotlin
+        |  ○ prepare
         |  ○ lease
         |  ○ daemon start
         |  ○ tests
@@ -248,17 +245,17 @@ fn the_checklist_shows_the_plan_and_the_usual_times() {
 fn a_decision_explains_its_row() {
     let mut run = Run::new();
     run.publish(
-        &decision(Subject::Daemon, "restart", Some("the stable runtime or JBR changed")),
+        &decision(Subject::Daemon, "restart", Some("the launch of the daemon changed")),
         "air-linux-1",
     );
     assert!(
-        run.has_line("⟳ daemon restart — the stable runtime or JBR changed"),
+        run.has_line("⟳ daemon restart — the launch of the daemon changed"),
         "the scrollback is {:?}",
         run.scrollback
     );
     let live = run.live(120);
     assert!(
-        live.contains("restart — the stable runtime or JBR changed"),
+        live.contains("restart — the launch of the daemon changed"),
         "the daemon row does not say why:\n{live}"
     );
 
@@ -280,11 +277,8 @@ fn a_decision_explains_its_row() {
 fn the_tests_line_counts_and_estimates() {
     let mut run = Run::new();
     run.publish(&expected_lane(), "");
-    run.publish(&phase(PhaseState::Started, Phase::Iteration, "flow flow-new-session", 0), "w");
-    run.daemon(
-        r#"{"event":"runStarted","iterationId":"i","daemonBootStamp":"b","startedAt":"s"}"#,
-        "w",
-    );
+    run.start_iteration();
+    run.daemon_run_started();
     run.daemon(
         r#"{"event":"planStarted","timestamp":"t","discoveredExecutions":4,"classNames":["com.example.AirNewSessionFlowUiTest","com.example.AirDraftFlowUiTest"]}"#,
         "w",
@@ -300,6 +294,7 @@ fn the_tests_line_counts_and_estimates() {
     expect![[r"
         |
         |  – host build     skipped
+        |  – prepare        skipped
         |  – lease          skipped
         |  – daemon start   skipped
         |  ⠋ tests              10s  usual 2m00s  flow flow-new-session
@@ -316,7 +311,7 @@ fn the_tests_line_counts_and_estimates() {
         "w",
     );
     run.daemon(
-        r#"{"event":"testFinished","timestamp":"t","id":"2","className":"com.example.AirNewSessionFlowUiTest","displayName":"restores the draft","status":"FAILED","durationMs":31000,"error":"expected \"hi\" but was \"\"\n\tat line 3"}"#,
+        r#"{"event":"testFinished","timestamp":"t","id":"2","className":"com.example.AirNewSessionFlowUiTest","displayName":"restores the draft","status":"FAILED","durationMs":31000,"type":"java.lang.AssertionError","message":"expected \"hi\" but was \"\"","detail":"\tat line 3"}"#,
         "w",
     );
     // The first test stopped waiting for its trace when the second finished. The second still waits, and the live
@@ -355,18 +350,15 @@ fn the_card_is_the_verdict() {
     run.publish(&phase(PhaseState::Started, Phase::HostBuild, "//a:b", 0), "");
     run.publish(&phase(PhaseState::Finished, Phase::HostBuild, "", 30), "");
     run.publish(&decision(Subject::Ide, "reuse", None), "w");
-    run.publish(&phase(PhaseState::Started, Phase::Iteration, "flow flow-new-session", 0), "w");
-    run.daemon(
-        r#"{"event":"runStarted","iterationId":"i","daemonBootStamp":"b","startedAt":"s"}"#,
-        "w",
-    );
+    run.start_iteration();
+    run.daemon_run_started();
     run.daemon(
         r#"{"event":"testStarted","timestamp":"t","id":"1","className":"com.example.AirNewSessionFlowUiTest","displayName":"restores the draft"}"#,
         "w",
     );
     run.advance(90);
     run.daemon(
-        r#"{"event":"testFinished","timestamp":"t","id":"1","className":"com.example.AirNewSessionFlowUiTest","displayName":"restores the draft","status":"FAILED","durationMs":90000,"error":"no chip"}"#,
+        r#"{"event":"testFinished","timestamp":"t","id":"1","className":"com.example.AirNewSessionFlowUiTest","displayName":"restores the draft","status":"FAILED","durationMs":90000,"message":"no chip"}"#,
         "w",
     );
     run.daemon(
@@ -584,7 +576,7 @@ fn the_card_states_the_reason_the_lanes_and_a_failed_phase() {
     let mut no_tests = verdict(
         Status::NoTests,
         Some("no_tests_discovered"),
-        "lane ui-real: lane ui-real matched no tests in the hot tier (iteration it-2)",
+        "lane ui-real: lane ui-real matched no tests (iteration it-2)",
     );
     no_tests.counts.started = 9;
     no_tests.lanes = vec![
@@ -603,7 +595,7 @@ fn the_card_states_the_reason_the_lanes_and_a_failed_phase() {
             lane: "ui-real".to_owned(),
             status: Status::NoTests,
             code: Some("no_tests_discovered".to_owned()),
-            summary: "lane ui-real matched no tests in the hot tier (iteration it-2)".to_owned(),
+            summary: "lane ui-real matched no tests (iteration it-2)".to_owned(),
             counts: VerdictCounts::default(),
             report: None,
         },
@@ -614,7 +606,7 @@ fn the_card_states_the_reason_the_lanes_and_a_failed_phase() {
     for fragment in [
         "FAILED",
         "9 passed · 0 failed",
-        "lane ui-real: lane ui-real matched no tests in the hot tier (iteration it-2)",
+        "lane ui-real: lane ui-real matched no tests (iteration it-2)",
         "✓ lane ui 9 passed",
         "✗ lane ui-real lane ui-real matched no tests",
         "✗ release: the lease is still held (release_failed)",
@@ -669,4 +661,31 @@ fn no_color_and_a_dumb_terminal_are_honoured() {
 
     let dumb = Paint::fallback(false, false);
     assert_eq!(dumb.link("trace", "http://x"), "trace");
+}
+
+// A failed test shows the headline of its typed failure under its line: the first line of the message, else the type.
+#[test]
+fn a_failed_test_shows_the_headline_of_its_typed_failure() {
+    let mut run = Run::new();
+    run.publish(&expected_lane(), "");
+    run.start_iteration();
+    run.daemon(
+        r#"{"event":"testFinished","timestamp":"t","id":"1","className":"com.example.AirNewSessionFlowUiTest","displayName":"restores the draft","status":"FAILED","durationMs":2000,"type":"java.lang.AssertionError","message":"no chip\nmore","detail":"at line 3"}"#,
+        "w",
+    );
+    run.daemon(
+        r#"{"event":"testFinished","timestamp":"t","id":"2","className":"com.example.AirNewSessionFlowUiTest","displayName":"opens the chooser","status":"FAILED","durationMs":3000,"type":"java.lang.IllegalStateException"}"#,
+        "w",
+    );
+    run.publish(&iteration_reported("/r/it.json"), "w");
+    assert!(
+        run.has_line("✗ restores the draft 2s") && run.has_line("      no chip") && !run.has_line("more"),
+        "the scrollback is\n{}",
+        run.scrollback()
+    );
+    assert!(
+        run.has_line("✗ opens the chooser 3s") && run.has_line("      java.lang.IllegalStateException"),
+        "the scrollback is\n{}",
+        run.scrollback()
+    );
 }

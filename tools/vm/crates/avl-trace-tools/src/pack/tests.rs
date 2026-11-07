@@ -4,7 +4,7 @@ use std::path::Path;
 use std::time::{Duration, SystemTime};
 
 use avl_testkit::traces::{copy_tree, example_bundle};
-use avl_trace::bundle::{IDEA_LOG_FILE, LOGS_FILE, SNAP_DIR, bundle_file, bundle_path, snap_image_path, snap_tree_path};
+use avl_trace::bundle::{IDEA_LOG_FILE, LOGS_FILE, SNAP_DIR, StillEncoding, bundle_file, bundle_path, snap_image_path, snap_tree_path};
 use pretty_assertions::assert_eq;
 use zip::ZipArchive;
 use zip::read::HasZipMetadata;
@@ -20,6 +20,13 @@ fn example_root() -> (tempfile::TempDir, String) {
     let bundle = bundle_path(&manifest.run_id, &manifest.test_class, &manifest.scenario);
     copy_tree(&example_bundle(), &bundle_file(root.path(), &bundle));
     (root, bundle)
+}
+
+/// A new directory, which the caller keeps, and the path of `traces.zip` in it.
+fn zip_destination() -> (tempfile::TempDir, PathBuf) {
+    let directory = tempfile::tempdir().unwrap();
+    let destination = directory.path().join("traces.zip");
+    (directory, destination)
 }
 
 fn pack_or_fail(source: &Path, destination: &Path, options: &PackOptions<'_>) -> Report {
@@ -61,8 +68,7 @@ fn pack_is_deterministic() {
 #[test]
 fn pack_stores_media_and_deflates_text() {
     let (root, bundle) = example_root();
-    let destination = tempfile::tempdir().unwrap();
-    let destination = destination.path().join("traces.zip");
+    let (_directory, destination) = zip_destination();
     let report = pack_or_fail(root.path(), &destination, &PackOptions::default());
 
     let raw = fs::read(&destination).unwrap();
@@ -108,7 +114,7 @@ fn pack_stores_media_and_deflates_text() {
         SPANS_FILE,
         LOGS_FILE,
         IDEA_LOG_FILE,
-        &snap_image_path(1),
+        &snap_image_path(1, StillEncoding::Lossless),
         &snap_tree_path(17),
     ] {
         assert!(names.contains(&format!("{bundle}/{want}")), "the zip has no {bundle}/{want}");
@@ -156,8 +162,7 @@ fn pack_follows_file_links_and_skips_directory_links() {
     fs::create_dir_all(&bundle).unwrap();
     symlink(&target, bundle.join("spans.jsonl")).unwrap();
     symlink(outside.path(), root.path().join("loop")).unwrap();
-    let destination = tempfile::tempdir().unwrap();
-    let destination = destination.path().join("traces.zip");
+    let (_directory, destination) = zip_destination();
     let report = pack_or_fail(root.path(), &destination, &PackOptions::default());
     assert_eq!((report.entries, report.bundles), (1, 1));
     assert_eq!(
@@ -218,8 +223,7 @@ fn a_selection_packs_only_the_bundles_it_keeps() {
     fs::create_dir_all(bundle_file(root.path(), unfinished)).unwrap();
     fs::write(bundle_file(root.path(), unfinished).join(SPANS_FILE), "").unwrap();
     fs::write(root.path().join("stray.txt"), "under no bundle").unwrap();
-    let destination = tempfile::tempdir().unwrap();
-    let destination = destination.path().join("traces.zip");
+    let (_directory, destination) = zip_destination();
 
     let finished_only = |_: &str, finished: bool| finished;
     let report = pack_or_fail(
@@ -258,4 +262,251 @@ fn the_report_keeps_its_wire_shape() {
         serde_json::from_str(r#"{"source":"/src","destination":"/d.zip","entries":2,"bundles":1,"packed":["a/b/c"],"bytes":9}"#).unwrap();
     assert_eq!(decoded.destination.as_deref(), Some(Path::new("/d.zip")));
     assert_eq!(decoded.packed, vec!["a/b/c".to_owned()]);
+}
+
+/// Writes an Allure result for the bundle `bundle` of the run `run` under the root, with one attachment file, and
+/// answers the names of the two files in the pack.
+fn write_allure_result(root: &Path, run: &str, bundle: &str, uuid: &str) -> [String; 2] {
+    use avl_trace::bundle::{
+        ALLURE_BUNDLE_LABEL, AllureAttachment, AllureResult, AllureStage, AllureStatus, AllureStatusDetails, allure_attachment_file,
+        allure_result_file, encode_allure_result,
+    };
+    use avl_trace::protocol::Label;
+    let source = allure_attachment_file(uuid, "webp");
+    let result = AllureResult {
+        uuid: uuid.to_owned(),
+        history_id: "history".to_owned(),
+        full_name: format!("{bundle}.full"),
+        name: bundle.to_owned(),
+        status: AllureStatus::Passed,
+        status_details: AllureStatusDetails::default(),
+        stage: AllureStage::Finished,
+        start: 1,
+        stop: 2,
+        labels: vec![Label {
+            name: ALLURE_BUNDLE_LABEL.to_owned(),
+            value: bundle.to_owned(),
+        }],
+        steps: Vec::new(),
+        attachments: vec![AllureAttachment {
+            name: "Video".to_owned(),
+            source: source.clone(),
+            mime: "video/mp4".to_owned(),
+        }],
+    };
+    let dir = format!("{run}/{ALLURE_RESULTS_DIR}");
+    fs::create_dir_all(bundle_file(root, &dir)).unwrap();
+    let names = [format!("{dir}/{}", allure_result_file(uuid)), format!("{dir}/{source}")];
+    fs::write(bundle_file(root, &names[0]), encode_allure_result(&result).unwrap()).unwrap();
+    fs::write(bundle_file(root, &names[1]), "picture").unwrap();
+    names
+}
+
+/// The Allure results leave with their run. A whole pack keeps every result, and a selection keeps the results of
+/// the bundles it keeps, with the files those results name.
+#[test]
+fn a_pack_keeps_the_allure_results_of_its_bundles() {
+    let (root, bundle) = example_root();
+    let (run, under_run) = bundle.split_once('/').unwrap();
+    let kept = write_allure_result(root.path(), run, under_run, "11111111-1111-8111-8111-111111111111");
+    let unfinished = format!("{run}/AirOtherTest/running");
+    fs::create_dir_all(bundle_file(root.path(), &unfinished)).unwrap();
+    fs::write(bundle_file(root.path(), &unfinished).join(SPANS_FILE), "").unwrap();
+    let left = write_allure_result(root.path(), run, "AirOtherTest/running", "22222222-2222-8222-8222-222222222222");
+    let broken = format!("{run}/{ALLURE_RESULTS_DIR}/broken{ALLURE_RESULT_SUFFIX}");
+    fs::write(bundle_file(root.path(), &broken), "{}").unwrap();
+    let out = tempfile::tempdir().unwrap();
+    let names = |zip: &Path| -> Vec<String> {
+        ZipArchive::new(File::open(zip).unwrap())
+            .unwrap()
+            .file_names()
+            .map(str::to_owned)
+            .collect()
+    };
+
+    let whole = out.path().join("whole.zip");
+    pack_or_fail(root.path(), &whole, &PackOptions::default());
+    let packed = names(&whole);
+    for name in kept.iter().chain(&left).chain([&broken]) {
+        assert!(packed.contains(name), "the whole pack has no {name}");
+    }
+
+    let selected = out.path().join("selected.zip");
+    let finished_only = |_: &str, finished: bool| finished;
+    let report = pack_or_fail(
+        root.path(),
+        &selected,
+        &PackOptions {
+            select: Some(&finished_only),
+        },
+    );
+    let packed = names(&selected);
+    let results: Vec<&String> = packed.iter().filter(|name| !name.starts_with(&format!("{bundle}/"))).collect();
+    let mut want: Vec<&String> = kept.iter().collect();
+    want.sort();
+    assert_eq!(results, want);
+    let skipped: Vec<&str> = report.skipped.iter().map(|skipped| skipped.path.as_str()).collect();
+    assert_eq!(skipped, [broken.as_str()]);
+}
+
+/// The walk can pass a run's results directory before the recorder writes a result there, and then reach the
+/// result's finished bundle. The results directory is listed after the walk, so the pack still holds the result.
+/// A file that a kept result names is packed even when no listing held it.
+#[test]
+fn a_result_written_during_the_walk_leaves_with_its_bundle() {
+    let (root, bundle) = example_root();
+    let (run, under_run) = bundle.split_once('/').unwrap();
+    assert!(
+        bundle_file(root.path(), &bundle).join(MANIFEST_FILE).is_file(),
+        "the example bundle is not finished"
+    );
+    let finished_only = |_: &str, finished: bool| finished;
+    for results_dir_before_walk in [false, true] {
+        let results = bundle_file(root.path(), &format!("{run}/{ALLURE_RESULTS_DIR}"));
+        if results.exists() {
+            fs::remove_dir_all(&results).unwrap();
+        }
+        if results_dir_before_walk {
+            fs::create_dir_all(&results).unwrap();
+        }
+        let mut written = None;
+        let Collected { mut entries, bundles, .. } = collect(root.path(), &mut || {
+            written = Some(write_allure_result(
+                root.path(),
+                run,
+                under_run,
+                "33333333-3333-8333-8333-333333333333",
+            ));
+        })
+        .unwrap();
+        let [result, attachment] = written.unwrap();
+        let listed: Vec<&str> = entries.iter().map(|item| item.name.as_str()).collect();
+        assert!(listed.contains(&result.as_str()), "the result is not listed: {listed:?}");
+
+        entries.retain(|item| item.name != attachment);
+        let mut skipped = Vec::new();
+        let (selected, kept) = select_bundles(entries, bundles, &finished_only, &mut skipped);
+        assert_eq!(kept, std::slice::from_ref(&bundle));
+        let names: Vec<&str> = selected.iter().map(|item| item.name.as_str()).collect();
+        for name in [&result, &attachment] {
+            assert!(names.contains(&name.as_str()), "the selection has no {name}: {names:?}");
+        }
+        let attached = selected.iter().find(|item| item.name == attachment).unwrap();
+        assert_eq!(fs::read_to_string(&attached.source).unwrap(), "picture");
+        assert_eq!(skipped, []);
+    }
+}
+
+/// One bundle of a zip whose entries are all deflated, as Bazel zips a test's outputs, becomes one zip with the bundle
+/// at its top: media stored again, the other bundle left out, and the same bytes on each pack.
+#[test]
+fn one_bundle_of_a_zip_is_packed_with_its_media_stored() {
+    let (root, bundle) = example_root();
+    copy_tree(&example_bundle(), &bundle_file(root.path(), "other-run/AirOtherTest/other"));
+    let out = tempfile::tempdir().unwrap();
+    let outputs = out.path().join("outputs.zip");
+    let mut writer = ZipWriter::new(File::create(&outputs).unwrap());
+    let deflated = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
+    for entry in walkdir::WalkDir::new(root.path()).sort_by_file_name() {
+        let entry = entry.unwrap();
+        if entry.file_type().is_file() {
+            let name = slash_name(entry.path().strip_prefix(root.path()).unwrap()).unwrap();
+            writer.start_file(format!("air-traces/{name}"), deflated).unwrap();
+            io::copy(&mut File::open(entry.path()).unwrap(), &mut writer).unwrap();
+        }
+    }
+    writer.finish().unwrap();
+    let prefix = format!("air-traces/{bundle}/");
+
+    let first = out.path().join("one.zip");
+    let report = pack_zip_bundle(&outputs, &prefix, &first).unwrap();
+    let second = out.path().join("two.zip");
+    pack_zip_bundle(&outputs, &prefix, &second).unwrap();
+    assert!(
+        fs::read(&first).unwrap() == fs::read(&second).unwrap(),
+        "two packs of one bundle differ"
+    );
+    assert_eq!((report.bundles, report.packed.clone()), (1, vec![format!("air-traces/{bundle}")]));
+
+    let mut archive = ZipArchive::new(File::open(&first).unwrap()).unwrap();
+    assert_eq!(archive.len(), report.entries);
+    let image = snap_image_path(1, StillEncoding::Lossless);
+    let mut entry = archive.by_name(&image).unwrap();
+    assert_eq!(entry.compression(), CompressionMethod::Stored);
+    let mut content = Vec::new();
+    entry.read_to_end(&mut content).unwrap();
+    drop(entry);
+    assert_eq!(content, fs::read(bundle_file(root.path(), &bundle).join(&image)).unwrap());
+    assert_eq!(archive.by_name(SPANS_FILE).unwrap().compression(), CompressionMethod::Deflated);
+    assert!(archive.file_names().all(|name| !name.contains("AirOtherTest")));
+
+    let refused = pack_zip_bundle(&outputs, "air-traces/missing/", &out.path().join("none.zip")).unwrap_err();
+    assert!(
+        refused.to_string().contains("holds no bundle at \"air-traces/missing/\""),
+        "{refused}"
+    );
+
+    let hostile = out.path().join("hostile.zip");
+    let mut writer = ZipWriter::new(File::create(&hostile).unwrap());
+    for name in ["b/spans.jsonl", "b/../../escape.txt"] {
+        writer.start_file(name, deflated).unwrap();
+        writer.write_all(b"{}").unwrap();
+    }
+    writer.finish().unwrap();
+    let refused = pack_zip_bundle(&hostile, "b/", &out.path().join("hostile-out.zip")).unwrap_err();
+    assert!(
+        refused.to_string().contains("\"b/../../escape.txt\", which is not a clean path"),
+        "{refused}"
+    );
+    assert!(!out.path().join("hostile-out.zip").exists());
+}
+
+/// An archive keeps the names and the order it is given. It stores a zip and deflates JSON and HTML, and two archives
+/// of the same files are one zip. A name with `..` refuses the archive.
+#[test]
+fn an_archive_keeps_its_order_and_stores_its_zips() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = |name: &str, content: &str| {
+        let path = dir.path().join(name);
+        fs::write(&path, content).unwrap();
+        path
+    };
+    let entries = vec![
+        ("index.html".to_owned(), file("page.html", "<!doctype html>")),
+        ("runs.json".to_owned(), file("runs.json", "{\"runs\": []}")),
+        ("lane/iter-1/T/b.zip".to_owned(), file("b.zip", "PK")),
+        ("lane/iter-1/T/a.zip".to_owned(), file("a.zip", "PK")),
+    ];
+    let first = dir.path().join("first.zip");
+    let bytes = archive(&first, &entries).unwrap();
+    assert_eq!(bytes, fs::metadata(&first).unwrap().len());
+    let second = dir.path().join("second.zip");
+    archive(&second, &entries).unwrap();
+    assert!(
+        fs::read(&first).unwrap() == fs::read(&second).unwrap(),
+        "two archives of one set differ"
+    );
+
+    let mut zip = ZipArchive::new(File::open(&first).unwrap()).unwrap();
+    let listing: Vec<(String, CompressionMethod)> = (0..zip.len())
+        .map(|index| {
+            let entry = zip.by_index(index).unwrap();
+            (entry.name().to_owned(), entry.compression())
+        })
+        .collect();
+    assert_eq!(
+        listing,
+        [
+            ("index.html".to_owned(), CompressionMethod::Deflated),
+            ("runs.json".to_owned(), CompressionMethod::Deflated),
+            ("lane/iter-1/T/b.zip".to_owned(), CompressionMethod::Stored),
+            ("lane/iter-1/T/a.zip".to_owned(), CompressionMethod::Stored),
+        ]
+    );
+
+    let refused = archive(&dir.path().join("hostile.zip"), &[("../x.json".to_owned(), entries[1].1.clone())]).unwrap_err();
+    assert!(
+        refused.to_string().contains("\"../x.json\" is not a clean relative path"),
+        "{refused}"
+    );
 }

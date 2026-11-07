@@ -26,3 +26,6 @@ build_test(
     name = "lints_equal_test",
     targets = [":lints_equal_check"],
 )
+
+# 263 only: this branch has no `//tools/jscpd-test`, so the copy-paste gate `duplicate-code_test` of master is absent. See
+# `plugins/air/BRANCH-263-DIVERGENCE.md` section 3.20.

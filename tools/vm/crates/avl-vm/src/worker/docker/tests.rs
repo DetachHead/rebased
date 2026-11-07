@@ -7,22 +7,13 @@
 use std::path::PathBuf;
 
 use avl_base::{GuestArch, GuestOs, SCHEMA_VERSION};
-use avl_host_sys::Ctx;
 use avl_host_sys::share::SHARE_MODE;
 use avl_testkit::tartfake::Answer;
 use pretty_assertions::assert_eq;
 
 use super::*;
 use crate::worker::hypervisor::is_unsupported;
-use crate::worker::testing::Fixture;
-
-fn ctx() -> Ctx {
-    Ctx::background()
-}
-
-fn docker(fixture: &Fixture) -> &Docker {
-    fixture.manager.machine().docker().expect("a Docker pool")
-}
+use crate::worker::testing::{Fixture, assert_probe_unanswered, ctx, docker};
 
 fn strings(words: &[&str]) -> Vec<String> {
     words.iter().map(|word| (*word).to_owned()).collect()
@@ -82,19 +73,55 @@ fn every_guest_architecture_is_published() {
     assert!(!runs_natively(GuestArch::X86_64, "linux/386"));
 }
 
+/// The refusal of the gate of `fixture` when `docker version` exits 1, which is `docker_missing` at 69.
+async fn silent_engine_refusal(fixture: &Fixture) -> Refusal {
+    fixture.fake.answer(Answer::VersionExit, "1");
+    let refusal = docker(fixture).require_available(&ctx(), "").await.unwrap_err();
+    assert_eq!((refusal.code.as_ref(), refusal.exit), ("docker_missing", Exit::UNAVAILABLE));
+    refusal
+}
+
 /// An engine that does not answer and a CLI that is not there are both `docker_missing` at 69, which is what a
 /// caller retries against: an engine that is not started yet is the common case.
 #[tokio::test]
 async fn a_silent_engine_and_a_missing_cli_are_docker_missing() {
-    let fixture = Fixture::docker();
-    fixture.fake.answer(Answer::VersionExit, "1");
-    let refusal = docker(&fixture).require_available(&ctx(), "").await.unwrap_err();
-    assert_eq!((refusal.code.as_ref(), refusal.exit), ("docker_missing", Exit::UNAVAILABLE));
+    silent_engine_refusal(&Fixture::docker()).await;
 
     let missing = Fixture::docker_builder().env("DOCKER_BIN", "/nonexistent/docker").build();
     let refusal = docker(&missing).require_available(&ctx(), "").await.unwrap_err();
     assert_eq!((refusal.code.as_ref(), refusal.exit), ("docker_missing", Exit::UNAVAILABLE));
     assert!(refusal.message.contains("DOCKER_BIN"), "{}", refusal.message);
+}
+
+/// A Mac older than macOS 26 that names no engine keeps the host engine with the pinned CLI, and the load refuses
+/// nothing. Its first engine command, `docker version`, refuses `docker_missing` when no engine answers. The remedy
+/// names two ways out: a Docker engine in `DOCKER_BIN` or `DOCKER_HOST`, or a Mac of macOS 26 or newer on Apple
+/// silicon. It does not name the container-linux backend. A named engine is told to start.
+#[cfg(unix)]
+#[tokio::test]
+async fn an_older_mac_that_names_no_engine_is_told_the_two_ways_out() {
+    let macos_15 = avl_base::config::MacosHost {
+        major: 15,
+        apple_silicon: true,
+    };
+    let fixture = Fixture::docker_builder().unnamed_engine().on_macos(macos_15).build();
+    let settings = &fixture.settings;
+    assert_eq!(settings.docker_engine, avl_base::DockerEngine::Host);
+    assert_eq!((settings.docker.as_deref(), settings.docker_host.as_deref()), (None, None));
+    let refusal = silent_engine_refusal(&fixture).await;
+    assert!(fixture.fake.saw_call_containing("version --format {{.Server.Os}}/{{.Server.Arch}}"));
+    assert!(
+        refusal.message.ends_with(
+            "this Mac runs no Apple container; name a Docker engine with DOCKER_BIN or DOCKER_HOST, or run the lane on \
+             a Mac with macOS 26 or newer on Apple silicon"
+        ),
+        "{}",
+        refusal.message
+    );
+    assert!(!refusal.message.contains("container-linux"), "{}", refusal.message);
+
+    let refusal = silent_engine_refusal(&Fixture::docker()).await;
+    assert!(refusal.message.ends_with("start the Docker engine"), "{}", refusal.message);
 }
 
 // --- the plugin configuration of the pinned CLI -----------------------------------------------------------------
@@ -134,11 +161,21 @@ async fn the_guest_argv_asks_for_stdin_only_when_there_is_stdin() {
     let program = docker(&fixture).program();
     let argv = strings(&["/usr/bin/true"]);
     assert_eq!(
-        docker(&fixture).guest_argv(&ctx(), "air-docker-1", &argv, false).await.unwrap(),
+        fixture
+            .manager
+            .machine()
+            .guest_argv(&ctx(), "air-docker-1", &argv, false)
+            .await
+            .unwrap(),
         [program.as_str(), "exec", "air-docker-1", "/usr/bin/true"]
     );
     assert_eq!(
-        docker(&fixture).guest_argv(&ctx(), "air-docker-1", &argv, true).await.unwrap(),
+        fixture
+            .manager
+            .machine()
+            .guest_argv(&ctx(), "air-docker-1", &argv, true)
+            .await
+            .unwrap(),
         [program.as_str(), "exec", "-i", "air-docker-1", "/usr/bin/true"]
     );
 }
@@ -243,28 +280,25 @@ async fn an_inspect_without_an_answer_is_refused_and_not_absent() {
     let worker = fixture.worker(0);
     fixture.fake.answer(Answer::ContainerState, "running/0\n");
     fixture.fake.answer(Answer::ContainerId, "fake-container-1\n");
-    for (answer, code) in [(Answer::KilledVerb, 137), (Answer::SilentVerb, 0)] {
-        fixture.fake.answer(answer, "inspect");
-        for refusal in [
-            backend.state(&ctx(), worker).await.unwrap_err(),
-            backend.running(&ctx(), worker).await.unwrap_err(),
-            backend.container_id(&ctx(), worker).await.unwrap_err(),
-        ] {
-            assert_eq!(refusal.code, "probe_unanswered", "{refusal:?}");
-            assert!(refusal.message.contains(&format!("exited with {code}")), "{}", refusal.message);
-        }
-        fixture.fake.forget(answer);
-    }
+    assert_probe_unanswered(&fixture.fake, "inspect", async || backend.state(&ctx(), worker).await).await;
+    assert_probe_unanswered(&fixture.fake, "inspect", async || backend.running(&ctx(), worker).await).await;
+    assert_probe_unanswered(&fixture.fake, "inspect", async || backend.container_id(&ctx(), worker).await).await;
     assert_eq!(backend.state(&ctx(), worker).await.unwrap(), ContainerState::Running);
+}
+
+/// A Docker pool whose engine has no image of the tag yet, by `image_present`, and the tag.
+async fn docker_without_image() -> (Fixture, String) {
+    let fixture = Fixture::docker();
+    let tag = docker(&fixture).image_tag();
+    assert!(!docker(&fixture).image_present(&ctx(), &tag).await.unwrap());
+    (fixture, tag)
 }
 
 /// `docker image inspect` answers by its exit: 0 is present, 1 is absent. A CLI that a signal ended said neither.
 #[tokio::test]
 async fn an_image_inspect_without_an_answer_is_refused_and_not_absent() {
-    let fixture = Fixture::docker();
+    let (fixture, tag) = docker_without_image().await;
     let backend = docker(&fixture);
-    let tag = backend.image_tag();
-    assert!(!backend.image_present(&ctx(), &tag).await.unwrap());
     fixture.fake.answer(Answer::SilentVerb, "image");
     assert!(
         backend.image_present(&ctx(), &tag).await.unwrap(),
@@ -282,13 +316,10 @@ async fn an_image_inspect_without_an_answer_is_refused_and_not_absent() {
 #[tokio::test]
 async fn a_version_without_an_answer_is_refused_and_not_unsupported() {
     let fixture = Fixture::docker();
-    for (answer, code) in [(Answer::KilledVerb, 137), (Answer::SilentVerb, 0)] {
-        fixture.fake.answer(answer, "version");
-        let refusal = docker(&fixture).require_available(&ctx(), "").await.unwrap_err();
-        assert_eq!(refusal.code, "probe_unanswered", "{refusal:?}");
-        assert!(refusal.message.contains(&format!("exited with {code}")), "{}", refusal.message);
-        fixture.fake.forget(answer);
-    }
+    assert_probe_unanswered(&fixture.fake, "version", async || {
+        docker(&fixture).require_available(&ctx(), "").await
+    })
+    .await;
     fixture.fake.answer(Answer::DockerVersion, "linux\n");
     let refusal = docker(&fixture).require_available(&ctx(), "").await.unwrap_err();
     assert_eq!(refusal.code, "probe_unanswered", "an answer without an architecture: {refusal:?}");
@@ -296,9 +327,10 @@ async fn a_version_without_an_answer_is_refused_and_not_unsupported() {
 
 // --- the shares and the create argv --------------------------------------------------------------------------
 
-/// The shares land at the guest paths the parity script probes, read-only, one `--mount` pair each.
+/// The one share lands at the guest path the parity script probes, read-only, as one `--mount` pair. No share holds
+/// the checkout.
 #[test]
-fn the_shares_are_read_only_bind_mounts_at_the_parity_paths() {
+fn the_share_is_a_read_only_bind_mount_at_the_parity_path() {
     let fixture = Fixture::docker();
     let settings = &fixture.settings;
     let declared = shares(settings).unwrap();
@@ -307,11 +339,6 @@ fn the_shares_are_read_only_bind_mounts_at_the_parity_paths() {
     assert_eq!(
         arguments,
         [
-            "--mount".to_owned(),
-            format!(
-                "type=bind,source={root},target=/mnt/AirVmShares/{},readonly",
-                settings.repo_share_name
-            ),
             "--mount".to_owned(),
             format!(
                 "type=bind,source={root},target=/mnt/AirVmShares/{},readonly",
@@ -439,6 +466,23 @@ async fn a_create_records_its_argv_and_a_damaged_record_is_none() {
     backend.remove(&ctx(), worker).await.unwrap();
     assert!(!path.exists());
     assert!(!fixture.fake.saw_call_containing("volume rm"));
+}
+
+/// The create argv names no checkout, so a second checkout of the host declares the same container: the record of
+/// the first one is current for it, and its start recreates nothing.
+#[cfg(unix)]
+#[test]
+fn a_second_checkout_declares_the_same_container() {
+    let argv_from = |checkout: &str| {
+        let fixture = Fixture::docker_builder().unresolved_host_paths().build();
+        fixture.settings.set_host_paths(checkout, "/Users/air/_bazel").unwrap();
+        let argv = docker(&fixture).create_argv("air-docker-1").unwrap();
+        assert!(!argv.iter().any(|word| word.contains(checkout)), "{argv:?}");
+        argv
+    };
+    let first = argv_from("/Users/air/idea");
+    let second = argv_from("/Users/air/idea-2");
+    assert_eq!(first.get(1..), second.get(1..));
 }
 
 // --- the image -----------------------------------------------------------------------------------------------
@@ -582,16 +626,13 @@ fn the_guest_packages_cover_the_display_and_the_ides_own_native_dependencies() {
     );
 }
 
-// Positional contract with the guest agent's `validate-guest`: the display, then the runtime root whose shared
-// objects it sweeps. Not the IDE root, where nothing is staged and the sweep would find nothing on every boot.
+// Positional contract with the guest agent's `validate-guest`: the display alone. No root of shared objects follows
+// it, because the lane daemon sweeps the shared objects of its distribution at its own boot.
 #[test]
 fn the_validate_argv_passes_what_the_guest_is_checked_against() {
     let fixture = Fixture::docker();
     let argv = validate_argv(&fixture.settings);
-    assert_eq!(
-        argv,
-        [fixture.settings.guest_display.clone(), fixture.settings.guest_runtime_root()]
-    );
+    assert_eq!(argv, std::slice::from_ref(&fixture.settings.guest_display));
     for word in &argv {
         assert!(!GUEST_PACKAGES.contains(&word.as_str()), "the package list leaked in: {argv:?}");
         assert!(!word.contains("node"), "the self-check is told about a Node: {argv:?}");
@@ -626,6 +667,8 @@ async fn an_image_is_built_once_from_a_fresh_context() {
     );
     let builds = || fixture.fake.calls().into_iter().filter(|call| call.starts_with("build ")).count();
     assert_eq!(builds(), 1);
+    // Only the Apple `container` engine has a builder VM to stop.
+    assert!(!fixture.fake.saw_call_containing("builder stop"), "{:#?}", fixture.fake.calls());
     let digest = tag.rsplit(':').next().unwrap();
     let context = fixture.settings.runtime_root.join("docker-context").join(digest);
     assert_eq!(std::fs::read_to_string(context.join("Dockerfile")).unwrap(), DOCKERFILE);
@@ -789,10 +832,8 @@ fn a_damaged_image_record_is_none() {
 /// `image_present` answers from `docker image inspect`, before and after the build, and builds nothing itself.
 #[tokio::test]
 async fn image_present_answers_from_image_inspect() {
-    let fixture = Fixture::docker();
+    let (fixture, tag) = docker_without_image().await;
     let backend = docker(&fixture);
-    let tag = backend.image_tag();
-    assert!(!backend.image_present(&ctx(), &tag).await.unwrap());
     backend.ensure_image(&ctx()).await.unwrap();
     assert!(backend.image_present(&ctx(), &tag).await.unwrap());
     let calls = fixture.fake.calls();

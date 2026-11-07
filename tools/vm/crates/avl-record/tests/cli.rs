@@ -1,4 +1,4 @@
-//! The process-level tests of `air-trace-record`, the binary that the lane JVM starts with no argument.
+//! The process-level tests of `air-trace-record`, the binary that the lane starts with no argument.
 //!
 //! The tests take the path of the binary from `CARGO_BIN_EXE_air-trace-record`. Cargo sets it when it compiles the
 //! test, and the integration test that the rust-tools core declares sets it at run time.
@@ -32,9 +32,7 @@ fn record(args: &[&str], input: &[u8]) -> (Option<i32>, String, String) {
     // A refused command line exits before it reads, so the write can meet a closed pipe.
     let _ = stdin.write_all(input);
     drop(stdin);
-    let output = child.wait_with_output().unwrap();
-    let text = |bytes: Vec<u8>| String::from_utf8(bytes).unwrap();
-    (output.status.code(), text(output.stdout), text(output.stderr))
+    avl_testkit::answer_of(child.wait_with_output().unwrap())
 }
 
 /// An older lane passed `record`, and no refusal exits with 78, which `trace.cmd` keeps for its own failures.

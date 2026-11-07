@@ -11,28 +11,32 @@ import com.intellij.openapi.diagnostic.getOrHandleException
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.extensions.PluginId
 import com.intellij.openapi.updateSettings.impl.PluginUpdateHandler
+import com.intellij.openapi.updateSettings.impl.PluginUpdateSourceListener
 import com.intellij.openapi.updateSettings.impl.PluginUpdateSourceService
+import com.intellij.openapi.updateSettings.impl.PluginUpdatesModel
+import com.intellij.util.application
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.jetbrains.annotations.ApiStatus
-import kotlin.coroutines.cancellation.CancellationException
 import kotlin.time.Duration.Companion.milliseconds
 
+// @spec platform/platform-impl/spec/plugin-manager/plugin-operations.spec.md
 @OptIn(FlowPreview::class)
 @ApiStatus.Internal
 class DefaultPluginUpdatesProvider(private val coroutineScope: CoroutineScope) : PluginUpdatesProvider {
   private val updateMutex = Mutex()
-  private val flow = MutableStateFlow<PluginUpdatesEvent?>(null)
+  private val flow = MutableSharedFlow<PluginUpdatesEvent?>(replay = 1, onBufferOverflow = BufferOverflow.DROP_OLDEST).apply {
+    tryEmit(null)
+  }
   private val updateRequestFlow = MutableSharedFlow<Unit>(replay = 1, extraBufferCapacity = 1, onBufferOverflow = BufferOverflow.DROP_OLDEST)
   private var lastPluginUpdates: PluginUpdatesEvent? = null
 
@@ -74,6 +78,9 @@ class DefaultPluginUpdatesProvider(private val coroutineScope: CoroutineScope) :
     PluginUpdateSourceService.addPluginUpdateSourceFilteringRegistryListener(coroutineScope) {
       coroutineScope.launch { update() }
     }
+    application.messageBus.connect(coroutineScope).subscribe(PluginUpdateSourceListener.TOPIC, PluginUpdateSourceListener {
+      coroutineScope.launch { update() }
+    })
     collectUpdateRequests()
   }
 
@@ -83,12 +90,8 @@ class DefaultPluginUpdatesProvider(private val coroutineScope: CoroutineScope) :
       .collectLatest {
         updateMutex.withLock {
           runCatching {
-            val model = (PluginUpdateHandler.getInstance().loadAndStorePluginUpdates(null))
-            val pluginUpdates = PluginUpdatesEvent(model.pluginUpdates.markLocalIfUnset(),
-                                                    model.disabledPluginUpdates.markLocalIfUnset(),
-                                                    model.updatesFromCustomRepositories.markLocalIfUnset())
-            lastPluginUpdates = pluginUpdates
-            emitUpdates(pluginUpdates)
+            val model = PluginUpdateHandler.getInstance().loadAndStorePluginUpdates(null)
+            publishUpdates(model)
           }.getOrHandleException { e -> LOG.warn("Failed to load plugin updates:", e) }
         }
       }
@@ -102,8 +105,22 @@ class DefaultPluginUpdatesProvider(private val coroutineScope: CoroutineScope) :
     updateRequestFlow.emit(Unit)
   }
 
+  internal suspend fun updatesChecked(model: PluginUpdatesModel) {
+    updateMutex.withLock {
+      publishUpdates(model)
+    }
+  }
+
   private suspend fun emitUpdates(updates: PluginUpdatesEvent) {
     flow.emit(updates)
+  }
+
+  private suspend fun publishUpdates(model: PluginUpdatesModel) {
+    val pluginUpdates = PluginUpdatesEvent(model.pluginUpdates.markLocalIfUnset(),
+                                           model.disabledPluginUpdates.markLocalIfUnset(),
+                                           model.updatesFromCustomRepositories.markLocalIfUnset())
+    lastPluginUpdates = pluginUpdates
+    emitUpdates(pluginUpdates)
   }
 
   private suspend fun dropFromLastPluginUpdates(pluginUpdatesToRemove: Set<PluginId>) {
@@ -133,6 +150,17 @@ class DefaultPluginUpdatesProvider(private val coroutineScope: CoroutineScope) :
    */
   private fun List<PluginDto>.markLocalIfUnset(): List<PluginDto> = onEach {
     if (it.source == null) it.source = PluginSource.LOCAL
+  }
+}
+
+/** Publishes a completed check for the current IDE build to the plugin manager. */
+@ApiStatus.Internal
+suspend fun publishPluginUpdates(buildNumber: String?, model: PluginUpdatesModel) {
+  if (buildNumber != null) return
+  for (provider in PluginUpdatesProvider.getInstances()) {
+    if (provider is DefaultPluginUpdatesProvider) {
+      provider.updatesChecked(model)
+    }
   }
 }
 

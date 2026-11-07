@@ -206,7 +206,7 @@ fn the_remainder_is_the_lightest_shard_and_the_only_one_that_excludes() {
         let mut included: Vec<&str> = Vec::new();
         for shard in plan.shards.iter().filter(|shard| shard.kind == ShardKind::Include) {
             included.extend(shard.classes.iter().map(String::as_str));
-            assert!(filter_literals(shard, "exclude-classname").is_empty());
+            assert_eq!(filter_literals(shard, "exclude-classname"), Vec::<&str>::new());
             assert_eq!(
                 filter_literals(shard, "include-classname"),
                 shard.classes,
@@ -219,7 +219,7 @@ fn the_remainder_is_the_lightest_shard_and_the_only_one_that_excludes() {
         excludes.sort_unstable();
         // Exactly the other shards' classes, and no more: an exclude naming its own class would drop it.
         assert_eq!(excludes, included, "at {shard_count} shards");
-        assert!(filter_literals(remainder, "include-classname").is_empty());
+        assert_eq!(filter_literals(remainder, "include-classname"), Vec::<&str>::new());
     }
 }
 
@@ -257,7 +257,7 @@ fn the_shards_are_disjoint_and_total_including_for_a_class_the_balancer_never_sa
     // One shard is the unsharded lane by construction: no filter at all, so nothing can be lost by it.
     let single = plan(&lane, 1);
     assert_eq!(single.shards.len(), 1);
-    assert!(single.shards[0].junit5_filters.is_empty());
+    assert_eq!(single.shards[0].junit5_filters, Vec::<String>::new());
     for class_name in &discovered {
         assert!(shard_runs(&single.shards[0], class_name));
     }
@@ -313,8 +313,9 @@ fn two_equally_loaded_bins_are_ordered_by_their_first_class_name() {
 fn a_shards_selection_carries_the_lanes_own_filters_and_names_itself() {
     let base = RunSelection {
         selectors: Vec::new(),
-        junit5_filters: vec!["include-tag=air-flow-ui".to_owned()],
+        junit5_filters: vec!["exclude-package=com.example.slow".to_owned()],
         description: "lane ui".to_owned(),
+        lane: Some("ui".to_owned()),
     };
     let include = shard_selection(
         &base,
@@ -330,7 +331,7 @@ fn a_shards_selection_carries_the_lanes_own_filters_and_names_itself() {
     // The lane's filters come first and the shard's after.
     assert_eq!(
         include.junit5_filters,
-        ["include-tag=air-flow-ui", "include-classname=x", "include-classname=y"]
+        ["exclude-package=com.example.slow", "include-classname=x", "include-classname=y"]
     );
     assert_eq!(include.description, "lane ui — shard 1/2 (2 class(es))");
     let remainder = shard_selection(

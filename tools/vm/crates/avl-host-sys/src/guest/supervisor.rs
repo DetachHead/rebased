@@ -43,8 +43,8 @@ const ACTIVE_RUN_TIMEOUT: Duration = Duration::from_secs(30);
 /// here would be a second copy of the requirement the verb states.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AgentAccount {
-    /// [`user_argv`]'s prefix: the account the daemon and the IDE run as. `stage`, `gc` and `launch-prep` must be
-    /// it - everything they create is read and written later by that account.
+    /// [`user_argv`]'s prefix: the account the daemon and the IDE run as. `stage` and `gc` must be it - everything
+    /// they create is read and written later by that account.
     Worker,
     /// [`root_argv`]'s. Only `validate-guest` of the Linux boot asks for it.
     Root,
@@ -330,7 +330,7 @@ impl Guest<'_> {
         invocation.extend_from_slice(args);
         let argv = match account {
             AgentAccount::Worker => user_argv(self.settings, &invocation),
-            AgentAccount::Root => root_argv(&invocation),
+            AgentAccount::Root => root_argv(self.settings, &invocation),
         };
         let captured = self.channel.exec(self.ctx, &argv, options).await?;
         if captured.exit_code == 0 {

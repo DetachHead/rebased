@@ -18,10 +18,10 @@
 //! order, on the selected backend ([`Reached::every_lane`]). The VM keeps the physical input of a GUI-chat suite off
 //! the host, so every lane runs on every backend.
 
-use std::collections::BTreeMap;
+use std::path::{Path, PathBuf};
 
-use avl_affected::{affected_suites, air_area};
-use avl_base::{Config, Outcome, Refusal, Reporter};
+use avl_affected::{Baseline, affected_suites, air_area};
+use avl_base::{Config, Exit, Outcome, Refusal, Reporter};
 use avl_host_sys::guest::ensure_host_paths;
 use avl_host_sys::{Ctx, Runner};
 use bt_core::{
@@ -30,7 +30,11 @@ use bt_core::{
 };
 use serde::Serialize;
 
-use crate::lane::lanes::{JUNIT5_FILTERS, Selection, as_usage, lane_selection};
+use avl_wire::daemon::LaneClass;
+use avl_wire::program::LANE_DOCUMENT_DIRECTORY;
+use avl_wire::program::lane::{LiveContext, parse_lane_document};
+
+use crate::lane::lanes::{Selection, as_usage, lane_selection};
 use crate::lane::runtime::bt_runtime;
 use avl_base::RefusalExt;
 
@@ -66,8 +70,7 @@ pub(crate) struct AffectedSelection {
     pub classes: Vec<String>,
 }
 
-/// Turns generated suites into one iteration's selection: one lane, its tag, and one class filter per suite of
-/// that lane.
+/// Turns generated suites into one iteration's selection: one lane, and one class filter per suite of that lane.
 ///
 /// The one place this happens. `run --changed`, a flow selector and a suite selector all end here, so they share
 /// the lane choice, its two-lane refusal, and the class-name rule. `subject` names what the caller asked for in a
@@ -77,20 +80,13 @@ pub(crate) fn select_suites(affected: Affected, requested_lane: Option<&str>, su
     let selected = lane_selection(&lane)?;
     let classes = classes_of_lane(&affected, &lane);
     let class_filters = suite_class_filters(&classes, &lane).map_err(avl_affected::refusal)?;
-    // The lane's own tag comes first and the class filters after it, which is the order `shard` uses: the tag says
-    // which lane's suites exist and the class list says which of them this iteration wants.
-    let filters: Vec<String> = selected
-        .test_env
-        .get(JUNIT5_FILTERS)
-        .cloned()
-        .into_iter()
-        .chain(class_filters)
-        .collect();
+    // The lane says which suites exist, and the class filters say which of them this iteration wants.
     Ok(AffectedSelection {
         selection: Selection {
             label: selected.label,
             lane: Some(lane.clone()),
-            test_env: BTreeMap::from([(JUNIT5_FILTERS.to_owned(), filters.join(";"))]),
+            selectors: Vec::new(),
+            junit5_filters: class_filters,
         },
         affected,
         lane,
@@ -130,12 +126,70 @@ impl Reached {
     }
 }
 
-/// The generated suites the named paths reach.
-pub(crate) fn resolve_changed_suites(settings: &Config, paths: &[String], reporter: &Reporter) -> Result<Reached, Refusal> {
+/// The generated suites the named paths reach. `base` is the revision of `--base`; see [`baseline`].
+pub(crate) fn resolve_changed_suites(
+    settings: &Config,
+    paths: &[String],
+    base: Option<&str>,
+    reporter: &Reporter,
+) -> Result<Reached, Refusal> {
     Ok(Reached {
-        affected: resolve_affected(settings, paths, reporter)?,
+        affected: resolve_affected(settings, paths, baseline(base), reporter)?,
         subject: CHANGED_PATHS_SUBJECT.to_owned(),
     })
+}
+
+/// The resource root of the lane documents of the checkout: the directory above the suite documents that the catalog
+/// names, `None` for an area without a catalog.
+pub(crate) fn lane_document_root(settings: &Config) -> Result<Option<PathBuf>, Refusal> {
+    let Some(catalog) = air_area().lanes().catalog() else {
+        return Ok(None);
+    };
+    Ok(settings.host_repo()?.join(catalog.flow_profile_dir).parent().map(Path::to_path_buf))
+}
+
+/// The live context of the committed lane document of `lane` below the resource root `documents`, or `None` for a lane
+/// without a document there or whose document states none. A document that cannot be read or does not parse is a
+/// refusal that names it.
+pub(crate) fn lane_live_context(documents: &Path, lane: &str) -> Result<Option<LiveContext>, Refusal> {
+    let path = documents.join(LANE_DOCUMENT_DIRECTORY).join(format!("{lane}.json"));
+    let bytes = match std::fs::read(&path) {
+        Ok(bytes) => bytes,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => {
+            return Err(Refusal::new(
+                "lane_document_unreadable",
+                Exit::NO_INPUT,
+                format!("cannot read the lane document {}: {error}", path.display()),
+            ));
+        }
+    };
+    let document = parse_lane_document(&bytes).map_err(|problem| {
+        Refusal::new(
+            "lane_document",
+            Exit::DATA_ERR,
+            format!("the lane document {} {problem}", path.display()),
+        )
+    })?;
+    Ok(document.live)
+}
+
+/// Every suite of the lane `lane` that the catalog names, by test class: the generated suite documents and the authored
+/// suites. The lane daemon plans each one, so a suite that it cannot run is a failed container and never an omission.
+pub(crate) fn lane_classes(settings: &Config, lane: &str, reporter: &Reporter) -> Result<Vec<LaneClass>, Refusal> {
+    let runtime = bt_runtime(settings.host_repo()?, reporter);
+    let area = air_area();
+    let mut classes: Vec<LaneClass> = bt_core::catalog::read_suite_documents(&runtime, area)
+        .map_err(as_usage)?
+        .into_iter()
+        .filter(|document| document.lane_name(area.lanes()) == Some(lane))
+        .map(|document| LaneClass {
+            suite: document.suite,
+            test_class_name: document.test_class_name,
+        })
+        .collect();
+    classes.sort_by(|left, right| left.test_class_name.cmp(&right.test_class_name));
+    Ok(classes)
 }
 
 /// The generated suites a flow or a suite selector names.
@@ -159,7 +213,7 @@ pub(crate) fn resolve_affected_selection(
     requested_lane: Option<&str>,
     reporter: &Reporter,
 ) -> Result<AffectedSelection, Refusal> {
-    resolve_changed_suites(settings, paths, reporter)?.one_lane(requested_lane)
+    resolve_changed_suites(settings, paths, None, reporter)?.one_lane(requested_lane)
 }
 
 /// What one iteration should run for a flow or a suite selector: the selection `run --changed` makes, from the
@@ -180,10 +234,20 @@ pub(crate) fn is_named_suite_selector(selector: &str) -> bool {
     Selector::classify(selector).is_ok_and(|classified| classified.kind.names_suites())
 }
 
+/// The baseline of a `--base` option: that revision, or the commit where HEAD meets its upstream without one.
+fn baseline(base: Option<&str>) -> Baseline<'_> {
+    base.map_or(Baseline::Upstream, Baseline::Revision)
+}
+
 /// The join alone, with no lane chosen and no filter built: what `suites` answers.
-pub(crate) fn resolve_affected(settings: &Config, paths: &[String], reporter: &Reporter) -> Result<Affected, Refusal> {
+pub(crate) fn resolve_affected(
+    settings: &Config,
+    paths: &[String],
+    baseline: Baseline<'_>,
+    reporter: &Reporter,
+) -> Result<Affected, Refusal> {
     let runtime = bt_runtime(settings.host_repo()?, reporter);
-    affected_suites(&runtime, air_area(), paths).map_err(as_usage)
+    affected_suites(&runtime, air_area(), paths, baseline).map_err(as_usage)
 }
 
 // --- the read-only command ------------------------------------------------------------------------------------
@@ -232,6 +296,7 @@ pub(crate) async fn command_suites(
     settings: &Config,
     runner: &Runner,
     paths: Vec<String>,
+    base: Option<&str>,
     reporter: &Reporter,
 ) -> Result<Outcome, Refusal> {
     if paths.is_empty() {
@@ -239,22 +304,26 @@ pub(crate) async fn command_suites(
     }
     // The join reads the checkout through `host_repo`, which is only answerable once the host paths have resolved.
     ensure_host_paths(ctx, runner, settings).await?;
-    let affected = resolve_affected(settings, &paths, reporter)?;
-    Outcome::new(SuitesData::of(&affected)?, render_suites(&affected))
+    let affected = resolve_affected(settings, &paths, baseline(base), reporter)?;
+    Outcome::new(SuitesData::of(&affected)?, render_suites(&affected, base))
 }
 
 /// The `--text` rendering: the suites, then what could not be mapped, then the command to run.
 ///
 /// The last line subtotals the suites per lane. A coarse answer runs to 19 suites over three lanes, and the caller
 /// reads the sizes off that line instead of counting the ones above it. When the answer reaches several lanes, the
-/// line also names the lanes the next `run` runs, one iteration each.
-fn render_suites(affected: &Affected) -> String {
+/// line also names the lanes the next `run` runs, one iteration each. The next `run` repeats `base`, so it selects
+/// what this answer names.
+fn render_suites(affected: &Affected, base: Option<&str>) -> String {
     let resolution = affected_text(affected);
     if affected.suites.is_empty() {
         return resolution;
     }
     let counts = lane_counts(air_area(), affected);
     let mut next = "run --changed <the same paths>".to_owned();
+    if let Some(base) = base {
+        next.push_str(&format!(" --base {base}"));
+    }
     if counts.len() > 1 {
         next.push_str(&format!(" (runs {})", counted_lane_names(&counts).join(", ")));
     }

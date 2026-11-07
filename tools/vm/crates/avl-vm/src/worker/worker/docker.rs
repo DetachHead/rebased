@@ -1,6 +1,6 @@
 //! The Docker lifecycle: the image, the container of a slot and its reconcile, the boot and the stop. It also
-//! holds `pool init`, `pool gc`, the unmaking of a slot that `pool recycle` runs, and the stop and the delete of the
-//! Lima engine that `pool stop` and `pool recycle all` run.
+//! holds `pool init`, `pool gc` and the unmaking of a slot that `pool recycle` runs. On the Apple `container` engine
+//! `pool recycle all` deletes the builder VM. `pool stop` stops the containers only, on every engine.
 
 use std::collections::BTreeMap;
 
@@ -12,8 +12,7 @@ use serde_json::json;
 
 use super::pool::render_list;
 use super::{GUEST_PROBE_TIMEOUT, Lease, Manager, StartState, StopState, probe_timeout, read_lease};
-use crate::worker::docker::{ContainerState, Docker, container_unusable, validate_argv};
-use crate::worker::lima::{EngineState, Lima};
+use crate::worker::docker::{ContainerState, Docker, container_unusable};
 use avl_base::RefusalExt;
 
 #[cfg(test)]
@@ -28,10 +27,10 @@ impl Manager {
     /// A container that is not current, because its record declares other shares or another image or the engine
     /// gives the name another id, is made again by the start. The caller's own lease authorizes the stop, as for
     /// [`Manager::share_declaration_stale`]: a second checkout on the same host is the ordinary way to get here. The
-    /// volume keeps `WorkerData`, so the recreate costs a start, not a staging.
+    /// volume keeps `WorkerData`, so the recreate costs a start and no new guest-local state.
     pub(super) async fn require_docker_ready(&self, ctx: &Ctx, docker: &Docker, lease: &Lease) -> Result<(), Refusal> {
         let worker = lease.worker.as_str();
-        docker.require_available_for(ctx, Some(lease)).await?;
+        docker.require_available(ctx, worker).await?;
         if !docker.running(ctx, worker).await?
             || !docker.container_is_current(ctx, worker).await?
             || !self.guest_answers(ctx, worker, GUEST_PROBE_TIMEOUT).await
@@ -39,31 +38,16 @@ impl Manager {
             return self.start_docker(ctx, docker, worker, Some(lease)).await.map(drop);
         }
         let channel = self.channel(worker);
-        let guest = self.guest(ctx, channel.as_ref());
-        if guest.parity_broken().await? {
-            guest.provision_worker(self.share_mount()).await?;
-        }
-        guest.ensure_ready(self).await
+        self.ready_guest(&self.guest(ctx, channel.as_ref())).await
     }
 
     /// [`Manager::require_release_ready`] for a Docker worker: the Tart refusals without the console-login wait,
     /// because a Linux guest has no console login.
     ///
-    /// A release never starts the Lima engine and never makes it again ([`Docker::reach_engine`]). A stopped engine
-    /// runs no container, so the release is refused `worker_stopped` at once, and a template change waits for the next
-    /// start. Otherwise the lease under release would refuse its own release with `worker_leased`.
+    /// A release never starts the engine ([`Docker::reach_engine`]). An Apple `container` server that does not run
+    /// holds no running container, so the release is refused `worker_stopped` at once.
     pub(super) async fn require_docker_release_ready(&self, ctx: &Ctx, docker: &Docker, worker: &str) -> Result<(), Refusal> {
-        if docker.stopped(ctx, worker).await? {
-            return Err(Refusal::new(
-                "worker_stopped",
-                Exit::FAILURE,
-                format!("worker {worker} is stopped; run pool start {worker}"),
-            ));
-        }
-        if !self.guest_answers(ctx, worker, GUEST_PROBE_TIMEOUT).await {
-            return Err(self.guest_agent_unavailable(worker));
-        }
-        Ok(())
+        self.require_running_guest(ctx, worker, !docker.stopped(ctx, worker).await?).await
     }
 
     // --- start -----------------------------------------------------------------------------------------------
@@ -83,7 +67,9 @@ impl Manager {
         worker: &str,
         authorized: Option<&Lease>,
     ) -> Result<StartState, Refusal> {
-        docker.require_available_for(ctx, authorized).await?;
+        // A start keeps the worker running, so the idle stop of the last release finds no record.
+        super::remove_idle_stop_record(&self.settings, worker)?;
+        docker.require_available(ctx, worker).await?;
         ensure_host_paths(ctx, &self.runner, &self.settings).await?;
         (self.build_boot)(ctx.clone()).await?;
         self.ensure_docker_image(ctx, docker).await?;
@@ -91,7 +77,7 @@ impl Manager {
         let already_running = match docker.state(ctx, worker).await? {
             ContainerState::Running => true,
             ContainerState::Other(word) => return Err(container_unusable(worker, &word)),
-            ContainerState::Absent | ContainerState::Created | ContainerState::Exited(_) => false,
+            ContainerState::Absent | ContainerState::Created | ContainerState::Exited(_) | ContainerState::Stopped => false,
         };
         if !already_running {
             docker.start(ctx, worker).await?;
@@ -115,6 +101,18 @@ impl Manager {
                         "container_exited",
                         Exit::FAILURE,
                         format!("the container {worker} exited with {code} while starting:\n{tail}"),
+                    ));
+                }
+                // The Apple engine keeps no exit code in `inspect`. Its boot log has it, in the `vminitd` line
+                // `status: <n> managed process exit`, so the refusal quotes both logs. Both are read here, before
+                // anything starts the container again, because a start clears them.
+                ContainerState::Stopped => {
+                    let tail = docker.log_tail(ctx, worker).await;
+                    let boot = docker.boot_log_tail(ctx, worker).await;
+                    return Err(Refusal::new(
+                        "container_exited",
+                        Exit::FAILURE,
+                        format!("the container {worker} stopped while starting:\n{tail}\nthe boot log of the container:\n{boot}"),
                     ));
                 }
                 ContainerState::Other(word) => return Err(container_unusable(worker, &word)),
@@ -142,28 +140,12 @@ impl Manager {
                 ));
             }
         }
-        self.finish_docker_start(ctx, worker).await?;
+        self.boot_linux_guest(ctx, worker).await?;
         Ok(if already_running {
             StartState::AlreadyRunning
         } else {
             StartState::Started
         })
-    }
-
-    /// The guest half of a Docker boot: the agent install and `validate-guest`, then the parity layout over the two
-    /// read-only shares, then the readiness a run needs.
-    ///
-    /// A Linux guest has no console login to wait for, so there is no "poll again" answer here: every refusal means
-    /// the start failed. The image installs the packages and the pinned Node, and its entrypoint starts the display,
-    /// so the boot has no provisioning verb.
-    async fn finish_docker_start(&self, ctx: &Ctx, worker: &str) -> Result<(), Refusal> {
-        let channel = self.channel(worker);
-        let guest = self.guest(ctx, channel.as_ref());
-        guest.provision_linux(self.bazel(), &validate_argv(&self.settings)).await?;
-        if guest.parity_broken().await? {
-            guest.provision_worker(self.share_mount()).await?;
-        }
-        guest.ensure_ready(self).await
     }
 
     /// The image every container of the pool runs, pulled or built under the pool-wide image lock.
@@ -220,7 +202,7 @@ impl Manager {
         match &state {
             ContainerState::Absent => {}
             ContainerState::Other(word) => return Err(container_unusable(worker, word)),
-            ContainerState::Created | ContainerState::Exited(_) | ContainerState::Running => {
+            ContainerState::Created | ContainerState::Exited(_) | ContainerState::Stopped | ContainerState::Running => {
                 if docker.container_is_current(ctx, worker).await? {
                     return Ok(false);
                 }
@@ -245,21 +227,16 @@ impl Manager {
     }
 
     fn docker_interrupted(&self, worker: &str) -> Refusal {
-        let cause = self.runner.interrupts().received().map_or("a cancellation", |signal| signal.name());
-        Refusal::new(
-            "worker_interrupted",
-            Exit::SOFTWARE,
-            format!("{cause} interrupted the start of the container {worker}"),
-        )
+        self.interrupted_by(|cause| format!("{cause} interrupted the start of the container {worker}"))
     }
 
     // --- stop ------------------------------------------------------------------------------------------------
 
     /// Stops a Docker worker's container. No suspend: the container keeps its volume, so the next start keeps the
-    /// staging, and only the daemon starts cold.
+    /// guest-local state, and only the daemon starts cold.
     ///
-    /// The engine is reached and never changed ([`Docker::reach_engine`]): a Lima engine that does not run holds no
-    /// running container, so the stop is done, and a Lima engine of another template is not made again.
+    /// The engine is reached and never started ([`Docker::reach_engine`]): an Apple `container` server that does not
+    /// run holds no running container, so the stop is done.
     pub(super) async fn stop_docker(&self, ctx: &Ctx, docker: &Docker, worker: &str) -> Result<StopState, Refusal> {
         if !docker.reach_engine(ctx).await? {
             return Ok(StopState::AlreadyStopped);
@@ -268,7 +245,7 @@ impl Manager {
             ContainerState::Running => {}
             // A paused container is not stopped, and `AlreadyStopped` would say it is.
             ContainerState::Other(word) => return Err(container_unusable(worker, &word)),
-            ContainerState::Absent | ContainerState::Created | ContainerState::Exited(_) => {
+            ContainerState::Absent | ContainerState::Created | ContainerState::Exited(_) | ContainerState::Stopped => {
                 return Ok(StopState::AlreadyStopped);
             }
         }
@@ -276,54 +253,30 @@ impl Manager {
         Ok(StopState::Stopped)
     }
 
-    // --- the Lima engine --------------------------------------------------------------------------------------
+    // --- the builder of the Apple `container` engine ---------------------------------------------------------
 
-    /// Stops the Lima engine after `pool stop`, when nothing of the pool needs it: no worker is leased and no
-    /// container runs. Nothing stays warm. Answers the engine's state word after the hook.
-    ///
-    /// The check and the stop run under the lifecycle lock of every slot, because a lease acquisition takes the lock
-    /// of its slot: no lease can start between the check and the stop. An engine that does not run is left as it is,
-    /// and no `docker` command asks it.
-    pub(super) async fn stop_docker_engine(&self, ctx: &Ctx, docker: &Docker, engine: &Lima) -> Result<String, Refusal> {
-        let workers = self.settings.workers.clone();
-        self.with_lifecycle_locks(ctx, &workers, "pool-stop-engine", async {
-            if !docker.reach_engine(ctx).await? {
-                return Ok(engine.state(ctx).await?.as_str().to_owned());
-            }
-            for worker in &workers {
-                let busy = if read_lease(&self.settings.lease_path(worker))?.is_some() {
-                    Some("is leased")
-                } else if docker.state(ctx, worker).await? == ContainerState::Running {
-                    Some("runs its container")
-                } else {
-                    None
-                };
-                if let Some(reason) = busy {
-                    self.note(worker, format!("the Lima engine keeps running, because {worker} {reason}"));
-                    return Ok(EngineState::Running.as_str().to_owned());
-                }
-            }
-            Ok(engine.stop(ctx).await?.as_str().to_owned())
-        })
-        .await
-    }
-
-    /// Deletes the Lima engine before `pool recycle all`, unless a worker is leased. The delete takes every container
-    /// and volume of the pool, and the recycle of each slot then makes the engine and the containers again. A leased
-    /// worker keeps the engine: its own recycle is refused `worker_leased`, and the other slots are recycled on the
-    /// engine that runs.
-    pub(super) async fn delete_docker_engine(&self, ctx: &Ctx, engine: &Lima) -> Result<(), Refusal> {
+    /// Deletes the builder VM of the Apple `container` engine before `pool recycle all`, under the pool-wide image lock,
+    /// so no build of another start runs in it. The next build makes it again. The containers of the pool go with the
+    /// recycle of each slot, and the server stays: a `system stop` would stop every container of the login session.
+    pub(super) async fn delete_docker_builder(&self, ctx: &Ctx, docker: &Docker) -> Result<(), Refusal> {
         self.prepare_runtime_dirs()?;
-        let workers = self.settings.workers.clone();
-        self.with_lifecycle_locks(ctx, &workers, "pool-recycle-engine", async {
-            if let Err(refusal) = engine.require_no_lease("delete the Lima engine", None) {
-                self.reporter
-                    .note(format!("{}; recycling the slots on the engine that runs", refusal.message), None);
-                return Ok(());
-            }
-            engine.delete(ctx).await
-        })
-        .await
+        let _held = self
+            .locks
+            .acquire_queued(
+                ctx,
+                &self.settings.docker_image_lock_path(),
+                "docker-image",
+                self.timings.docker_image_wait,
+                "docker_image_busy",
+                &format!(
+                    "another start held the Docker image lock {} for longer than {} s; its build log is {}",
+                    self.settings.docker_image_lock_path().display(),
+                    self.timings.docker_image_wait.as_secs(),
+                    self.settings.docker_build_log_path().display()
+                ),
+            )
+            .await?;
+        docker.delete_builder(ctx).await
     }
 
     // --- pool init and pool gc -------------------------------------------------------------------------------
@@ -371,8 +324,8 @@ impl Manager {
 
     /// Removes the stopped, unleased containers of a Docker pool and keeps their volumes.
     ///
-    /// The volume is what makes the next start cheap: the staged daemon runtime, the download cache and the guest
-    /// agent survive, so a slot that gc removed starts again warm. `pool recycle` is the command that drops a volume.
+    /// The volume is what makes the next start cheap: the runfiles trees, the download cache and the guest agent
+    /// survive, so a slot that gc removed starts again warm. `pool recycle` is the command that drops a volume.
     ///
     /// The state is read under the slot's lifecycle lock, after the lease check, and not before the lock. A
     /// `pool start` that ends between an earlier read and the lock would otherwise leave a running container that gc
@@ -380,16 +333,18 @@ impl Manager {
     /// without `--force`, so the engine refuses a container that runs after all. A paused, restarting or removing
     /// container is kept with its state word.
     ///
-    /// The engine is reached and never changed ([`Docker::reach_engine`]). A Lima engine that does not run is left
-    /// stopped, and every slot is kept with the engine's word.
+    /// The engine is reached and never started ([`Docker::reach_engine`]). An Apple `container` server that does not
+    /// run stays stopped, and every slot is kept with the word `engine-stopped`. The engine of the host environment
+    /// answers or refuses, so it has no such word.
     pub(super) async fn pool_gc_docker(&self, ctx: &Ctx, docker: &Docker) -> Result<Outcome, Refusal> {
         self.prepare_runtime_dirs()?;
         if !docker.reach_engine(ctx).await? {
-            let word = match docker.engine() {
-                Some(engine) => format!("engine-{}", engine.state(ctx).await?.as_str().to_lowercase()),
-                None => "engine-unreachable".to_owned(),
-            };
-            let kept: BTreeMap<String, String> = self.settings.workers.iter().map(|worker| (worker.clone(), word.clone())).collect();
+            let kept: BTreeMap<String, String> = self
+                .settings
+                .workers
+                .iter()
+                .map(|worker| (worker.clone(), "engine-stopped".to_owned()))
+                .collect();
             return Ok(Outcome {
                 data: json!({
                     "backend": self.settings.backend, "action": "gc", "removed": [], "kept": kept,
@@ -397,43 +352,26 @@ impl Manager {
                 text: "removed=(none)".to_owned(),
             });
         }
-        let mut removed = Vec::new();
-        let mut kept = BTreeMap::new();
-        for worker in &self.settings.workers {
-            let outcome = self
-                .with_lifecycle_lock(ctx, worker, "pool-gc", async {
-                    if read_lease(&self.settings.lease_path(worker))?.is_some() {
-                        return Ok("leased".to_owned());
-                    }
-                    let state = docker.state(ctx, worker).await?;
-                    match &state {
-                        ContainerState::Absent => Ok("absent".to_owned()),
-                        ContainerState::Running => Ok("running".to_owned()),
-                        ContainerState::Created | ContainerState::Exited(_) => {
-                            docker.remove_stopped(ctx, worker).await?;
-                            Ok("removed".to_owned())
-                        }
-                        ContainerState::Other(word) if word == "dead" => {
-                            docker.remove_stopped(ctx, worker).await?;
-                            Ok("removed".to_owned())
-                        }
-                        ContainerState::Other(word) => Ok(word.clone()),
-                    }
-                })
-                .await?;
-            if outcome == "removed" {
-                removed.push(worker.clone());
-            } else {
-                kept.insert(worker.clone(), outcome);
+        self.gc_each_worker(ctx, async |worker: &str| {
+            if read_lease(&self.settings.lease_path(worker))?.is_some() {
+                return Ok("leased".to_owned());
             }
-        }
-        let text = format!("removed={}", render_list(&removed));
-        Ok(Outcome {
-            data: json!({
-                "backend": self.settings.backend, "action": "gc", "removed": removed, "kept": kept,
-            }),
-            text,
+            let state = docker.state(ctx, worker).await?;
+            match &state {
+                ContainerState::Absent => Ok("absent".to_owned()),
+                ContainerState::Running => Ok("running".to_owned()),
+                ContainerState::Created | ContainerState::Exited(_) | ContainerState::Stopped => {
+                    docker.remove_stopped(ctx, worker).await?;
+                    Ok("removed".to_owned())
+                }
+                ContainerState::Other(word) if word == "dead" => {
+                    docker.remove_stopped(ctx, worker).await?;
+                    Ok("removed".to_owned())
+                }
+                ContainerState::Other(word) => Ok(word.clone()),
+            }
         })
+        .await
     }
 
     // --- pool recycle ----------------------------------------------------------------------------------------

@@ -64,8 +64,8 @@ pub use agent::{
 pub use external::{external_file, external_files};
 pub use mount::{remount_script, share_mount_path};
 pub use parity::{
-    InitReceipt, PARITY_MARKER, ParityError, ShareMount, init_receipt_path, parity_marker_content, parity_script, read_init_receipt,
-    validate_parity_entry_name, write_init_receipt,
+    InitReceipt, PARITY_MARKER, ParityError, ShareMount, init_receipt_path, parity_marker_content, parity_marker_path, parity_script,
+    read_init_receipt, write_init_receipt,
 };
 pub use sshkeys::{PeerChannels, parse_ssh_host_key_fingerprint};
 pub use supervisor::{AgentAccount, OLDER_AGENT_HINT, ParkedDaemonProbe, RunSlot, SupervisorOptions};
@@ -84,12 +84,12 @@ pub struct Guest<'a> {
 
 // --- host paths ----------------------------------------------------------------------------------------------
 
-/// Resolves the two host directories the guest must see: the repository checkout and Bazel's output user root.
-/// The guest sees each one at its [`GuestPaths`] root, which is the same absolute path on a Unix host.
+/// Resolves the two host directories a run needs: the repository checkout and Bazel's output user root.
 ///
-/// Everything a host-built runtime descriptor names lives under one of them, which is what makes a copy-free guest
-/// run possible at all. Both are resolved together and published together through [`Config::set_host_paths`],
-/// because a config carrying one of them is a config no reader can trust.
+/// The guest sees the output root alone, at its [`GuestPaths`] root, which is the same absolute path on a Unix host.
+/// The checkout stays on the host: the host build, the suite selection and the report read it, and the guest gets
+/// copies of the few source runfiles it needs. Both are resolved together and published together through
+/// [`Config::set_host_paths`], because a config carrying one of them is a config no reader can trust.
 ///
 /// Idempotent, and cheap on the second call: a config that already has its paths is answered without another
 /// `git rev-parse` or another realpath.
@@ -122,11 +122,11 @@ pub async fn ensure_host_paths(ctx: &Ctx, runner: &Runner, settings: &Config) ->
     GuestPaths::of(settings).map(drop)
 }
 
-/// The checkout the guest reads through the repository share.
+/// The checkout the host build runs in.
 ///
 /// The `--is-inside-work-tree` probe is not redundant with `--show-toplevel`: the override path skips the first
-/// command entirely, and an override naming a directory that is not a checkout would otherwise be shared into the
-/// guest and fail as a missing `.git` probe two steps later, blaming the mount.
+/// command entirely, and an override naming a directory that is not a checkout would otherwise reach the host build
+/// and fail there, far from the setting that named it.
 async fn resolve_host_repo(ctx: &Ctx, runner: &Runner, settings: &Config) -> Result<PathBuf, Refusal> {
     let not_a_checkout = |message: String| Refusal::new("host_repo_required", Exit::USAGE, message);
     let candidate = if let Some(configured) = &settings.host_repo_override {
@@ -188,7 +188,7 @@ pub(crate) const GUEST_ARGV_MESSAGE_BYTES: usize = 240;
 
 /// How long one argument may be before it is redacted whole. Generous next to the phase skeleton's 48, because
 /// here a path *is* the diagnosis - which file `tee` could not write, which root the supervisor was asked about -
-/// and a 64-character generation digest has to survive too. What it stops is an element long enough to be a
+/// and a 64-character digest has to survive too. What it stops is an element long enough to be a
 /// payload rather than an argument.
 const GUEST_ARGV_ELEMENT_BYTES: usize = 96;
 
@@ -280,9 +280,9 @@ impl Guest<'_> {
         self.raw(&user_argv(self.settings, argv), options).await
     }
 
-    /// Runs a command as root in the guest. See [`root_argv`] for the prefix.
+    /// Runs a command as root in a privileged guest. See [`root_argv`] for the prefix.
     pub async fn as_root(&self, argv: &[String], options: &SpawnOptions) -> Result<Captured, Refusal> {
-        self.raw(&root_argv(argv), options).await
+        self.raw(&root_argv(self.settings, argv), options).await
     }
 
     /// Whether a guest command exited 0, and nothing about why it did not.
@@ -310,19 +310,20 @@ impl Guest<'_> {
     /// write failed" from "the command failed".
     pub async fn write_file(&self, path: &str, content: &[u8], mode: &str) -> Result<(), Refusal> {
         let argv = user_argv(self.settings, &words(["/usr/bin/tee", path]));
-        // Some even for empty content: no stdin would leave `tee` reading whatever the channel inherits.
+        // Some even for empty content: no stdin would leave `tee` reading whatever the channel inherits. `tee` echoes
+        // its stdin to stdout, and that echo is no document: a file above the capture limit, such as the guest agent
+        // binary, must still install.
         let options = SpawnOptions {
             stdin: Some(content.to_vec()),
+            allow_truncated: true,
             ..SpawnOptions::within(GUEST_WRITE_TIMEOUT)
         };
         let captured = self.channel.exec(self.ctx, &argv, &options).await?;
         if captured.exit_code != 0 {
-            return Err(Refusal::new(
-                "guest_write_failed",
-                Exit::from_status(captured.exit_code, Exit::FAILURE),
-                format!("could not write {path}; tee exited with {}", captured.exit_code),
-            )
-            .with_details(json!({ "stderr": clip(&captured.stderr, FAILURE_OUTPUT_TAIL_BYTES) })));
+            let message = format!("could not write {path}; tee exited with {}", captured.exit_code);
+            return Err(
+                write_failed(&captured, message).with_details(json!({ "stderr": clip(&captured.stderr, FAILURE_OUTPUT_TAIL_BYTES) }))
+            );
         }
         self.as_user(&words(["/bin/chmod", mode, path]), &SpawnOptions::within(GUEST_COMMAND_TIMEOUT))
             .await
@@ -346,14 +347,11 @@ impl Guest<'_> {
         };
         let captured = self.channel.exec(self.ctx, &argv, &options).await?;
         if captured.exit_code != 0 {
-            return Err(Refusal::new(
-                "guest_write_failed",
-                Exit::from_status(captured.exit_code, Exit::FAILURE),
-                format!(
-                    "could not write the secret file {path}; sh exited with {}; guest output was withheld",
-                    captured.exit_code
-                ),
-            ));
+            let message = format!(
+                "could not write the secret file {path}; sh exited with {}; guest output was withheld",
+                captured.exit_code
+            );
+            return Err(write_failed(&captured, message));
         }
         Ok(())
     }
@@ -394,13 +392,18 @@ impl Guest<'_> {
     }
 }
 
-/// Prefixes `argv` with the sudo invocation that runs it as the account the daemon and the IDE run as.
+/// Prefixes `argv` with the sudo invocation that runs it as the account the daemon and the IDE run as. On an
+/// unprivileged guest ([`avl_base::config::GuestOsProfile::privileged`]) every command already runs as that
+/// account, so `argv` comes back as it is.
 ///
 /// `sudo -H` and not a bare `sudo`: without it the command keeps the invoking user's `HOME`, and everything the
 /// lane touches - the agent CLIs under `$HOME/.local/bin`, the IDE's config, the JVM's caches - is resolved from a
 /// home directory that is not the one the run uses. Public because `observe` needs the same prefix on argv it does
 /// not route through [`Guest::raw`], and a second spelling of a security prefix is the copy that drifts.
 pub fn user_argv(settings: &Config, argv: &[String]) -> Vec<String> {
+    if !settings.guest.privileged {
+        return argv.to_vec();
+    }
     let mut line = words(["/usr/bin/sudo", "-H", "-u", &settings.vm_user]);
     line.extend_from_slice(argv);
     line
@@ -412,12 +415,37 @@ fn secret_write_argv(path: &str) -> Vec<String> {
     words(["/bin/sh", "-c", "umask 077 && exec cat > \"$1\"", "sh", path])
 }
 
+/// The refusal of a guest write that exited with a nonzero status. The caller gives the message, so it decides what
+/// guest output the refusal quotes.
+fn write_failed(captured: &Captured, message: String) -> Refusal {
+    Refusal::new("guest_write_failed", Exit::from_status(captured.exit_code, Exit::FAILURE), message)
+}
+
 /// Prefixes `argv` with the sudo invocation that runs it as root. `-H` because the worker prefix has it: two
-/// prefixes differing in one flag would be a difference nothing explains.
-pub fn root_argv(argv: &[String]) -> Vec<String> {
+/// prefixes differing in one flag would be a difference nothing explains. On an unprivileged guest there is no
+/// root to become, and `argv` comes back as it is; the steps that need root there are the ones `chown_argv`
+/// leaves out.
+pub fn root_argv(settings: &Config, argv: &[String]) -> Vec<String> {
+    if !settings.guest.privileged {
+        return argv.to_vec();
+    }
     let mut line = words(["/usr/bin/sudo", "-H"]);
     line.extend_from_slice(argv);
     line
+}
+
+/// The `chown` that hands `paths` to the worker account after root made them, with `flags` such as `-R` in front,
+/// or `None` on an unprivileged guest, where the worker account makes its directories itself and owns them already.
+/// The one rule for every chown step of this module, in a guest command and in the parity script alike.
+pub(crate) fn chown_argv(settings: &Config, flags: &[&str], paths: &[&str]) -> Option<Vec<String>> {
+    if !settings.guest.privileged {
+        return None;
+    }
+    let argv = std::iter::once(settings.guest.chown)
+        .chain(flags.iter().copied())
+        .chain(std::iter::once(settings.vm_user.as_str()))
+        .chain(paths.iter().copied());
+    Some(words(argv))
 }
 
 /// The basename of the program a guest argv actually runs, and the arguments it runs it with, found by walking

@@ -39,6 +39,7 @@ _CROSS_MODULE_CRATES = {
     "refusal": "//tools/bt/crates/refusal",
     "distpath": "//build/dev-dist-tools/crates/distpath",
     "fscopy": "//build/dev-dist-tools/crates/fscopy",
+    "dev-launch": "//build/dev-dist-tools/crates/dev-launch",
 }
 
 # The closure of a shipped binary is the closure for x86_64 Linux, where the guest agent and the recorder run. Each host
@@ -60,6 +61,7 @@ def avl_crate(
         portable = False,
         closure = False,
         compile_data = [],
+        native_deps = [],
         test_data = [],
         test_env = {},
         test_size = "small",
@@ -76,9 +78,9 @@ def avl_crate(
     community module (`_CROSS_MODULE_CRATES`).
 
     The test runs through `rust_test_junit`: libtest writes no report, Bazel's own report holds one case for the whole
-    target, and BT counts cases. `AirTestTargetSandboxTest` does not see this test, because it scans `BUILD.bazel`
-    files for rule calls named `*_test`. So nothing gates `test_tags`, and an `external` or `no-sandbox` tag there makes
-    the test uncached.
+    target, and BT counts cases. `AirTestTargetDeclarationTest` does not see this test, because it scans `BUILD.bazel`
+    files for rule calls named `*_test` or `*_test_*`, and this one is `avl_crate`. So nothing gates `test_tags`, and an
+    `external` or `no-sandbox` tag there makes the test uncached.
 
     The library of a crate that is not portable is `manual` and has no `NOT_ON_WINDOWS`, so `//...` does not build it
     for Windows and a guest binary cross-built on a Windows host does not refuse its own library. Its test, its clippy
@@ -92,6 +94,8 @@ def avl_crate(
         closure is the one for x86_64 Linux on every host.
       compile_data: files the crate reads at compile time (`include_str!`); its test finds them at run time
         too, so a file the test also reads is listed here once.
+      native_deps: the C libraries that the crate links. Its `build.rs` builds them under cargo, and Bazel runs no
+        build script of this workspace.
       test_data: files the test reads at run time, found through `avl_testkit`.
       test_env: environment of the test, e.g. an `$(rlocationpath ...)`.
       test_size: the Bazel size of the test.
@@ -108,6 +112,7 @@ def avl_crate(
         lints = _LINTS,
         cross_module_crates = _CROSS_MODULE_CRATES,
         compile_data = compile_data,
+        native_deps = native_deps,
         test_data = test_data,
         closure = closure,
         closure_platform = _CLOSURE_PLATFORM,
@@ -129,7 +134,7 @@ def avl_crate(
         test_tags = test_tags,
     )
 
-def avl_crate_test(name, package, data = [], env = {}, size = "small"):
+def avl_crate_test(name, package, data = [], env = {}, size = "small", tags = []):
     """Declares the unit test of the crate in `package` of this workspace again, for a package of the ultimate root.
 
     The test of `avl_crate` cannot have a target of the ultimate root as data, because the community module does not
@@ -142,6 +147,7 @@ def avl_crate_test(name, package, data = [], env = {}, size = "small"):
       data: the files that the test reads at run time.
       env: the environment of the test, such as an `$(rlocationpath ...)` of the caller's data.
       size: the Bazel size of the test.
+      tags: the tags of the test, such as the category tag of the Air area.
     """
     crate = Label("//{}:{}".format(package, package.split("/")[-1]))
     rust_test_junit(
@@ -153,6 +159,7 @@ def avl_crate_test(name, package, data = [], env = {}, size = "small"):
         lint_config = _LINTS,
         rustc_env = {"AVL_PACKAGE": package, "AVL_REPO": crate.repo_name or "_main"},
         size = size,
+        tags = tags,
         target_compatible_with = NOT_ON_WINDOWS,
     )
 

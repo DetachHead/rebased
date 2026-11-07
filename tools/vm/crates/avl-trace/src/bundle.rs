@@ -4,19 +4,20 @@
 //! it is below: the file names, the manifest, and the frame index. What the files contain beyond the manifest is
 //! OTLP ([crate::otlp]) and the bridge's tree ([crate::bridge]).
 //!
-//! The lane's system properties are read by Kotlin, and no Rust code sets them; for the record they are
-//! `air.flow.trace.dir` (the root, set by the daemon for each iteration, which wins over the other two roots),
-//! `air.flow.trace.run.id` (the run id the daemon sets beside it: the iteration id), `air.flow.trace` (`off`
-//! disables tracing) and `air.trace.recorder` (the recorder binary, a runfiles path the lane resolves).
+//! The lane names the root and the run id in its `hello` ([crate::protocol::HelloCommand]). The lane daemon roots each
+//! iteration at `<iterationDir>/air-traces`, and the iteration id is the run id. The lane reads the recorder from the
+//! static JVM flags of the runtime descriptor: `-Dair.trace.recorder=` names the binary, a runfiles path that the lane
+//! resolves, and `-Dair.flow.trace=off` turns the trace off.
 
 use std::borrow::Cow;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 
 use crate::Error;
 use crate::otlp::is_valid_span_id;
-use crate::protocol::{CaptureSource, Launcher, Status, VideoCodec};
+use crate::protocol::{CaptureSource, Label, Launcher, Status, VideoCodec};
 
 // The files of a bundle, relative to its directory. The separator is always `/`, because the same paths name zip
 // entries, URLs and log-record attributes.
@@ -35,6 +36,8 @@ pub const VIDEO_FILE: &str = "video.mp4";
 pub const VIDEO_INDEX_FILE: &str = "video.index.json";
 /// The snapshots, named by [snap_image_path] and [snap_tree_path].
 pub const SNAP_DIR: &str = "snap";
+/// The files the lane attached, named by [attach_path].
+pub const ATTACH_DIR: &str = "attach";
 /// The slice of the IDE's `idea.log` written while the scenario ran.
 pub const IDEA_LOG_FILE: &str = "idea.log";
 
@@ -48,15 +51,25 @@ pub fn bundle_file(dir: &Path, name: &str) -> PathBuf {
     name.split('/').fold(dir.to_owned(), |path, segment| path.join(segment))
 }
 
-/// Where the snapshot with this ordinal keeps its lossless WebP picture. Ordinals count from 1 in the order the
-/// snapshots were taken.
+/// Where the snapshot with this ordinal keeps its picture, in the format of the [Stills] of the manifest. Ordinals
+/// count from 1 in the order the snapshots were taken.
 ///
 /// The file exists only when the screen changed since the previous picture. A snapshot of an unchanged screen
 /// writes no file, and its [crate::otlp::attr::SNAPSHOT_IMAGE] names the previous picture's file. So a reader
 /// takes a snapshot's picture from that attribute, never from its ordinal. The files follow the screen's changes in
 /// order, and the last one by name is the last snapshot's picture.
-pub fn snap_image_path(ordinal: u32) -> String {
-    format!("{SNAP_DIR}/{ordinal:04}.webp")
+pub fn snap_image_path(ordinal: u32, encoding: StillEncoding) -> String {
+    format!("{SNAP_DIR}/{ordinal:04}.{}", encoding.extension())
+}
+
+/// The media type of a picture file of a bundle, by its extension: a still of [snap_image_path], or an attachment
+/// picture that the recorder encoded. `None` for any other file.
+pub fn picture_mime(path: &str) -> Option<&'static str> {
+    let (_, extension) = path.rsplit_once('.')?;
+    StillEncoding::ALL
+        .iter()
+        .find(|encoding| encoding.extension() == extension)
+        .map(|encoding| encoding.mime())
 }
 
 /// Where the snapshot with this ordinal keeps its Swing tree, a [crate::bridge::Tree].
@@ -64,15 +77,17 @@ pub fn snap_tree_path(ordinal: u32) -> String {
     format!("{SNAP_DIR}/{ordinal:04}.tree.json")
 }
 
+/// Where the attachment with this ordinal is kept. Ordinals count from 1 in the order the lane attached the files.
+/// The extension is the lane file's own, so a reader knows the type without the record.
+pub fn attach_path(ordinal: u32, extension: &str) -> String {
+    format!("{ATTACH_DIR}/{ordinal:04}.{extension}")
+}
+
 // --- where bundles live --------------------------------------------------------------------------------------
 
-/// The name of every root's last segment: the daemon's `<iterationDir>/air-traces`, Bazel's
-/// `$TEST_UNDECLARED_OUTPUTS_DIR/air-traces`, and the IDE's `<home>/out/air-traces`.
+/// The name of every root's last segment: the daemon's `<iterationDir>/air-traces` and Bazel's
+/// `$TEST_UNDECLARED_OUTPUTS_DIR/air-traces`.
 pub const ROOT_DIR_NAME: &str = "air-traces";
-
-/// How many runs the recorder keeps under the IDE's root, newest first. The other two roots belong to a daemon
-/// iteration and to a Bazel test, whose owners already clean them up.
-pub const IDE_ROOT_RETAINED_RUNS: usize = 20;
 
 /// The directory of one scenario's bundle under a root: `<root>/<runId>/<TestClass>/<scenario>`, each segment
 /// passed through [sanitize_name].
@@ -134,11 +149,11 @@ vocabulary! {
         Passed = "passed",
         Failed = "failed",
         Aborted = "aborted",
-        /// The lane stopped talking before `done`: its standard input reached EOF. That is a watchdog's
-        /// `exitProcess`, a killed JVM, or a lane that never sent `done`. The recorder still closes the video and
-        /// writes the manifest, naming the span that was running. It also writes every span still open to
-        /// [SPANS_FILE] as aborted, ending at the EOF, the root included, so the root's program reaches the viewer. A
-        /// reader treats those spans as cut off, not as having ended.
+        /// The lane stopped talking before `done`: its standard input reached EOF. That is a lane that died or was
+        /// killed, or a lane that never sent `done`. The recorder still closes the video and writes the manifest,
+        /// naming the span that was running. It also writes every span still open to [SPANS_FILE] as aborted, ending
+        /// at the EOF, the root included, so the root's program reaches the viewer. A reader treats those spans as cut
+        /// off, not as having ended.
         Truncated = "truncated",
     }
 }
@@ -245,6 +260,60 @@ impl Video {
     }
 }
 
+vocabulary! {
+    /// How the recorder encodes the pictures of a bundle, the files of [snap_image_path].
+    pub enum StillEncoding {
+        /// A lossless WebP picture, which decodes to the pixels of the screen. The recorder picks it for a scenario
+        /// that starts no video.
+        Lossless = "lossless",
+        /// A lossy AVIF picture. The recorder picks it for a scenario that starts a video. A video that fails later
+        /// leaves the pictures lossy. A picture whose lossy encode failed is a lossless AVIF picture.
+        Lossy = "lossy",
+    }
+}
+
+impl StillEncoding {
+    /// The extension of a picture file in this encoding, which names its format.
+    pub const fn extension(self) -> &'static str {
+        match self {
+            Self::Lossless => "webp",
+            Self::Lossy => "avif",
+        }
+    }
+
+    /// The media type of a picture file in this encoding.
+    pub const fn mime(self) -> &'static str {
+        match self {
+            Self::Lossless => "image/webp",
+            Self::Lossy => "image/avif",
+        }
+    }
+}
+
+/// How the bundle's pictures are encoded.
+///
+/// On the wire it is `{"encoding":"lossy"}`. The manifest leaves it out when the pictures are lossless, so a reader
+/// reads an absent field as lossless. That also holds for every bundle of a recorder that wrote no lossy picture.
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct Stills {
+    pub encoding: StillEncoding,
+}
+
+impl Default for Stills {
+    fn default() -> Self {
+        Self {
+            encoding: StillEncoding::Lossless,
+        }
+    }
+}
+
+impl Stills {
+    fn is_lossless(&self) -> bool {
+        self.encoding == StillEncoding::Lossless
+    }
+}
+
 /// `bundle.json`: what the bundle is, how it ended, and what it could capture.
 #[derive(Serialize, Deserialize, Clone, PartialEq, Eq, Debug)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -268,6 +337,8 @@ pub struct Manifest {
     pub duration_ms: u64,
     pub capture: Capture,
     pub video: Video,
+    #[serde(default, skip_serializing_if = "Stills::is_lossless")]
+    pub stills: Stills,
 }
 
 /// Writes an instant the way the manifest holds it: RFC 3339 in UTC, with milliseconds.
@@ -325,6 +396,231 @@ impl Manifest {
         }
         Ok(())
     }
+}
+
+// --- the Allure results -------------------------------------------------------------------------------------
+
+/// The directory of one run's Allure results, `<root>/<runId>/allure-results`, beside the run's bundles. It is one
+/// flat directory, as Allure reads it: a `<uuid>-result.json` per bundle and the `<uuid>-attachment.<ext>` files that
+/// the results name. The recorder writes a bundle's result before the bundle's [MANIFEST_FILE], so a finished bundle
+/// has its result.
+pub const ALLURE_RESULTS_DIR: &str = "allure-results";
+
+/// The end of a result's file name. Allure reads every file with this end as one test result.
+pub const ALLURE_RESULT_SUFFIX: &str = "-result.json";
+
+/// The label that names the bundle of a result: the bundle's path under the run's directory, such as
+/// `AirExampleUiTest/example.2`. A pack keeps a result with its bundle by this label.
+pub const ALLURE_BUNDLE_LABEL: &str = "traceBundle";
+
+/// The Allure results directory of the run `run_id` under a root, [ALLURE_RESULTS_DIR] beside the run's bundles.
+pub fn allure_results_dir(root: &Path, run_id: &str) -> PathBuf {
+    root.join(&*sanitize_name(run_id)).join(ALLURE_RESULTS_DIR)
+}
+
+/// The file name of the result with this uuid.
+pub fn allure_result_file(uuid: &str) -> String {
+    format!("{uuid}{ALLURE_RESULT_SUFFIX}")
+}
+
+/// The file name of the attachment with this uuid. The extension is the bundle file's own.
+pub fn allure_attachment_file(uuid: &str, extension: &str) -> String {
+    format!("{uuid}-attachment.{extension}")
+}
+
+/// A UUID derived from `parts`: the first 16 bytes of their SHA-256, with the version and variant bits of an RFC 9562
+/// version 8 UUID.
+///
+/// It is derived rather than random for the reason [crate::otlp::trace_id] is: one replay of a transcript writes the
+/// same results twice. The recorder derives a result's uuid from the run id, the bundle's path and its start, so two
+/// runs never share one.
+pub fn derived_uuid(parts: &[&str]) -> String {
+    let mut hasher = Sha256::new();
+    for part in parts {
+        hasher.update(part);
+        hasher.update([0]);
+    }
+    let digest = hasher.finalize();
+    let mut bytes = [0; 16];
+    bytes.copy_from_slice(&digest[..16]);
+    bytes[6] = (bytes[6] & 0x0f) | 0x80;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    let hex = hex::encode(bytes);
+    format!("{}-{}-{}-{}-{}", &hex[..8], &hex[8..12], &hex[12..16], &hex[16..20], &hex[20..])
+}
+
+/// The `historyId` of a result: the SHA-256 of its `fullName` as lowercase hex. Every run of one scenario has the
+/// same one, so Allure joins the runs into one history, and two shards of one build merge.
+pub fn allure_history_id(full_name: &str) -> String {
+    hex::encode(Sha256::digest(full_name))
+}
+
+vocabulary! {
+    /// The status of an Allure result or step.
+    pub enum AllureStatus {
+        Passed = "passed",
+        Failed = "failed",
+        /// A test that reached no verdict: an aborted or a truncated bundle, or an aborted span.
+        Broken = "broken",
+        Skipped = "skipped",
+    }
+}
+
+impl From<BundleStatus> for AllureStatus {
+    fn from(status: BundleStatus) -> Self {
+        match status {
+            BundleStatus::Passed => Self::Passed,
+            BundleStatus::Failed => Self::Failed,
+            BundleStatus::Aborted | BundleStatus::Truncated => Self::Broken,
+        }
+    }
+}
+
+impl From<Status> for AllureStatus {
+    fn from(status: Status) -> Self {
+        BundleStatus::from(status).into()
+    }
+}
+
+vocabulary! {
+    /// The stage of an Allure result or step. The recorder writes a result when its bundle is complete, so every
+    /// result and step is finished.
+    pub enum AllureStage {
+        Finished = "finished",
+    }
+}
+
+/// Why a result or a step did not pass.
+#[derive(Serialize, Deserialize, Clone, PartialEq, Eq, Debug, Default)]
+#[serde(deny_unknown_fields)]
+pub struct AllureStatusDetails {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trace: Option<String>,
+}
+
+impl AllureStatusDetails {
+    /// Whether the details say nothing. A result or a step without details has no `statusDetails`.
+    pub const fn is_empty(&self) -> bool {
+        self.message.is_none() && self.trace.is_none()
+    }
+}
+
+/// One file that a result or a step names: its title, the file in the results directory and its media type.
+#[derive(Serialize, Deserialize, Clone, PartialEq, Eq, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct AllureAttachment {
+    pub name: String,
+    /// The file name in the results directory, an [allure_attachment_file].
+    pub source: String,
+    #[serde(rename = "type")]
+    pub mime: String,
+}
+
+/// One step of a result: one lane span, with the steps of the spans inside it.
+#[derive(Serialize, Deserialize, Clone, PartialEq, Eq, Debug)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct AllureStep {
+    pub name: String,
+    pub status: AllureStatus,
+    #[serde(default, skip_serializing_if = "AllureStatusDetails::is_empty")]
+    pub status_details: AllureStatusDetails,
+    pub stage: AllureStage,
+    /// Epoch milliseconds.
+    pub start: i64,
+    pub stop: i64,
+    pub steps: Vec<Self>,
+    pub attachments: Vec<AllureAttachment>,
+}
+
+/// `<uuid>-result.json`: one bundle as one Allure test result.
+#[derive(Serialize, Deserialize, Clone, PartialEq, Eq, Debug)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct AllureResult {
+    pub uuid: String,
+    /// See [allure_history_id].
+    pub history_id: String,
+    /// `<testClass>.<scenario>`.
+    pub full_name: String,
+    pub name: String,
+    pub status: AllureStatus,
+    #[serde(default, skip_serializing_if = "AllureStatusDetails::is_empty")]
+    pub status_details: AllureStatusDetails,
+    pub stage: AllureStage,
+    /// Epoch milliseconds.
+    pub start: i64,
+    pub stop: i64,
+    pub labels: Vec<Label>,
+    pub steps: Vec<AllureStep>,
+    pub attachments: Vec<AllureAttachment>,
+}
+
+impl AllureResult {
+    /// The value of the [ALLURE_BUNDLE_LABEL] label.
+    pub fn bundle(&self) -> Option<&str> {
+        self.labels
+            .iter()
+            .find(|label| label.name == ALLURE_BUNDLE_LABEL)
+            .map(|label| label.value.as_str())
+    }
+
+    /// The file of every attachment, the steps' included, in the order the result names them.
+    pub fn sources(&self) -> Vec<&str> {
+        fn collect<'a>(steps: &'a [AllureStep], sources: &mut Vec<&'a str>) {
+            for step in steps {
+                sources.extend(step.attachments.iter().map(|attachment| attachment.source.as_str()));
+                collect(&step.steps, sources);
+            }
+        }
+        let mut sources: Vec<&str> = self.attachments.iter().map(|attachment| attachment.source.as_str()).collect();
+        collect(&self.steps, &mut sources);
+        sources
+    }
+
+    /// Refuses a result the recorder would not have written: one without an id or a name, with a stop before its
+    /// start, without its bundle, or with an attachment file that is not one plain name in the results directory.
+    pub fn validate(&self) -> Result<(), Error> {
+        if self.uuid.is_empty() || self.history_id.is_empty() || self.full_name.is_empty() || self.name.is_empty() {
+            refuse!("an Allure result needs a uuid, a historyId, a fullName and a name");
+        }
+        if self.stop < self.start {
+            refuse!(
+                "the Allure result {} stops at {} before its start {}",
+                self.uuid,
+                self.stop,
+                self.start
+            );
+        }
+        if self.bundle().is_none_or(str::is_empty) {
+            refuse!("the Allure result {} has no {ALLURE_BUNDLE_LABEL} label", self.uuid);
+        }
+        let plain = |name: &str| !name.is_empty() && !name.starts_with('.') && !name.contains(['/', '\\']);
+        if let Some(source) = self.sources().into_iter().find(|source| !plain(source)) {
+            refuse!(
+                "the Allure result {} names the attachment {source:?}, which is not a file of its directory",
+                self.uuid
+            );
+        }
+        Ok(())
+    }
+}
+
+/// Writes `<uuid>-result.json`: the result, validated, indented and ended with a newline, as [encode_manifest] does.
+pub fn encode_allure_result(result: &AllureResult) -> Result<Vec<u8>, Error> {
+    result.validate()?;
+    let mut document = serde_json::to_vec_pretty(result)
+        .map_err(|error| Error::new(format!("the Allure result {} cannot be encoded: {error}", result.uuid)))?;
+    document.push(b'\n');
+    Ok(document)
+}
+
+/// Reads `<uuid>-result.json` and refuses anything the recorder would not have written.
+pub fn decode_allure_result(document: &[u8]) -> Result<AllureResult, Error> {
+    let result: AllureResult =
+        serde_json::from_slice(document).map_err(|error| Error::new(format!("an Allure result does not fit the contract: {error}")))?;
+    result.validate()?;
+    Ok(result)
 }
 
 // --- the frame index -----------------------------------------------------------------------------------------

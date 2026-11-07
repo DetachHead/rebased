@@ -42,7 +42,7 @@ fn plain_lines_name_each_phase_and_each_test() {
     );
     reporter.publish(
         daemon_event(
-            r#"{"event":"testFinished","timestamp":"t","id":"1","displayName":"start-in-terminal","className":"AirNewSessionTest","methodName":"scenarios","status":"FAILED","durationMs":5,"error":"no chip\nat line 3"}"#,
+            r#"{"event":"testFinished","timestamp":"t","id":"1","displayName":"start-in-terminal","className":"AirNewSessionTest","methodName":"scenarios","status":"FAILED","durationMs":5,"message":"no chip","detail":"at line 3"}"#,
         ),
         Some(&scope),
     );
@@ -210,9 +210,7 @@ fn trace_ref() -> TraceRef {
 /// A red run with every part the plain answer prints.
 fn red_verdict() -> Verdict {
     Verdict {
-        status: Status::Failed,
         code: Some("tests_failed".to_owned()),
-        summary: "1 test(s) and 0 container(s) failed of 2 started (iteration it-1); first: a.OneTest — boom".to_owned(),
         counts: VerdictCounts {
             started: 2,
             failed: 1,
@@ -225,10 +223,6 @@ fn red_verdict() -> Verdict {
             trace: Some(trace_ref()),
         }],
         rerun: vec!["run a.OneTest".to_owned()],
-        skipped: Vec::new(),
-        unreported: Vec::new(),
-        lanes: Vec::new(),
-        shards: None,
         lease: Some(VerdictLease {
             workers: vec!["air-linux-1".to_owned()],
             disposition: LeaseDisposition::ReleaseFailed,
@@ -248,6 +242,10 @@ fn red_verdict() -> Verdict {
         }),
         timing: Some("build 1.0s tests 9.0s".to_owned()),
         report: Some("/reports/it-1.json".to_owned()),
+        ..Verdict::new(
+            Status::Failed,
+            "1 test(s) and 0 container(s) failed of 2 started (iteration it-1); first: a.OneTest — boom",
+        )
     }
 }
 
@@ -301,29 +299,29 @@ fn a_refusal_after_the_verdict_still_prints_and_a_green_verdict_replaces_the_tex
 
     stdout.clear();
     reporter.set_mode(Mode::Human(Terminal::default()));
-    let green = Verdict {
-        status: Status::Passed,
-        code: None,
-        summary: "2 test(s) passed".to_owned(),
-        counts: VerdictCounts::default(),
-        failures: Vec::new(),
-        rerun: Vec::new(),
-        skipped: Vec::new(),
-        unreported: Vec::new(),
-        lanes: Vec::new(),
-        shards: None,
-        lease: None,
-        checkout: None,
-        traces: None,
-        timing: None,
-        report: None,
-    };
+    let green = Verdict::new(Status::Passed, "2 test(s) passed");
     reporter.publish(Event::Verdict(Box::new(green)), None);
     main("run", &reporter, || Outcome::new((), "the old text answer"));
     assert_eq!(stdout.text(), "2 test(s) passed\n");
 }
 
 // A host build names what Bazel did, so a slow build says whether it rebuilt much.
+// A slow step is one line that names the open phases, the time, and the dump files to open.
+#[test]
+fn a_slow_step_is_a_line_with_its_dumps() {
+    let (reporter, stderr, _) = screen_recorder(Terminal::default());
+    reporter.publish(
+        daemon_event(
+            r#"{"event":"slowStep","timestamp":"t","step":"restart","path":"restart > quit > process exit","budgetMs":30000,"elapsedMs":125000,"threadDump":"/it/slow-steps/01-restart-daemon-threads.txt","ideDumpError":"refused"}"#,
+        ),
+        Some(&Scope::worker("air-docker-1")),
+    );
+    assert_eq!(
+        stderr.text(),
+        "vm: [air-docker-1] slow step: restart > quit > process exit took 2m05s of a 30s budget; dumps: /it/slow-steps/01-restart-daemon-threads.txt\n"
+    );
+}
+
 #[test]
 fn the_build_summary_is_a_line() {
     let (reporter, stderr, _) = screen_recorder(Terminal::default());
@@ -368,6 +366,7 @@ fn a_run_and_its_traces_are_named_by_their_viewer_links() {
             command: "run".to_owned(),
             args: Vec::new(),
             checkout: None,
+            process_started_at: None,
         }),
         None,
     );
@@ -407,4 +406,31 @@ fn a_checkout_line_says_whether_the_tree_is_clean() {
         error: Some("not a repository\nmore".to_owned()),
     };
     assert_eq!(checkout_line(&unknown), "checkout: unknown: not a repository");
+}
+
+// A failed test line names the headline of its typed failure: the first line of the message, else the type. A failed
+// container shows the headline and the detail on the lines below it.
+#[test]
+fn a_failed_test_line_names_the_headline_of_its_typed_failure() {
+    let (reporter, stderr, _clock) = screen_recorder(Terminal::default());
+    let scope = Scope::worker("air-linux-1");
+    for record in [
+        r#"{"event":"testFinished","timestamp":"t","id":"1","displayName":"a","className":"T","methodName":"m","status":"FAILED","durationMs":5,"type":"java.lang.AssertionError","message":"no chip\nmore","detail":"at line 3"}"#,
+        r#"{"event":"testFinished","timestamp":"t","id":"2","displayName":"b","className":"T","methodName":"m","status":"FAILED","durationMs":5,"type":"java.lang.IllegalStateException"}"#,
+        r#"{"event":"containerFailed","timestamp":"t","id":"[suite:s]","displayName":"S","className":"S","message":"the prologue failed","detail":"at prologue"}"#,
+    ] {
+        reporter.publish(daemon_event(record), Some(&scope));
+    }
+    assert_eq!(
+        stderr.text(),
+        [
+            "vm: [air-linux-1] ✗ T#m[a] — no chip",
+            "vm: [air-linux-1] ✗ T#m[b] — java.lang.IllegalStateException",
+            "vm: [air-linux-1] ✗ S (container)",
+            "the prologue failed",
+            "at prologue",
+            "",
+        ]
+        .join("\n")
+    );
 }

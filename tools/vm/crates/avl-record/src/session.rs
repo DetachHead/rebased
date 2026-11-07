@@ -1,19 +1,21 @@
 //! One recorder process's conversation with its lane.
 
+use std::collections::HashSet;
 use std::fs;
 use std::io::Write;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime};
 
+use avl_bridge::Client;
 use avl_trace::bridge::Facts;
-use avl_trace::bundle::{IDE_ROOT_RETAINED_RUNS, sanitize_name};
-use avl_trace::protocol::{Ack, Bridge, CaptureSource, Command, HelloAck, HelloCommand, Launcher, VideoCodec, decode_command};
+use avl_trace::bundle::{AllureStatusDetails, BundleStatus, sanitize_name};
+use avl_trace::protocol::{
+    Ack, Bridge, CaptureSource, Command, HelloAck, HelloCommand, ScenarioCommand, VideoCodec, VideoRetention, decode_command,
+};
 
-use crate::bridge::Client;
 use crate::capture::Source;
 use crate::ladder::ScreenAccess;
-use crate::retention::prune_runs;
 use crate::scenario::{ERROR_SOURCE_PROTOCOL, FLUSHED_SPANS_TIMEOUT, Scenario};
 use crate::{Options, join_reasons};
 
@@ -43,6 +45,9 @@ pub(crate) struct Session<W: Write> {
     /// Why no better rung than the source was available.
     pub(crate) source_reason: String,
     pub(crate) scenario: Option<Scenario>,
+    /// The test class and the name of each scenario of the session that did not pass. A later attempt of one of them
+    /// keeps its video, because a scenario that passes on a retry is flaky.
+    unpassed: HashSet<(String, String)>,
 }
 
 impl<W: Write> Session<W> {
@@ -58,6 +63,7 @@ impl<W: Write> Session<W> {
             source: None,
             source_reason: String::new(),
             scenario: None,
+            unpassed: HashSet::new(),
         }
     }
 
@@ -90,7 +96,11 @@ impl<W: Write> Session<W> {
             if self.scenario.is_none() {
                 return self.refuse(at, "a done outside a scenario");
             }
-            self.finish_scenario(done.status.into(), at);
+            let details = AllureStatusDetails {
+                message: done.message,
+                trace: done.trace,
+            };
+            self.finish_scenario(done.status.into(), details, at);
             return self.ack(true, None);
         }
         let op = command.op();
@@ -122,9 +132,9 @@ impl<W: Write> Session<W> {
                 );
                 None
             }
-            Command::DriverSteps(steps) => {
-                scenario.driver_steps(&steps, at);
-                None
+            Command::Attach(attach) => {
+                let root = self.hello.as_ref().map_or("", |hello| hello.root.as_str());
+                scenario.attach(&attach, Path::new(root), at, budget).err()
             }
             Command::Hello(_) | Command::Scenario(_) | Command::Done(_) => None,
         };
@@ -147,18 +157,12 @@ impl<W: Write> Session<W> {
             let now = (self.options.clock)();
             return self.refuse(now, "a second hello: one recorder serves one root");
         }
-        let run = sanitize_name(&hello.run_id).into_owned();
-        let run_dir = Path::new(&hello.root).join(&run);
+        let run_dir = Path::new(&hello.root).join(&*sanitize_name(&hello.run_id));
         self.hello = Some(hello.clone());
         if let Err(error) = fs::create_dir_all(&run_dir) {
             let disabled = format!("cannot create {}: {error}", run_dir.display());
             self.disabled = Some(disabled.clone());
             return self.hello_ack(false, CaptureSource::None, VideoCodec::None, disabled);
-        }
-        if hello.launcher == Launcher::Ide
-            && let Err(error) = prune_runs(Path::new(&hello.root), &run, IDE_ROOT_RETAINED_RUNS)
-        {
-            say!(self.options.diagnostics, "pruning {}: {error}", hello.root);
         }
         self.use_bridge(hello.bridge.as_ref());
         let facts = self.facts().ok();
@@ -234,7 +238,7 @@ impl<W: Write> Session<W> {
     pub(crate) fn facts(&self) -> anyhow::Result<Facts> {
         match &self.client {
             None => anyhow::bail!("the lane named no bridge"),
-            Some(client) => client.facts(Instant::now() + FACTS_TIMEOUT),
+            Some(client) => Ok(client.facts(Instant::now() + FACTS_TIMEOUT)?),
         }
     }
 
@@ -281,12 +285,27 @@ impl<W: Write> Session<W> {
         }
     }
 
+    /// Which video the scenario `command` keeps: the hello's, and every video for a scenario that did not pass before in
+    /// this session.
+    pub(crate) fn keep_video_of(&self, hello: &HelloCommand, command: &ScenarioCommand) -> VideoRetention {
+        let key = (command.test_class.clone(), command.name.clone());
+        if self.unpassed.contains(&key) {
+            VideoRetention::Always
+        } else {
+            hello.keep_video
+        }
+    }
+
     /// Finishes the open scenario, reading the IDE's last spans and the facts at its end for the log slice.
-    pub(crate) fn finish_scenario(&mut self, status: avl_trace::bundle::BundleStatus, at: SystemTime) {
+    pub(crate) fn finish_scenario(&mut self, status: BundleStatus, details: AllureStatusDetails, at: SystemTime) {
         let Some(scenario) = self.scenario.take() else {
             return;
         };
-        scenario.finish(status, crate::unix_ms(at), self.client.as_ref(), &|| self.facts().ok());
+        if status != BundleStatus::Passed {
+            self.unpassed
+                .insert((scenario.command.test_class.clone(), scenario.command.name.clone()));
+        }
+        scenario.finish(status, details, crate::unix_ms(at), self.client.as_ref(), &|| self.facts().ok());
     }
 
     /// Ends the session: an open scenario is finished as truncated, and the capture source is released.
@@ -298,7 +317,7 @@ impl<W: Write> Session<W> {
                 scenario.command.name
             );
             let now = (self.options.clock)();
-            self.finish_scenario(avl_trace::bundle::BundleStatus::Truncated, now);
+            self.finish_scenario(BundleStatus::Truncated, AllureStatusDetails::default(), now);
         }
         self.source = None;
     }

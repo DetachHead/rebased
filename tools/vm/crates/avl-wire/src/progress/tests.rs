@@ -74,14 +74,14 @@ fn a_decision_carries_its_line_as_the_message() {
     let decision = Decision {
         subject: Subject::Daemon,
         action: "restart".to_owned(),
-        reason: Some("the stable runtime or JBR changed".to_owned()),
+        reason: Some("the launch of the daemon changed".to_owned()),
     };
     let fields = encode(&Event::Decision(decision), Some("air-linux-1"));
     assert_eq!(fields["event"], "decision");
-    assert_eq!(fields["message"], "daemon restart: the stable runtime or JBR changed");
+    assert_eq!(fields["message"], "daemon restart: the launch of the daemon changed");
     assert_eq!(
         fields["data"],
-        json!({"subject": "daemon", "action": "restart", "reason": "the stable runtime or JBR changed"})
+        json!({"subject": "daemon", "action": "restart", "reason": "the launch of the daemon changed"})
     );
     assert_eq!(
         Decision {
@@ -98,25 +98,14 @@ fn a_decision_carries_its_line_as_the_message() {
 #[test]
 fn a_verdict_carries_its_summary_as_the_message() {
     let verdict = Verdict {
-        status: Status::Failed,
         code: Some("tests_failed".to_owned()),
-        summary: "1 of 3 tests failed".to_owned(),
         counts: VerdictCounts {
             started: 3,
             failed: 1,
             ..VerdictCounts::default()
         },
-        failures: Vec::new(),
         rerun: vec!["run a.B".to_owned()],
-        skipped: Vec::new(),
-        unreported: Vec::new(),
-        lanes: Vec::new(),
-        shards: None,
-        lease: None,
-        checkout: None,
-        traces: None,
-        timing: None,
-        report: None,
+        ..Verdict::new(Status::Failed, "1 of 3 tests failed")
     };
     assert!(!verdict.passed());
     assert_eq!(verdict.counts.passed(), 2);

@@ -2,22 +2,23 @@
 
 use std::collections::{HashMap, HashSet};
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime};
 
+use avl_bridge::Client;
 use avl_trace::bridge::{Facts, IdeSpan};
-use avl_trace::bundle::{BundleStatus, Capture, IDEA_LOG_FILE, MANIFEST_SCHEMA, Manifest, Video, format_manifest_time};
+use avl_trace::bundle::{
+    AllureStatusDetails, BundleStatus, Capture, IDEA_LOG_FILE, MANIFEST_SCHEMA, Manifest, StillEncoding, Stills, Video, allure_results_dir,
+    format_manifest_time, sanitize_name,
+};
 use avl_trace::otlp::{
     IDE_SERVICE_NAME, IDE_SPAN_KIND, KeyValue, LogRecord, Resource, SERVICE_NAME, SeverityNumber, Span, SpanStatus, attr, event, span_id,
     status_code_of, trace_id,
 };
-use avl_trace::protocol::{
-    CallCommand, CaptureSource, DriverStep, DriverStepsCommand, EndCommand, Failure, Launcher, ScenarioCommand, SpanCommand, Status,
-    VideoCodec,
-};
+use avl_trace::protocol::{CallCommand, CaptureSource, EndCommand, Failure, Launcher, ScenarioCommand, SpanCommand, Status, VideoCodec};
 
-use crate::bridge::Client;
+use crate::allure::{ResultInput, write_result};
 use crate::bundle::{BundleWriter, nanos, unique_bundle_dir, write_manifest};
 use crate::capture::{Frame, Source};
 use crate::frames::FrameLoop;
@@ -40,9 +41,12 @@ pub(crate) const ERROR_SOURCE_PROTOCOL: &str = "protocol";
 const ERROR_SOURCE_FACTS: &str = "bridge.facts";
 const ERROR_SOURCE_SPANS: &str = "bridge.spans";
 const ERROR_SOURCE_LOG: &str = "idea.log";
-const ERROR_SOURCE_WEBP: &str = "webp";
+const ERROR_SOURCE_STILL: &str = "still";
 pub(crate) const ERROR_SOURCE_VIDEO: &str = "video";
 const ERROR_SOURCE_CAPTURE: &str = "capture";
+
+/// Why a passed scenario has no video under a hello that keeps the video of a scenario that did not pass only.
+pub(crate) const PASSED_VIDEO_REASON: &str = "the lane keeps only the video of a scenario that did not pass, and this scenario passed";
 
 pub(crate) struct OpenSpan {
     command: SpanCommand,
@@ -62,21 +66,42 @@ pub(crate) struct Scenario {
     pub(crate) writer: Arc<BundleWriter>,
     pub(crate) clock: Clock,
     diagnostics: Diagnostics,
+    /// The hello's root, under which the run's Allure results go.
+    root: PathBuf,
     run_id: String,
     launcher: Launcher,
+    /// The machine's name, the `host` label of the Allure result.
+    host_name: String,
+    /// Whether the hello asked for the Allure result of the scenario.
+    allure: bool,
+    /// Which video the scenario keeps at its end: the hello's, or every video for a scenario whose earlier attempt in
+    /// the session did not pass.
+    keep_video: avl_trace::protocol::VideoRetention,
     pub(crate) started_ms: i64,
 
     pub(crate) open: HashMap<u32, OpenSpan>,
     pub(crate) stack: Vec<u32>,
-    /// Every span that has ended, which is what a driver step or an input is matched against.
+    /// Every span that has ended, which is what an input or an IDE span is matched against.
     ended: Vec<Interval>,
     /// Every lane id this scenario has used.
-    opened: HashSet<u32>,
+    pub(crate) opened: HashSet<u32>,
 
     pub(crate) ordinal: u32,
+    /// The ordinal of the last attachment, 0 before the first.
+    pub(crate) attachments: u32,
     pub(crate) stills: Option<stills::Writer>,
-    /// Maps a queued still's bundle path to its snapshot's span, for a failure the still writer reports from its own
-    /// thread.
+    /// Writes the PNG attachments as lossy AVIF pictures, only in a scenario with a video. It is a writer of its own, so
+    /// a picture never names the file of a snapshot's still, and the last file of `snap/` by name stays the last
+    /// snapshot's picture.
+    pub(crate) attachment_pictures: Option<stills::Writer>,
+    /// The bytes and the bundle file of the previous PNG attachment that the bundle keeps as a PNG. `None` before the
+    /// first, and after a PNG attachment that became an AVIF picture or that the recorder could not move.
+    pub(crate) previous_png: Option<(Vec<u8>, String)>,
+    /// How the stills are encoded: lossy when the scenario started a video. The manifest names it, also when the video
+    /// failed later.
+    pub(crate) still_encoding: StillEncoding,
+    /// Maps a queued still's bundle path to its snapshot's span, and a queued attachment picture's path to the span
+    /// of its attachment, for a failure that a writer reports from its own thread.
     pub(crate) still_spans: Arc<Mutex<HashMap<String, u32>>>,
     slicer: LogSlicer,
     sliced: bool,
@@ -109,7 +134,7 @@ impl<W: Write> Session<W> {
                 &format!("line {} opens the scenario {} before this one's done", self.line, command.name),
                 at_ms,
             );
-            self.finish_scenario(BundleStatus::Truncated, at);
+            self.finish_scenario(BundleStatus::Truncated, AllureStatusDetails::default(), at);
         }
         let Some(hello) = self.hello.clone() else {
             return;
@@ -145,20 +170,29 @@ impl<W: Write> Session<W> {
                 return self.ack(false, Some(format!("cannot create the bundle: {error}")));
             }
         };
+        let keep_video = self.keep_video_of(&hello, &command);
         let scenario = Scenario {
             dir,
             writer,
             clock: self.options.clock.clone(),
             diagnostics: self.options.diagnostics.clone(),
+            root: PathBuf::from(&hello.root),
             run_id: hello.run_id.clone(),
             launcher: hello.launcher,
+            host_name: self.options.host_name.clone(),
+            allure: hello.allure,
+            keep_video,
             started_ms: at_ms,
             open: HashMap::new(),
             stack: Vec::new(),
             ended: Vec::new(),
             opened: HashSet::from([0]),
             ordinal: 0,
+            attachments: 0,
             stills: None,
+            attachment_pictures: None,
+            previous_png: None,
+            still_encoding: StillEncoding::Lossless,
             still_spans: Arc::default(),
             slicer: LogSlicer::default(),
             sliced: false,
@@ -205,7 +239,7 @@ impl<W: Write> Session<W> {
                     scenario.trace_error(ERROR_SOURCE_FACTS, &format!("no idea.log slice: {error:#}"), at_ms);
                 }
             }
-            Ok(facts) => match scenario.slicer.begin(facts) {
+            Ok(facts) => match scenario.slicer.begin(facts, scenario.command.log_from) {
                 Ok(()) => scenario.sliced = true,
                 Err(error) => scenario.trace_error(ERROR_SOURCE_LOG, &format!("{error:#}"), at_ms),
             },
@@ -215,9 +249,16 @@ impl<W: Write> Session<W> {
         }
         scenario.source = source;
         scenario.capture_reason = reason;
-        scenario.stills = Some(stills::Writer::new(&scenario.dir, scenario.still_failed()));
         let screen = hello.screen;
         scenario.start_video(&*self.options.video, screen, self.options.frame_interval, at_ms);
+        scenario.still_encoding = match scenario.video.codec() {
+            VideoCodec::H264 => StillEncoding::Lossy,
+            VideoCodec::None => StillEncoding::Lossless,
+        };
+        scenario.stills = Some(stills::Writer::new(&scenario.dir, scenario.still_encoding, scenario.still_failed()));
+        if scenario.still_encoding == StillEncoding::Lossy {
+            scenario.attachment_pictures = Some(stills::Writer::new(&scenario.dir, StillEncoding::Lossy, scenario.still_failed()));
+        }
         self.ack(true, None);
     }
 }
@@ -378,6 +419,13 @@ impl Scenario {
         if let Some(expectation) = opened.command.expectation.as_deref().filter(|e| !e.is_empty()) {
             attributes.push(KeyValue::string(attr::EXPECTATION, expectation));
         }
+        if let Some(side) = opened.command.side {
+            attributes.push(KeyValue::string(attr::INSTRUCTION_SIDE, side.as_str()));
+        }
+        if let Some(timeout_ms) = opened.command.timeout_ms {
+            let timeout_ms = i64::try_from(timeout_ms).unwrap_or(i64::MAX);
+            attributes.push(KeyValue::int(attr::INSTRUCTION_TIMEOUT_MS, timeout_ms));
+        }
         let mut span_status = SpanStatus {
             code: status_code_of(status),
             ..SpanStatus::default()
@@ -494,38 +542,13 @@ impl Scenario {
         Ok(())
     }
 
-    /// Records the Driver's Allure steps, flattened in pre-order, each on the innermost span that contains its
-    /// start. They arrive at the scenario's end, when every span's interval is known.
-    pub(crate) fn driver_steps(&self, command: &DriverStepsCommand, at: SystemTime) {
-        let mut id = 0;
-        self.walk_steps(&command.steps, 0, &mut id, unix_ms(at));
-    }
-
-    fn walk_steps(&self, steps: &[DriverStep], parent: i64, id: &mut i64, at_ms: i64) {
-        for step in steps {
-            *id += 1;
-            let own = *id;
-            let mut attributes = vec![KeyValue::string(attr::DRIVER_STEP_NAME, &step.name)];
-            if let Some(status) = step.status {
-                attributes.push(KeyValue::string(attr::DRIVER_STEP_STATUS, status.as_str()));
-            }
-            if step.stop != 0 {
-                attributes.push(KeyValue::int(attr::DRIVER_STEP_DURATION_MS, step.stop - step.start));
-            }
-            attributes.push(KeyValue::int(attr::DRIVER_STEP_ID, own));
-            attributes.push(KeyValue::int(attr::DRIVER_STEP_PARENT, parent));
-            self.emit(event::DRIVER_STEP, self.innermost(step.start, at_ms), step.start, attributes);
-            self.walk_steps(&step.steps, own, id, at_ms);
-        }
-    }
-
-    /// The still writer's failure report: a still that is not on disk. The error names the file as the snapshot
-    /// records do, since a later snapshot of the same screen may name it too.
+    /// A writer's report of a problem: a picture that is not on disk, or a lossy picture that was written lossless. The
+    /// error names the file as the records do, since a later record of the same picture may name it too.
     fn still_failed(&self) -> stills::Failed {
         let (writer, clock, spans) = (self.writer.clone(), self.clock.clone(), self.still_spans.clone());
         Box::new(move |name, error| {
             let span = lock(&spans).get(name).copied().unwrap_or(0);
-            writer.trace_error_on(span, ERROR_SOURCE_WEBP, &format!("{name}: {error:#}"), unix_ms(clock()));
+            writer.trace_error_on(span, ERROR_SOURCE_STILL, &format!("{name}: {error:#}"), unix_ms(clock()));
         })
     }
 
@@ -564,7 +587,7 @@ impl Scenario {
     /// Writes the IDE spans that started in this scenario, oldest first, into the bundle's one trace.
     ///
     /// A span keeps its IDE parent when that parent is in the bundle too. Otherwise it is the child of the innermost
-    /// lane span that contains its start, the rule a Driver step follows, and [attr::IDE_SPAN_PARENT] keeps the lost
+    /// lane span that contains its start, the rule an input follows, and [attr::IDE_SPAN_PARENT] keeps the lost
     /// id. A span that started before the scenario belongs to the scenario before. It is left out, as an early input
     /// is.
     fn write_ide_spans(&mut self, at_ms: i64) {
@@ -628,10 +651,19 @@ impl Scenario {
 
     // --- the end -----------------------------------------------------------------------------------------------
 
-    /// Closes the bundle: open spans, the IDE's spans, the video, the stills, the log slice, the root span and, last,
-    /// the manifest. A truncated bundle names the innermost span that was still running. `latest` reads the facts at
-    /// the end, after the video and the stills are done, so a log that rotated meanwhile is still found.
-    pub(crate) fn finish(mut self, status: BundleStatus, at_ms: i64, client: Option<&Client>, latest: &dyn Fn() -> Option<Facts>) {
+    /// Closes the bundle: open spans, the IDE's spans, the video, the stills, the log slice, the root span, the Allure
+    /// result when the hello asked for it and, last, the manifest. A truncated bundle names the innermost span that was
+    /// still running. `latest` reads the facts at the end, after the video and the stills are done, so a log that
+    /// rotated meanwhile is still found. `details` are the `done` command's message and trace, which only the Allure
+    /// result holds.
+    pub(crate) fn finish(
+        mut self,
+        status: BundleStatus,
+        details: AllureStatusDetails,
+        at_ms: i64,
+        client: Option<&Client>,
+        latest: &dyn Fn() -> Option<Facts>,
+    ) {
         let innermost = self.stack.last().copied();
         let running = (status == BundleStatus::Truncated).then(|| span_id(innermost.unwrap_or(0)));
         if status != BundleStatus::Truncated && innermost.is_some() {
@@ -649,20 +681,29 @@ impl Scenario {
 
         self.stop_video();
         if let Some(stills) = self.stills.take() {
-            let (files, repeats) = stills.close();
-            if files + repeats > 0 {
-                say!(
-                    self.diagnostics,
-                    "{}: {} stills in {files} files, {repeats} of them a repeat of the previous one",
-                    self.command.name,
-                    files + repeats
-                );
-            }
+            self.close_pictures(stills, "stills", "still encoders", at_ms);
         }
+        if let Some(pictures) = self.attachment_pictures.take() {
+            self.close_pictures(pictures, "attachment pictures", "attachment picture encoders", at_ms);
+        }
+        let log_dir = self.slicer.log_dir().map(Path::to_path_buf);
+        let latest_facts = if self.sliced { latest() } else { None };
         if self.sliced
-            && let Err(error) = self.slicer.cut(&self.dir.join(IDEA_LOG_FILE), latest().as_ref())
+            && let Err(error) = self.slicer.cut(&self.dir.join(IDEA_LOG_FILE), latest_facts.as_ref())
         {
             self.trace_error(ERROR_SOURCE_LOG, &format!("{error:#}"), at_ms);
+        }
+        if status == BundleStatus::Failed {
+            let latest_dir = latest_facts
+                .as_ref()
+                .and_then(|facts| Path::new(&facts.log_path).parent())
+                .filter(|dir| log_dir.as_deref() != Some(*dir))
+                .map(Path::to_path_buf);
+            self.attach_thread_dumps(log_dir.into_iter().chain(latest_dir), at_ms);
+        }
+
+        if status == BundleStatus::Passed && self.keep_video == avl_trace::protocol::VideoRetention::Failed {
+            self.drop_video(at_ms);
         }
 
         let root_status = match status {
@@ -706,9 +747,62 @@ impl Scenario {
             duration_ms: u64::try_from(at_ms - self.started_ms).unwrap_or(0),
             capture: Capture { source, reason },
             video: self.video.clone(),
+            stills: Stills {
+                encoding: self.still_encoding,
+            },
         };
+        if self.allure {
+            self.write_allure_result(&manifest, details);
+        }
         if let Err(error) = write_manifest(&self.dir, &manifest) {
             say!(self.diagnostics, "{}: {error:#}", self.dir.display());
+        }
+    }
+
+    /// Waits for a writer of pictures to drain, and reports what it did. `pictures` and `encoders` name its pictures and
+    /// its encoders in the report.
+    fn close_pictures(&self, writer: stills::Writer, pictures: &str, encoders: &str, at_ms: i64) {
+        let closed = writer.close();
+        if closed.panicked > 0 {
+            self.trace_error(
+                ERROR_SOURCE_STILL,
+                &format!("{} of the {encoders} ended with a panic", closed.panicked),
+                at_ms,
+            );
+        }
+        if closed.files + closed.repeats > 0 {
+            say!(
+                self.diagnostics,
+                "{}: {} {} {pictures} in {} files, {} of them a repeat of the previous one",
+                self.command.name,
+                closed.files + closed.repeats,
+                self.still_encoding,
+                closed.files,
+                closed.repeats
+            );
+        }
+    }
+
+    /// Writes the bundle's Allure result into the run's results directory. A result that cannot be written, or a file
+    /// it has to leave out, is a diagnostics line: the bundle is closed, and the result changes no verdict.
+    fn write_allure_result(&self, manifest: &Manifest, details: AllureStatusDetails) {
+        let run_dir = self.root.join(&*sanitize_name(&self.run_id));
+        let bundle = slash_path(self.dir.strip_prefix(&run_dir).unwrap_or(&self.dir));
+        let input = ResultInput {
+            manifest,
+            bundle: &bundle,
+            labels: &self.command.labels,
+            suite: self.command.suite.as_deref(),
+            host: &self.host_name,
+            details,
+        };
+        match write_result(&self.dir, &allure_results_dir(&self.root, &self.run_id), &input) {
+            Ok(problems) => {
+                for problem in problems {
+                    say!(self.diagnostics, "{}: {problem}", self.command.name);
+                }
+            }
+            Err(error) => say!(self.diagnostics, "{}: no Allure result: {error:#}", self.command.name),
         }
     }
 
@@ -748,6 +842,25 @@ impl Scenario {
         }
     }
 
+    /// Deletes the video and its frame index, and records why the scenario has no video. The stills stay as they are
+    /// encoded. A video that cannot be deleted stays in the bundle and in the manifest, with an `air.trace.error`.
+    fn drop_video(&mut self, at_ms: i64) {
+        if self.video != Video::H264 {
+            return;
+        }
+        let remove = |name: &str| match std::fs::remove_file(self.dir.join(name)) {
+            Err(error) if error.kind() != std::io::ErrorKind::NotFound => Err(format!("cannot delete {name}: {error}")),
+            _ => Ok(()),
+        };
+        if let Err(error) = remove(avl_trace::bundle::VIDEO_FILE) {
+            return self.trace_error(ERROR_SOURCE_VIDEO, &error, at_ms);
+        }
+        if let Err(error) = remove(avl_trace::bundle::VIDEO_INDEX_FILE) {
+            self.trace_error(ERROR_SOURCE_VIDEO, &error, at_ms);
+        }
+        self.no_video(PASSED_VIDEO_REASON.to_owned(), at_ms);
+    }
+
     fn root_attributes(&self, status: Status) -> Vec<KeyValue> {
         let command = &self.command;
         let mut attributes = vec![
@@ -780,6 +893,14 @@ impl Scenario {
 /// Epoch nanoseconds cut to the milliseconds every time of the bundle is written in ([nanos]).
 const fn epoch_ms(epoch_nanos: i64) -> i64 {
     epoch_nanos / 1_000_000
+}
+
+/// A relative path with `/` between its segments, the form a label and a zip entry use.
+fn slash_path(path: &Path) -> String {
+    path.components()
+        .map(|component| component.as_os_str().to_string_lossy())
+        .collect::<Vec<_>>()
+        .join("/")
 }
 
 /// The ids as a space-separated list, the way the lane's own messages print one.

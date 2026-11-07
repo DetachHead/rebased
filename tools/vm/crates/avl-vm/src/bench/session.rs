@@ -3,27 +3,32 @@
 //! The default session directory is `<runtime root>/bench/runs/<actor id>`, which also holds the run journal
 //! `events.ndjson`. The layout:
 //!
-//! - `session.json`: the inputs of the session, which `replay` reads. It names the generation and its digest.
+//! - `session.json`: the inputs of the session, which `replay` reads. It names the generation, its digest and the
+//!   measurement model.
 //! - `build.log`: the output of the host Bazel build.
 //! - `template/`: the sandbox template (`config`, `system`, `plugins`), with the FUS test scheme. A `project` session
 //!   also writes its project into `template/projects/<name>`.
-//! - `<arm>-prime/`, `<arm>-run-NN/`: one directory per run, each with `sandbox/`, `log/`, `launch.args` and
+//! - `<arm>-prime/`, `<arm>-run-NN/`: one directory per run, by the label of its arm, such as
+//!   `project-without-com.intellij.air-run-01` for a twin, each with `sandbox/`, `log/`, `launch.args` and
 //!   `result.json`.
 //! - `<arm>-sandbox/`: the sandbox of the run that is running now. See [`live_sandbox`].
 //! - `summary.json`: the summary.
 
+use std::fmt;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
 use anyhow::Context;
 use avl_base::{Exit, Refusal, RefusalExt};
 use avl_trace_tools::discover::VM_RUNS_DIR;
+use avl_wire::ide::{ADVANCED_SETTINGS_FILE, NO_README_SETTINGS};
 use serde::{Deserialize, Serialize};
 
-use super::arm::Arm;
+use super::arm::{Arm, ArmKind};
 use super::files;
-use super::record::RunId;
-use super::summary::Summary;
+use super::profile::ProfileEvent;
+use super::record::{RunId, RunRecord};
+use super::summary::{ArmSummary, Summary};
 
 pub(crate) const SESSION_FILE: &str = "session.json";
 pub(crate) const SUMMARY_FILE: &str = "summary.json";
@@ -78,22 +83,10 @@ fn xml_attribute(value: &str) -> String {
         .replace('"', "&quot;")
 }
 
-/// The advanced settings of a sandbox whose project opens no editor. On the first open of a project, the IDE opens its
-/// `README.md`, and the next start restores that editor. The generated Markdown project has one.
-pub(crate) const NO_README_SETTINGS: &str = r#"<application>
-  <component name="AdvancedSettings">
-    <option name="settings">
-      <map>
-        <entry key="ide.open.readme.md.on.startup" value="false" />
-      </map>
-    </option>
-  </component>
-</application>
-"#;
-
-/// Keeps the IDE from opening the README of a project in this sandbox. See [`NO_README_SETTINGS`].
+/// Keeps the IDE from opening the README of a project in this sandbox: the generated Markdown project has one. The
+/// bytes are those of a bare lane IDE. See [`NO_README_SETTINGS`].
 pub(crate) fn open_no_readme(sandbox: &Sandbox) -> anyhow::Result<()> {
-    files::write_text(&sandbox.config().join("options").join("advancedSettings.xml"), NO_README_SETTINGS)
+    files::write_text(&sandbox.config().join("options").join(ADVANCED_SETTINGS_FILE), NO_README_SETTINGS)
 }
 
 /// Points the welcome project of a sandbox at its own `projects` directory.
@@ -108,7 +101,7 @@ pub(crate) fn own_welcome_project(sandbox: &Sandbox) -> anyhow::Result<()> {
 ///
 /// The path is the same for each run of the arm, so the caches that the IDE keys by the path of the welcome project
 /// match in each copy of the primed sandbox. After the run, the sandbox moves into the run directory.
-pub(crate) fn live_sandbox(session: &Path, arm: Arm) -> Sandbox {
+pub(crate) fn live_sandbox(session: &Path, arm: &Arm) -> Sandbox {
     Sandbox::new(session.join(format!("{}-sandbox", arm.label())))
 }
 
@@ -122,11 +115,18 @@ pub(crate) struct SessionInfo {
     pub(crate) git: GitInfo,
     /// The staged distribution that every run of the session starts from.
     pub(crate) generation: GenerationRef,
+    /// The measurement model of every run. A session from before the model has none: its welcome arms ran without
+    /// `idea.is.integration.test`.
+    #[serde(default)]
+    pub(crate) measure_model: Option<MeasureModel>,
     pub(crate) arms: Vec<Arm>,
     pub(crate) runs: u32,
     pub(crate) cold: bool,
     pub(crate) hold_ms: u64,
     pub(crate) profile: bool,
+    /// The event that the profile samples. A session from before the option sampled the CPU.
+    #[serde(default)]
+    pub(crate) profile_event: ProfileEvent,
     /// The project of `open-project`, or the project of `project` inside the template.
     pub(crate) project: Option<String>,
     /// The file that the prime run of the `project` arm opens, relative to the project. A session without that arm
@@ -140,8 +140,61 @@ pub(crate) struct SessionInfo {
     /// session checked no load, and in a session from before the limit.
     #[serde(default)]
     pub(crate) max_load: Option<f64>,
+    /// The plugin that the twin arms of `--suppress-plugin` suppress. Each twin is in `arms` too. A session without a
+    /// twin, and a session from before the option, has none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) suppressed_plugin: Option<String>,
     /// What the session changed or dropped, such as the agent of the profile.
     pub(crate) warnings: Vec<String>,
+}
+
+/// The name of the measurement model of this controller: every arm is an integration test, see
+/// [`super::launch::INTEGRATION_TEST_PROPERTY`].
+pub(crate) const MEASURE_MODEL_NAME: &str = "integration-test";
+
+/// The version of [`MEASURE_MODEL_NAME`]. A change of what every run passes to the IDE takes the next version. Version 2
+/// adds the thread lines to the class-load log and the thread dump after the gate.
+pub(crate) const MEASURE_MODEL_VERSION: u32 = 2;
+
+/// What every measured run of a session passes that changes the IDE it measures, as a name and a version. `compare`
+/// notes two sessions of two models, because a delta between them mixes the change under test with the model.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct MeasureModel {
+    pub(crate) name: String,
+    pub(crate) version: u32,
+}
+
+impl MeasureModel {
+    /// The model of this controller: [`MEASURE_MODEL_NAME`] at [`MEASURE_MODEL_VERSION`].
+    pub(crate) fn current() -> Self {
+        Self {
+            name: MEASURE_MODEL_NAME.to_owned(),
+            version: MEASURE_MODEL_VERSION,
+        }
+    }
+}
+
+impl fmt::Display for MeasureModel {
+    /// The name and the version, such as `integration-test v1`.
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(formatter, "{} v{}", self.name, self.version)
+    }
+}
+
+/// The commit of the bytes that a session over the staged generation `digest` measures: the commit that its stage
+/// recorded, not the commit of the checkout of the controller. A generation from before that record names none, so the
+/// session names no commit, and the second half of the answer is the warning that says so.
+pub(crate) fn staged_commit(digest: &str, recorded: Option<GitInfo>) -> (GitInfo, Option<String>) {
+    match recorded {
+        Some(git) => (git, None),
+        None => (
+            GitInfo::default(),
+            Some(format!(
+                "the generation {} was staged before its record named a commit, so the session names none",
+                digest.chars().take(12).collect::<String>()
+            )),
+        ),
+    }
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -187,10 +240,19 @@ impl Sandbox {
     }
 }
 
-/// Writes the sandbox template: the general settings and the license. The FUS test scheme comes from a headless run.
-pub(crate) fn write_template(template: &Sandbox, license: &Path) -> anyhow::Result<()> {
+/// The name of the license file of a product in its config directory: the short name of its product descriptor in
+/// lower case, then `.key`. The short name equals the platform prefix, such as `RustRover`, and a distribution without
+/// a prefix is IDEA, whose file is `idea.key`.
+pub(crate) fn license_file_name(platform_prefix: Option<&str>) -> String {
+    format!("{}.key", platform_prefix.unwrap_or("idea").to_lowercase())
+}
+
+/// Writes the sandbox template: the general settings and the license, see [`license_file_name`]. The FUS test scheme
+/// comes from a headless run.
+pub(crate) fn write_template(template: &Sandbox, license: &Path, platform_prefix: Option<&str>) -> anyhow::Result<()> {
     files::write_text(&template.config().join("options").join("ide.general.xml"), GENERAL_SETTINGS)?;
-    std::fs::copy(license, template.config().join("idea.key")).with_context(|| format!("cannot copy the license {}", license.display()))?;
+    let target = template.config().join(license_file_name(platform_prefix));
+    std::fs::copy(license, &target).with_context(|| format!("cannot copy the license {}", license.display()))?;
     for dir in [template.system(), template.plugins()] {
         std::fs::create_dir_all(&dir).with_context(|| format!("cannot create {}", dir.display()))?;
     }
@@ -426,9 +488,10 @@ pub(crate) struct SelectedRun {
     pub(crate) median_by: Option<&'static str>,
 }
 
-/// The run that `--run` names, else the median run of the first arm that is not modal, else of the modal arm. A name
-/// that is not a run directory of the session is a usage refusal.
-pub(crate) fn select_run(session: &Path, summary: &Summary, run: Option<&str>) -> Result<SelectedRun, Refusal> {
+/// The run that `--run` names, else the median run of the arm that `--arm` names, else of the first arm that is not
+/// modal, else of the modal arm. A name that is not a run directory of the session is a usage refusal, and so is a run
+/// of another arm than `--arm`. An arm is selected as [`select_arm`] selects it.
+pub(crate) fn select_run(session: &Path, summary: &Summary, run: Option<&str>, arm: Option<&Arm>) -> Result<SelectedRun, Refusal> {
     if let Some(name) = run {
         let id = RunId::parse(name)
             .ok_or_else(|| Refusal::usage(format!("{name} is not a run directory name: use <arm>-run-NN or <arm>-prime")))?;
@@ -450,27 +513,77 @@ pub(crate) fn select_run(session: &Path, summary: &Summary, run: Option<&str>) -
                 id.dir_name()
             )));
         }
+        if let Some(arm) = arm
+            && *arm != id.arm
+        {
+            return Err(Refusal::usage(format!(
+                "{} is a run of the {} arm, and --arm names the {} arm; drop one of them",
+                id.dir_name(),
+                id.arm.label(),
+                arm.label()
+            )));
+        }
         return Ok(SelectedRun { id, dir, median_by: None });
     }
-    let mut arms: Vec<_> = summary.arms.values().collect();
-    arms.sort_by_key(|arm| arm.arm == Arm::Modal);
-    arms.iter()
-        .find_map(|arm| arm.median_run())
-        .map(|record| SelectedRun {
-            id: RunId {
-                arm: record.arm,
-                kind: record.kind,
-                index: record.index,
-            },
-            dir: session.join(&record.dir),
-            median_by: Some(record.arm.main_metric()),
-        })
-        .ok_or_else(|| {
+    let median = |record: &RunRecord| SelectedRun {
+        id: RunId {
+            arm: record.arm.clone(),
+            kind: record.kind,
+            index: record.index,
+        },
+        dir: session.join(&record.dir),
+        median_by: Some(record.arm.main_metric()),
+    };
+    if let Some(arm) = arm {
+        let selected = select_arm(session, summary, Some(arm))?;
+        return selected.median_run().map(median).ok_or_else(|| {
             Refusal::usage(format!(
-                "no arm of {} has a valid measured run, so it has no median run; name a run with --run",
-                session.display()
+                "no valid run of the {} arm of {} has {}, so the arm has no median run; name a run with --run",
+                arm.label(),
+                session.display(),
+                arm.main_metric()
             ))
-        })
+        });
+    }
+    let mut arms: Vec<_> = summary.arms.values().collect();
+    arms.sort_by_key(|arm| arm.arm.kind == ArmKind::Modal);
+    arms.iter().find_map(|arm| arm.median_run()).map(median).ok_or_else(|| {
+        Refusal::usage(format!(
+            "no arm of {} has a valid measured run, so it has no median run; name a run with --run",
+            session.display()
+        ))
+    })
+}
+
+/// The arm that `arm` names, else the first arm of [`Arm::ALL`] that is not modal and has a valid run, else the modal
+/// arm. The default is never a twin. An arm that the session does not have, or without a valid run, is a usage refusal.
+pub(crate) fn select_arm<'a>(session: &Path, summary: &'a Summary, arm: Option<&Arm>) -> Result<&'a ArmSummary, Refusal> {
+    let arms: Vec<String> = summary.arms.values().map(|arm| arm.arm.label()).collect();
+    let selected = match arm {
+        Some(arm) => summary.arms.get(&arm.key()).ok_or_else(|| {
+            Refusal::usage(format!(
+                "{} has no {} arm; its arms are {}",
+                session.display(),
+                arm.label(),
+                arms.join(", ")
+            ))
+        })?,
+        None => Arm::ALL
+            .into_iter()
+            .filter(|arm| *arm != Arm::MODAL)
+            .chain([Arm::MODAL])
+            .filter_map(|arm| summary.arms.get(&arm.key()))
+            .find(|arm| arm.valid_runs > 0)
+            .ok_or_else(|| Refusal::usage(format!("no arm of {} has a valid measured run", session.display())))?,
+    };
+    if selected.valid_runs == 0 {
+        return Err(Refusal::usage(format!(
+            "the {} arm of {} has no valid measured run",
+            selected.arm.label(),
+            session.display()
+        )));
+    }
+    Ok(selected)
 }
 
 fn not_a_session(message: String) -> Refusal {

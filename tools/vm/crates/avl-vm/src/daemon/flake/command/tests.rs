@@ -10,14 +10,15 @@ use std::sync::Mutex;
 use std::time::Duration;
 
 use avl_base::{FakeClock, GuestOs};
-use avl_host_sys::Signal;
-use avl_wire::progress::{Kind, Phase, PhaseChange, PhaseState};
+use avl_host_testkit::refusal as refused;
+use avl_wire::progress::{Phase, PhaseState};
 use pretty_assertions::assert_eq;
 
 use super::*;
-use crate::daemon::fixture::{Fixture, passing_run};
+use crate::daemon::fixture::{Fixture, assert_aggregate_id, assert_kept_lease, passing_run};
+use crate::daemon::flake::plan::tests::flake_args;
 use crate::daemon::shard::read_shard_baseline;
-use crate::daemon::testing::{FakeDaemon, PASSING_XML, Recorded, passing_run_lines};
+use crate::daemon::testing::{FakeDaemon, Recorded, passing_run_lines};
 
 // --- the decisions -------------------------------------------------------------------------------------------
 
@@ -52,19 +53,6 @@ fn the_decisions_of_a_measurement_need_no_worker() {
     assert!(outcomes.is_empty() && failures.is_empty());
 }
 
-/// `vm flake`, as far as its own options go.
-#[derive(clap::Parser, Debug)]
-struct Probe {
-    #[command(flatten)]
-    args: FlakeArgs,
-}
-
-fn flake_args(argv: &[&str]) -> FlakeArgs {
-    <Probe as clap::Parser>::try_parse_from(std::iter::once("flake").chain(argv.iter().copied()))
-        .unwrap_or_else(|error| panic!("{argv:?} did not parse: {error}"))
-        .args
-}
-
 async fn bounded<T>(future: impl Future<Output = T>) -> T {
     tokio::time::timeout(Duration::from_secs(120), future)
         .await
@@ -96,13 +84,6 @@ async fn run_with(
     .await
 }
 
-fn refused(result: Result<Outcome, Refusal>) -> Refusal {
-    match result {
-        Ok(outcome) => panic!("the command was expected to refuse and answered {outcome:?}"),
-        Err(refusal) => refusal,
-    }
-}
-
 fn data_of(outcome: &Outcome) -> FlakeData {
     serde_json::from_value(outcome.data.clone()).expect("the outcome is flake data")
 }
@@ -129,9 +110,15 @@ async fn leased_warm_worker(fixture: &Fixture) -> PathBuf {
 
 /// One green trial per entry of `iterations`, on the first worker's double, in order.
 fn passing_trials(fixture: &Fixture, iterations: &[&str]) {
-    let streams = iterations.iter().map(|id| passing_run_lines(id)).collect();
-    let documents = vec![PASSING_XML; iterations.len()];
-    fixture.queue_runs(streams, &documents);
+    fixture.queue_runs(iterations.iter().map(|id| passing_run_lines(id)).collect());
+}
+
+/// Two green trials on the first worker, with the receipt of the caller: the measurement.
+async fn two_green_trials(fixture: &Fixture, receipt: &Path) -> Outcome {
+    passing_trials(fixture, &["iter-1", "iter-2"]);
+    run(fixture, &["--lane", "ui", "--trials", "2"], Some(receipt))
+        .await
+        .unwrap_or_else(|refusal| panic!("two green trials are a measurement: {refusal:?}"))
 }
 
 /// A daemon that walks away with no transcript at all, which is one unusable trial.
@@ -142,8 +129,7 @@ fn trials(fixture: &Fixture, script: &[&str]) {
         .iter()
         .map(|id| if id.is_empty() { Vec::new() } else { passing_run_lines(id) })
         .collect();
-    let documents: Vec<&str> = script.iter().filter(|id| !id.is_empty()).map(|_| PASSING_XML).collect();
-    fixture.queue_runs(streams, &documents);
+    fixture.queue_runs(streams);
 }
 
 // --- a measurement ------------------------------------------------------------------------------------------------
@@ -152,13 +138,9 @@ fn trials(fixture: &Fixture, script: &[&str]) {
 async fn two_green_trials_on_one_worker_publish_a_quotable_rate() {
     let fixture = Fixture::pool().await;
     let receipt = leased_warm_worker(&fixture).await;
-    passing_trials(&fixture, &["iter-1", "iter-2"]);
     let builds_before = fixture.bazel.build_calls();
 
-    let outcome = run(&fixture, &["--lane", "ui", "--trials", "2"], Some(&receipt))
-        .await
-        .unwrap_or_else(|refusal| panic!("two green trials are a measurement: {refusal:?}"));
-    let data = data_of(&outcome);
+    let data = data_of(&two_green_trials(&fixture, &receipt).await);
     assert_eq!((data.summary.attempted_trials, data.summary.authoritative_trials), (2, 2));
     assert!(data.summary.reportable, "{:?}", data.summary.not_reportable_reason);
     assert_eq!(data.summary.lane_flake_rate, 0.0, "a stable class publishes a zero rate");
@@ -256,10 +238,7 @@ async fn a_release_this_run_cannot_complete_is_named_rather_than_swallowed() {
     let prep = fixture.pool_build().await;
     for worker in &workers {
         let daemon = fixture.warm_daemon(worker, &prep).await;
-        let (lines, xml) = passing_run(&format!("iter-{worker}"), "com.example.OneTest");
-        let mut script = daemon.script();
-        script.run_lines = lines;
-        script.results_xml = xml.into_bytes();
+        daemon.script().run_lines = passing_run(&format!("iter-{worker}"), "com.example.OneTest");
     }
     let receipt = fixture.leased_by(&workers[0], "suite", GuestOs::Macos);
     fixture.read_as_running(borrowed).await;
@@ -276,11 +255,7 @@ async fn a_release_this_run_cannot_complete_is_named_rather_than_swallowed() {
     assert!(fixture.leased(borrowed), "a refused release leaves the lease in place");
     // The release phase fails where a person reads it, naming the command that frees the worker; the measurement
     // and the exit are unchanged.
-    let release = recorded
-        .data_of::<PhaseChange>(Kind::Phase)
-        .into_iter()
-        .rfind(|change| change.phase == Phase::Release)
-        .expect("a release phase");
+    let release = recorded.last_phase(Phase::Release);
     assert_eq!(release.state, PhaseState::Failed);
     let error = release.error.unwrap_or_default();
     assert!(
@@ -312,11 +287,9 @@ async fn an_interrupt_keeps_the_leases_this_run_took_and_writes_no_summary() {
     let mut daemons = Vec::new();
     for worker in &workers {
         let daemon = fixture.warm_daemon(worker, &prep).await;
-        let (lines, xml) = passing_run(&format!("iter-{worker}"), "com.example.OneTest");
         {
             let mut script = daemon.script();
-            script.run_lines = lines;
-            script.results_xml = xml.into_bytes();
+            script.run_lines = passing_run(&format!("iter-{worker}"), "com.example.OneTest");
             script.block = Some(gate.clone());
         }
         daemons.push(daemon);
@@ -324,16 +297,7 @@ async fn an_interrupt_keeps_the_leases_this_run_took_and_writes_no_summary() {
     let receipt = fixture.leased_by(&workers[0], "suite", GuestOs::Macos);
     let recorded = Recorded::start(fixture.host.reporter());
     // The signal arrives once the acquired worker's trial is in flight, which it will not leave by itself.
-    let interrupter = {
-        let daemon = Arc::clone(&daemons[1]);
-        let interrupts = fixture.interrupts.clone();
-        tokio::spawn(async move {
-            while !daemon.saw_request("POST /run") {
-                tokio::time::sleep(Duration::from_millis(10)).await;
-            }
-            interrupts.deliver(Signal::Interrupt);
-        })
-    };
+    let interrupter = fixture.interrupt_after(&daemons[1], "POST /run");
 
     let result = run(&fixture, &["--lane", "ui", "--trials", "2", "--workers", "2"], Some(&receipt)).await;
     interrupter.await.unwrap();
@@ -350,15 +314,7 @@ async fn an_interrupt_keeps_the_leases_this_run_took_and_writes_no_summary() {
         panic!("one acquired lease, was {:?}", details.leases);
     };
     assert_eq!(lease.worker, *acquired);
-    assert!(!lease.released);
-    assert!(Path::new(&lease.lease_file).is_file(), "{lease:?}");
-    assert!(
-        refusal
-            .message
-            .contains(&format!("--lease-file {} lease release", lease.lease_file)),
-        "{}",
-        refusal.message
-    );
+    assert_kept_lease(lease, &refusal.message);
     assert!(fixture.leased(acquired), "the acquired lease is kept");
     // The caller's receipt was never this run's to give back.
     assert!(receipt.is_file(), "the caller's receipt survives");
@@ -386,20 +342,10 @@ async fn an_interrupt_keeps_the_leases_this_run_took_and_writes_no_summary() {
 async fn a_flake_run_persists_its_summary_beside_the_shard_aggregates() {
     let fixture = Fixture::pool().await;
     let receipt = leased_warm_worker(&fixture).await;
-    passing_trials(&fixture, &["iter-1", "iter-2"]);
 
-    let outcome = run(&fixture, &["--lane", "ui", "--trials", "2"], Some(&receipt))
-        .await
-        .unwrap_or_else(|refusal| panic!("two green trials are a measurement: {refusal:?}"));
+    let outcome = two_green_trials(&fixture, &receipt).await;
     let data = data_of(&outcome);
-    let shaped = data
-        .flake_run_id
-        .strip_prefix("flake-")
-        .and_then(|rest| rest.split_once('-'))
-        .is_some_and(|(stamp, tail)| {
-            stamp.bytes().all(|byte| byte.is_ascii_digit()) && tail.len() == 8 && tail.bytes().all(|byte| byte.is_ascii_hexdigit())
-        });
-    assert!(shaped, "a millisecond stamp and an eight-character tail: {}", data.flake_run_id);
+    assert_aggregate_id(&data.flake_run_id, "flake");
     let expected = fixture
         .settings
         .runtime_root
@@ -423,11 +369,8 @@ async fn a_flake_run_persists_its_summary_beside_the_shard_aggregates() {
 async fn the_duration_baseline_does_not_read_a_flake_summary() {
     let fixture = Fixture::pool().await;
     let receipt = leased_warm_worker(&fixture).await;
-    passing_trials(&fixture, &["iter-1", "iter-2"]);
 
-    let outcome = run(&fixture, &["--lane", "ui", "--trials", "2"], Some(&receipt))
-        .await
-        .unwrap_or_else(|refusal| panic!("two green trials are a measurement: {refusal:?}"));
+    let outcome = two_green_trials(&fixture, &receipt).await;
     assert!(Path::new(&data_of(&outcome).aggregate_path).is_file());
     // The trials measured `com.example.MyTest`, so the scan finds that class; what it must never find is anything
     // the summary contributed.
@@ -578,9 +521,9 @@ async fn a_reset_that_cannot_be_applied_becomes_an_excluded_trial_rather_than_an
 /// This module's own source, compiled in, so the guard can never scan a file that is not the one that runs.
 const SOURCE: &str = include_str!("../command.rs");
 
-/// Every non-test source of the `flake` module, by the name its `mod` declaration gives it, and the leased-run
-/// driver that holds the chain's lock. The chain's reset and trial folding live in `plan`, and a call to a wrapper
-/// there or in the driver would collide with the chain's lock just the same.
+/// Every non-test source of the `flake` module, by the name of its `mod` declaration, and the leased-run driver. The
+/// driver puts the chain's run marker on the worker. The chain's reset and trial folding live in `plan`. A call to a
+/// wrapper there or in the driver would nest in the chain just the same.
 const MODULE_SOURCES: [(&str, &str); 4] = [
     ("flake", include_str!("../../flake.rs")),
     ("command", SOURCE),
@@ -589,11 +532,11 @@ const MODULE_SOURCES: [(&str, &str); 4] = [
 ];
 
 // A source guard rather than a behavioural one: this is an invariant of the chain, not something any single trial
-// demonstrates. A second acquisition of one worker's lifecycle lock by the same live process is refused rather than
-// reclaimed, so a command wrapper called inside the chain would fail `lease_busy` on the second trial, after the first
-// had already paid for a build, a daemon start and a lane.
+// demonstrates. The chain's run marker is on the worker for the whole chain. A second run marker of the same process
+// is refused as an internal error. So a `run` wrapper inside the chain would fail after the chain paid for a build, a
+// daemon start and a lane. A `daemon` wrapper would change the daemon under the chain.
 #[test]
-fn the_trial_chain_cannot_reach_lease_busy_because_it_calls_no_command_wrapper() {
+fn the_trial_chain_nests_no_run_because_it_calls_no_command_wrapper() {
     let start = SOURCE
         .find("async fn run_trial_chain(")
         .expect("the chain must be findable by name for this guard to mean anything");
@@ -608,13 +551,13 @@ fn the_trial_chain_cannot_reach_lease_busy_because_it_calls_no_command_wrapper()
     );
     let wrappers = command_wrapper_calls(chain);
     assert_eq!(wrappers, Vec::<&str>::new(), "the chain must call no command wrapper");
-    // ...and the module never reaches the two whose lock would collide, so no future edit can call one without also
-    // changing this guard's answer.
+    // ...and the module never reaches the two that would nest in the chain. So no future edit can call one without a
+    // change of this guard's answer.
     for (name, source) in MODULE_SOURCES {
         for forbidden in ["command_run(", "command_daemon("] {
             assert!(
                 !source.contains(forbidden),
-                "{name}: {forbidden} takes the worker's lifecycle lock, which a chain already holds"
+                "{name}: {forbidden} is a command of its own on the worker, and the chain's run marker is already there"
             );
         }
     }

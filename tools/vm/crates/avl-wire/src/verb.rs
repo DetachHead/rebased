@@ -6,7 +6,7 @@
 //! `air-macos.pkr.hcl`, and that spelling is not Rust.
 //!
 //! [`crate::supervisor::Command`] is the run supervisor's subset. It is a type of its own because those verbs
-//! answer a [`crate::supervisor::Envelope`], while the staging verbs answer a bare document.
+//! answer a [`crate::supervisor::Envelope`], while `ide-gc` answers a bare document.
 
 #[cfg(test)]
 mod tests;
@@ -21,10 +21,6 @@ vocabulary! {
         Active = "active",
         Log = "log",
         Cancel = "cancel",
-        Stage = "stage",
-        StageCheck = "stage-check",
-        LaunchPrep = "launch-prep",
-        Gc = "gc",
         ProvisionImage = "provision-image",
         ValidateImage = "validate-image",
         ValidateGuest = "validate-guest",
@@ -47,5 +43,16 @@ vocabulary! {
         /// it on a channel that carries bytes unchanged, and [`crate::pull::FileReceipt`] on standard error names what
         /// was sent.
         ReadFile = "read-file",
+        /// Cancels or keeps the live IDE runs under an IDE root, and removes the old log directories of each
+        /// context: `ide-gc --root <ideRoot> [--stop-all | --keep-product <digest>]`. It answers
+        /// [`crate::ide::IdeGcResult`].
+        IdeGc = "ide-gc",
+        /// Serves the control channel of the lane daemon in the run slot: `lane-daemon --state-dir <dir> --port <port>
+        /// ...`. It owns the lane services and the lane IDE until its `/shutdown`. See [`crate::daemon`].
+        LaneDaemon = "lane-daemon",
+        /// Runs one iteration of a lane from a runfiles tree, with no control channel: `lane-run --lane <lane>
+        /// --descriptor <file> ...`. A Bazel test of the lane rule, `bt --lane` and a TeamCity agent run it on their own
+        /// host. It quits the IDE at the end and exits 0 or 1.
+        LaneRun = "lane-run",
     }
 }

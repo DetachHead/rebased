@@ -3,11 +3,12 @@ use pretty_assertions::assert_eq;
 use std::path::Path;
 
 use super::{
-    GENERAL_SETTINGS, NO_README_SETTINGS, Project, ProjectSource, RESULT_FILE, Sandbox, first_file, live_sandbox, open_no_readme,
-    own_welcome_project, run_dirs, write_project, write_template,
+    GENERAL_SETTINGS, NO_README_SETTINGS, Project, ProjectSource, RESULT_FILE, Sandbox, first_file, license_file_name, live_sandbox,
+    open_no_readme, own_welcome_project, run_dirs, write_project, write_template,
 };
 use crate::bench::arm::Arm;
 use crate::bench::record::{RunId, RunKind};
+use crate::bench::testing::{run_record, session_info};
 
 #[test]
 fn the_template_has_the_settings_and_the_license() {
@@ -15,7 +16,7 @@ fn the_template_has_the_settings_and_the_license() {
     let license = dir.path().join("idea.key");
     std::fs::write(&license, "key").expect("a license");
     let template = Sandbox::new(dir.path().join("template"));
-    write_template(&template, &license).expect("a template");
+    write_template(&template, &license, None).expect("a template");
     assert_eq!(
         std::fs::read_to_string(template.config().join("options/ide.general.xml")).expect("the settings"),
         GENERAL_SETTINGS
@@ -25,8 +26,24 @@ fn the_template_has_the_settings_and_the_license() {
         "key"
     );
     assert!(template.system().is_dir() && template.plugins().is_dir());
-    let error = write_template(&template, &dir.path().join("absent")).expect_err("no license");
+    let error = write_template(&template, &dir.path().join("absent"), None).expect_err("no license");
     assert!(format!("{error:#}").starts_with("cannot copy the license "), "{error:#}");
+}
+
+/// The license file takes the short name of the product: IDEA without a prefix, and RustRover by its prefix.
+#[test]
+fn the_license_file_is_named_by_the_platform_prefix() {
+    assert_eq!(license_file_name(None), "idea.key");
+    assert_eq!(license_file_name(Some("RustRover")), "rustrover.key");
+    let dir = tempfile::tempdir().expect("a temporary directory");
+    let license = dir.path().join("idea.key");
+    std::fs::write(&license, "key").expect("a license");
+    let template = Sandbox::new(dir.path().join("template"));
+    write_template(&template, &license, Some("RustRover")).expect("a template");
+    assert_eq!(
+        std::fs::read_to_string(template.config().join("rustrover.key")).expect("the license"),
+        "key"
+    );
 }
 
 #[test]
@@ -43,17 +60,17 @@ fn lists_the_run_directories_that_have_a_result() {
         ids,
         vec![
             RunId {
-                arm: Arm::Modal,
+                arm: Arm::MODAL,
                 kind: RunKind::Prime,
                 index: 0
             },
             RunId {
-                arm: Arm::Modal,
+                arm: Arm::MODAL,
                 kind: RunKind::Measured,
                 index: 1
             },
             RunId {
-                arm: Arm::NonModal,
+                arm: Arm::NON_MODAL,
                 kind: RunKind::Measured,
                 index: 2
             },
@@ -64,7 +81,7 @@ fn lists_the_run_directories_that_have_a_result() {
 #[test]
 fn a_sandbox_owns_its_welcome_project() {
     let dir = tempfile::tempdir().expect("a temporary directory");
-    let sandbox = live_sandbox(&dir.path().join("s&t"), Arm::NonModal);
+    let sandbox = live_sandbox(&dir.path().join("s&t"), &Arm::NON_MODAL);
     assert_eq!(sandbox.root, dir.path().join("s&t").join("non-modal-sandbox"));
     own_welcome_project(&sandbox).expect("the settings");
     let settings = std::fs::read_to_string(sandbox.config().join("options/ide.general.local.xml")).expect("the settings");
@@ -83,7 +100,7 @@ fn a_sandbox_owns_its_welcome_project() {
 #[test]
 fn a_sandbox_can_open_no_readme() {
     let dir = tempfile::tempdir().expect("a temporary directory");
-    let sandbox = live_sandbox(dir.path(), Arm::EmptyEditor);
+    let sandbox = live_sandbox(dir.path(), &Arm::EMPTY_EDITOR);
     assert_eq!(sandbox.root, dir.path().join("empty-editor-sandbox"));
     open_no_readme(&sandbox).expect("the settings");
     let settings = std::fs::read_to_string(sandbox.config().join("options/advancedSettings.xml")).expect("the settings");
@@ -94,27 +111,34 @@ fn a_sandbox_can_open_no_readme() {
     );
 }
 
+/// A session over a staged generation names the commit that its stage recorded. A generation from before that record
+/// names none, and the session warns.
+#[test]
+fn a_session_over_a_generation_names_the_commit_of_its_bytes() {
+    use super::{GitInfo, staged_commit};
+    let built = GitInfo {
+        commit: "3f337093836d2000000000000000000000000000".to_owned(),
+        dirty: false,
+    };
+    assert_eq!(staged_commit("5f1c0d9e2b7a4c3e", Some(built.clone())), (built, None));
+    assert_eq!(
+        staged_commit("5f1c0d9e2b7a4c3e", None),
+        (
+            GitInfo::default(),
+            Some("the generation 5f1c0d9e2b7a was staged before its record named a commit, so the session names none".to_owned())
+        )
+    );
+}
+
 #[test]
 fn a_run_of_another_distribution_is_refused() {
-    use super::{GenerationRef, GitInfo, SessionInfo, check_digest};
+    use super::{GenerationRef, SessionInfo, check_digest};
     let info = SessionInfo {
-        command: "welcome".to_owned(),
-        target: "//build:idea_dist".to_owned(),
-        git: GitInfo::default(),
         generation: GenerationRef {
             path: "/g/abc".to_owned(),
             dist_digest: "abc".to_owned(),
         },
-        arms: vec![Arm::Modal],
-        runs: 1,
-        cold: false,
-        hold_ms: 0,
-        profile: false,
-        project: None,
-        project_file: None,
-        additional_modules: Vec::new(),
-        max_load: None,
-        warnings: Vec::new(),
+        ..session_info(vec![Arm::MODAL], 1)
     };
     assert_eq!(check_digest(&info, Some("abc")), Ok(()));
     assert_eq!(check_digest(&info, None), Ok(()), "a run before the generation names no digest");
@@ -220,73 +244,42 @@ fn the_runs_root_is_below_the_bench_directory() {
 
 #[test]
 fn the_default_run_is_the_median_of_the_non_modal_arm_else_of_the_modal_arm() {
-    use super::{GenerationRef, GitInfo, SessionInfo, select_run};
-    use crate::bench::record::{LaunchFacts, RunRecord, WELCOME_BECAME_VISIBLE};
+    use super::select_run;
+    use crate::bench::record::WELCOME_BECAME_VISIBLE;
     use crate::bench::summary::Summary;
-    let run = |arm: Arm, index: u32, value: Option<f64>| RunRecord {
-        arm,
-        kind: RunKind::Measured,
-        index,
-        dir: RunId {
-            arm,
-            kind: RunKind::Measured,
-            index,
-        }
-        .dir_name(),
-        launch: LaunchFacts::default(),
-        valid: value.is_some(),
-        reason: None,
-        notes: Vec::new(),
-        metrics: value
-            .map(|value| std::collections::BTreeMap::from([(WELCOME_BECAME_VISIBLE.to_owned(), value)]))
-            .unwrap_or_default(),
-        classes_by_plugin: std::collections::BTreeMap::new(),
-        classes_by_module: std::collections::BTreeMap::new(),
-        classes_by_plugin_at: std::collections::BTreeMap::new(),
-        edt_samples: None,
-        edt_frames: Vec::new(),
-        triggers: Vec::new(),
-        define_share: None,
-        profile: None,
-    };
-    let info = SessionInfo {
-        command: "welcome".to_owned(),
-        target: "//build:idea_dist".to_owned(),
-        git: GitInfo::default(),
-        generation: GenerationRef::default(),
-        arms: vec![Arm::Modal, Arm::NonModal],
-        runs: 3,
-        cold: false,
-        hold_ms: 0,
-        profile: false,
-        project: None,
-        project_file: None,
-        additional_modules: Vec::new(),
-        max_load: None,
-        warnings: Vec::new(),
-    };
+    let run = |arm: Arm, index: u32, value: Option<f64>| run_record(arm, RunKind::Measured, index, WELCOME_BECAME_VISIBLE, value);
+    let info = session_info(vec![Arm::MODAL, Arm::NON_MODAL], 3);
     let session = Path::new("/s");
     let records = [
-        run(Arm::Modal, 1, Some(1200.0)),
-        run(Arm::Modal, 2, Some(1100.0)),
-        run(Arm::NonModal, 1, Some(1700.0)),
-        run(Arm::NonModal, 2, Some(1500.0)),
-        run(Arm::NonModal, 3, Some(1600.0)),
+        run(Arm::MODAL, 1, Some(1200.0)),
+        run(Arm::MODAL, 2, Some(1100.0)),
+        run(Arm::NON_MODAL, 1, Some(1700.0)),
+        run(Arm::NON_MODAL, 2, Some(1500.0)),
+        run(Arm::NON_MODAL, 3, Some(1600.0)),
     ];
-    let selected = select_run(session, &Summary::build(&info, "s", &records), None).expect("a run");
+    let summary = Summary::build(&info, "s", &records);
+    let selected = select_run(session, &summary, None, None).expect("a run");
     assert_eq!(selected.dir, session.join("non-modal-run-03"));
     assert_eq!(selected.median_by, Some(WELCOME_BECAME_VISIBLE));
+    let modal = select_run(session, &summary, None, Some(&Arm::MODAL)).expect("a run");
+    assert_eq!(
+        (modal.dir, modal.median_by),
+        (session.join("modal-run-02"), Some(WELCOME_BECAME_VISIBLE)),
+        "the median run of the arm that --arm names"
+    );
+    let refusal = select_run(session, &summary, None, Some(&Arm::PROJECT)).expect_err("no project arm");
+    assert_eq!(refusal.message, "/s has no project arm; its arms are modal, non-modal");
 
     let records = [
-        run(Arm::Modal, 1, Some(1200.0)),
-        run(Arm::Modal, 2, Some(1100.0)),
-        run(Arm::NonModal, 1, None),
+        run(Arm::MODAL, 1, Some(1200.0)),
+        run(Arm::MODAL, 2, Some(1100.0)),
+        run(Arm::NON_MODAL, 1, None),
     ];
-    let selected = select_run(session, &Summary::build(&info, "s", &records), None).expect("a run");
+    let selected = select_run(session, &Summary::build(&info, "s", &records), None, None).expect("a run");
     assert_eq!(selected.dir, session.join("modal-run-02"), "the lower middle of two");
 
-    let records = [run(Arm::Modal, 1, None), run(Arm::NonModal, 1, None)];
-    let refusal = select_run(session, &Summary::build(&info, "s", &records), None).expect_err("no valid run");
+    let records = [run(Arm::MODAL, 1, None), run(Arm::NON_MODAL, 1, None)];
+    let refusal = select_run(session, &Summary::build(&info, "s", &records), None, None).expect_err("no valid run");
     assert_eq!(
         refusal.message,
         "no arm of /s has a valid measured run, so it has no median run; name a run with --run"
@@ -295,60 +288,52 @@ fn the_default_run_is_the_median_of_the_non_modal_arm_else_of_the_modal_arm() {
 
 #[test]
 fn a_named_run_of_a_session_without_runs_says_that_it_has_none() {
-    use super::{GenerationRef, GitInfo, SessionInfo, select_run};
+    use super::select_run;
     use crate::bench::summary::Summary;
     let dir = tempfile::tempdir().expect("a temporary directory");
-    let info = SessionInfo {
-        command: "welcome".to_owned(),
-        target: "//build:idea_dist".to_owned(),
-        git: GitInfo::default(),
-        generation: GenerationRef::default(),
-        arms: vec![Arm::Modal],
-        runs: 1,
-        cold: false,
-        hold_ms: 0,
-        profile: false,
-        project: None,
-        project_file: None,
-        additional_modules: Vec::new(),
-        max_load: None,
-        warnings: Vec::new(),
-    };
-    let refusal = select_run(dir.path(), &Summary::build(&info, "s", &[]), Some("modal-run-01")).expect_err("no run");
+    let info = session_info(vec![Arm::MODAL], 1);
+    let summary = Summary::build(&info, "s", &[]);
+    let refusal = select_run(dir.path(), &summary, Some("modal-run-01"), None).expect_err("no run");
     assert_eq!(
         refusal.message,
         format!("{} has no run modal-run-01; it has no run directory", dir.path().display())
     );
+    std::fs::create_dir(dir.path().join("modal-run-01")).expect("a run directory");
+    let named = select_run(dir.path(), &summary, Some("modal-run-01"), Some(&Arm::MODAL)).expect("a run of the arm");
+    assert_eq!((named.dir, named.median_by), (dir.path().join("modal-run-01"), None));
+    let refusal = select_run(dir.path(), &summary, Some("modal-run-01"), Some(&Arm::NON_MODAL)).expect_err("another arm");
+    assert_eq!(
+        refusal.message,
+        "modal-run-01 is a run of the modal arm, and --arm names the non-modal arm; drop one of them"
+    );
 }
 
+/// The max load and the measurement model go through `session.json` into `summary.json`. A session of before them, such
+/// as the fixture, has neither.
 #[test]
-fn the_max_load_goes_through_session_json_and_summary_json() {
-    use super::{GenerationRef, GitInfo, SessionInfo, read_info};
+fn the_max_load_and_the_measure_model_go_through_session_json_and_summary_json() {
+    use super::{MeasureModel, SessionInfo, read_info};
     use crate::bench::summary::Summary;
     use crate::bench::testing::testdata_dir;
     let info = SessionInfo {
-        command: "welcome".to_owned(),
-        target: "//build:idea_dist".to_owned(),
-        git: GitInfo::default(),
-        generation: GenerationRef::default(),
-        arms: vec![Arm::Modal],
-        runs: 1,
-        cold: false,
-        hold_ms: 0,
-        profile: false,
-        project: None,
-        project_file: None,
-        additional_modules: Vec::new(),
+        measure_model: Some(MeasureModel::current()),
         max_load: Some(10.0),
-        warnings: Vec::new(),
+        ..session_info(vec![Arm::MODAL], 1)
     };
     let text = serde_json::to_string(&info).expect("JSON");
     assert!(text.contains(r#""maxLoad":10.0"#), "{text}");
+    assert!(text.contains(r#""measureModel":{"name":"integration-test","version":2}"#), "{text}");
     assert_eq!(serde_json::from_str::<SessionInfo>(&text).expect("a session"), info);
     let summary = serde_json::to_value(Summary::build(&info, "s", &[])).expect("JSON");
     assert_eq!(summary["maxLoad"], 10.0);
+    assert_eq!(
+        summary["measureModel"],
+        serde_json::json!({"name": "integration-test", "version": 2})
+    );
+    assert_eq!(MeasureModel::current().to_string(), "integration-test v2");
     let fixture = read_info(&testdata_dir().join("session")).expect("the fixture session");
     assert_eq!(fixture.max_load, None, "a session of before the option has none");
+    assert_eq!(fixture.measure_model, None, "a session of before the model has none");
 }
 
 #[test]

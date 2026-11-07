@@ -11,9 +11,9 @@ use super::*;
 use crate::guest::testing::{FakeChannel, ForbiddenBazel, Host, failed, has, prose, said};
 use crate::proc::Captured;
 
-/// What the controller's `validate_argv` passes: the display, and the runtime root the sweep reads.
+/// What the controller's `validate_argv` passes: the display alone.
 fn validate_argv() -> Vec<String> {
-    words([":88", "/data/daemon-runtime"])
+    words([":88"])
 }
 
 fn provisioned_host() -> Host {
@@ -44,13 +44,41 @@ async fn provision_linux_ends_with_the_guest_proving_itself() {
             format!("{as_worker} /usr/bin/tee {agent}.incoming"),
             format!("{as_worker} /bin/chmod 700 {agent}.incoming"),
             format!("{as_worker} /bin/mv -f {agent}.incoming {agent}"),
-            format!("{sudo} {agent} validate-guest :88 /data/daemon-runtime"),
+            format!("{sudo} {agent} validate-guest :88"),
         ]
     );
     assert_eq!(channel.calls()[2].options.stdin.as_deref(), Some(&b"agent bytes"[..]));
     // The verb runs as root, because it reads the display and the loader of the whole guest.
     let call = channel.saw("validate-guest").expect("the verb ran");
     assert!(!has(&call.argv, "-u"), "validate-guest ran as the worker: {:?}", call.argv);
+}
+
+// The testing-ui container's account makes its own data directory and owns it: the boot sends no sudo and no chown,
+// and the agent install crosses the channel as that account, with no prefix in front of `tee`, `chmod` and `mv`.
+// A Windows host does not drive the testing-ui container.
+#[cfg(unix)]
+#[tokio::test]
+async fn provision_linux_on_an_unprivileged_guest_runs_no_sudo_and_no_chown() {
+    let mut host = Host::container_linux();
+    host.settings.vm_agent_source = Some(host.agent_source("agent bytes"));
+    let settings = &host.settings;
+    let channel = FakeChannel::new("container-linux-1");
+    host.guest(&channel)
+        .provision_linux(&ForbiddenBazel, &validate_argv())
+        .await
+        .unwrap();
+    let agent = &settings.vm_agent;
+    assert_eq!(
+        channel.lines(),
+        [
+            format!("/bin/mkdir -p {}/state", settings.vm_data),
+            format!("/usr/bin/tee {agent}.incoming"),
+            format!("/bin/chmod 700 {agent}.incoming"),
+            format!("/bin/mv -f {agent}.incoming {agent}"),
+            format!("{agent} validate-guest :88"),
+        ]
+    );
+    assert_eq!(channel.calls()[1].options.stdin.as_deref(), Some(&b"agent bytes"[..]));
 }
 
 // A worker that was never asked to prove itself is refused rather than provisioned, before the guest is touched.
@@ -108,13 +136,9 @@ async fn provision_linux_reports_the_verbs_own_refusal() {
     assert_eq!(refusal.exit, Exit::SOFTWARE);
 }
 
-// A green boot's report is the only account of it that survives, so it is noted as the document. That keeps the
-// note from going stale against the guest's report types.
-#[tokio::test]
-async fn provision_linux_notes_what_the_verb_reported() {
+/// Provisions a Linux guest whose `validate-guest` verb answers `reply`, and answers the notes of the boot.
+async fn provision_notes(reply: String) -> String {
     let host = provisioned_host();
-    let validated = r#"{"display":":88","windowManager":"0x400001","windowManagerProbes":2,"sharedObjects":41}"#;
-    let reply = format!(r#"{{"schemaVersion":1,"ok":true,"command":"validate-guest","data":{validated}}}"#);
     let channel = FakeChannel::answering("air-docker-1", move |argv| {
         Ok(if has(argv, "validate-guest") {
             said(&reply)
@@ -127,7 +151,18 @@ async fn provision_linux_notes_what_the_verb_reported() {
         .provision_linux(&ForbiddenBazel, &validate_argv())
         .await
         .unwrap();
-    let text = notes.text();
+    notes.text()
+}
+
+// A green boot's report is the only account of it that survives, so it is noted as the document. That keeps the
+// note from going stale against the guest's report types.
+#[tokio::test]
+async fn provision_linux_notes_what_the_verb_reported() {
+    let validated = r#"{"glibc":"2.43","display":":88","windowManager":"0x400001","windowManagerProbes":2}"#;
+    let text = provision_notes(format!(
+        r#"{{"schemaVersion":1,"ok":true,"command":"validate-guest","data":{validated}}}"#
+    ))
+    .await;
     let wanted = format!("validate-guest reported {validated}");
     assert!(text.contains(&wanted), "{wanted:?} is not in\n{text}");
     // The worker is on the line, because a pool-wide operation notes several boots into one log.
@@ -155,20 +190,7 @@ async fn provision_linux_notes_a_null_report() {
         (r#"{"schemaVersion":1,"ok":true,"command":"validate-guest","data":null}"#, true),
         (r#"{"schemaVersion":1,"ok":true,"command":"validate-guest"}"#, false),
     ] {
-        let host = provisioned_host();
-        let channel = FakeChannel::answering("air-docker-1", move |argv| {
-            Ok(if has(argv, "validate-guest") {
-                said(reply)
-            } else {
-                Captured::default()
-            })
-        });
-        let (reporter, notes) = prose();
-        host.guest_reporting(&channel, &reporter)
-            .provision_linux(&ForbiddenBazel, &validate_argv())
-            .await
-            .unwrap();
-        let text = notes.text();
+        let text = provision_notes(reply.to_owned()).await;
         assert_eq!(text.contains("validate-guest reported null"), noted, "{text}");
     }
 }
@@ -246,6 +268,19 @@ async fn ensure_worker_storage_refuses_a_worker_that_never_initialized() {
     assert_eq!(refusal.code, "worker_storage_missing");
 }
 
+/// Makes `worker` of `host` ready after its init receipt, and answers the guest lines and the run roots that it made.
+#[cfg(unix)]
+async fn ready_lines(host: &Host, worker: &str) -> (Vec<String>, String) {
+    crate::guest::write_init_receipt(&host.settings, worker).unwrap();
+    let channel = FakeChannel::new(worker);
+    host.guest(&channel)
+        .ensure_ready(&crate::guest::testing::Peers::default())
+        .await
+        .unwrap();
+    let settings = &host.settings;
+    (channel.lines(), [settings.vm_data.as_str(), &settings.vm_runs_root].join(" "))
+}
+
 // The readiness a run needs: the parity layout first, then the run roots made and handed to the worker - and on a
 // Tart macOS worker the storage and the SSH identity before either.
 // A macOS guest runs on Tart only, and a Windows host drives only Docker.
@@ -253,15 +288,8 @@ async fn ensure_worker_storage_refuses_a_worker_that_never_initialized() {
 #[tokio::test]
 async fn ensure_ready_checks_the_layout_then_prepares_the_run_roots() {
     let host = Host::new(GuestOs::Linux);
-    crate::guest::write_init_receipt(&host.settings, "air-docker-1").unwrap();
-    let channel = FakeChannel::new("air-docker-1");
-    host.guest(&channel)
-        .ensure_ready(&crate::guest::testing::Peers::default())
-        .await
-        .unwrap();
+    let (lines, roots) = ready_lines(&host, "air-docker-1").await;
     let settings = &host.settings;
-    let roots = [settings.vm_data.as_str(), &settings.vm_runs_root].join(" ");
-    let lines = channel.lines();
     // A Linux worker is not asked about SSH keys: nothing here reaches it over SSH.
     assert!(!lines.iter().any(|line| line.contains("air-ensure-ssh-host-keys")), "{lines:?}");
     assert_eq!(
@@ -287,4 +315,22 @@ async fn ensure_ready_checks_the_layout_then_prepares_the_run_roots() {
         .unwrap_err();
     assert_eq!(refusal.code, "worker_storage_missing");
     assert_eq!(bare.calls().len(), 1, "{:?}", bare.lines());
+}
+
+// The run roots of the testing-ui container are made by the account that uses them, so nothing is handed over: the
+// `mkdir` is the last step, and no sudo and no chown reach the guest.
+// A Windows host does not drive the testing-ui container.
+#[cfg(unix)]
+#[tokio::test]
+async fn ensure_ready_on_an_unprivileged_guest_makes_the_roots_without_a_chown() {
+    let host = Host::container_linux();
+    let (lines, roots) = ready_lines(&host, "container-linux-1").await;
+    let settings = &host.settings;
+    assert_eq!(lines.last(), Some(&format!("/bin/mkdir -p {roots}")));
+    assert!(
+        !lines
+            .iter()
+            .any(|line| line.contains(settings.guest.chown) || line.contains("sudo")),
+        "{lines:?}"
+    );
 }
