@@ -19,6 +19,45 @@ import java.util.ArrayList
 @OptIn(ExperimentalCoroutinesApi::class)
 internal class UnifiedPluginMarketplaceDataProviderTest {
   @Test
+  fun `Marketplace hints stay separate from errors and retain both sides`() {
+    val model = plugin("unsupported.plugin", "Unsupported")
+    val id = model.pluginId
+    val explanations = mapOf(id to listOf("Client: Light mode is not supported", "Host: Backend mode is not supported"))
+    val snapshot = buildMarketplaceSnapshot(
+      models = listOf(model),
+      updates = null,
+      contentRevision = 1,
+      installedModels = mapOf(id to model),
+      enabledStates = mapOf(id to true),
+      errors = emptyMap(),
+      installationStates = emptyMap(),
+      restrictions = emptyMap(),
+      expectedExplanations = explanations + (PluginId.getId("absent") to listOf("Absent plugin")),
+    )
+
+    assertThat(snapshot.items.single().rowInput?.expectedExplanations).containsExactlyElementsOf(explanations.getValue(id))
+    assertThat(snapshot.items.single().rowInput?.errors).isEmpty()
+    assertThat(snapshot.items.single().rowInput?.enabled).isTrue()
+    assertThat(snapshot.listModelData.expectedExplanations).isEqualTo(explanations)
+  }
+
+  @Test
+  fun `Marketplace preserves a selected vendor with spaces and a hyphen`() {
+    val vendor = "Example Vendor - examplevendor"
+    val query = UnifiedPluginsQuery.parse("").withAttribute(UnifiedPluginQueryAttribute.Vendor, vendor, selected = true)
+    assertThat(query).isEqualTo("/vendor:\"Example Vendor - examplevendor\"")
+
+    val route = initialPluginsQueryState(query).sourceRoute()
+    assertThat(route.marketplace.eligible).isTrue()
+    assertThat(route.marketplaceMode).isEqualTo(UnifiedPluginMarketplaceSourceMode.Search)
+    val request = buildUnifiedMarketplaceSearchRequest(route.marketplace.query)
+
+    assertThat(request.parser.vendors).containsExactly(vendor)
+    assertThat(request.parser.searchQuery).isNull()
+    assertThat(request.urlQuery).isEqualTo("organization=Example%20Vendor%20-%20examplevendor")
+  }
+
+  @Test
   fun `Marketplace maps category filters to tags without changing text search`() {
     val request = buildUnifiedMarketplaceSearchRequest(
       "Kotlin /tag:\"Developer Tools\" /category:\"Programming Language\" /category:Tools /sortBy:rating"

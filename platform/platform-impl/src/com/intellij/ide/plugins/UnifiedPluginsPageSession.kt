@@ -329,8 +329,13 @@ internal class UnifiedPluginsPageSession @RequiresEdt(generateAssertion = false 
     }
     updateAllUpdatesCollectionJob = pageScope.launch(start = CoroutineStart.UNDISPATCHED) {
       pluginUpdates.combine(localSource.state) { updates, localState ->
-        val installedPluginIds = localState.listModelData.installedModels.keys
-        updates.copy(enabledUpdates = updates.enabledUpdates.filter { it.pluginId in installedPluginIds })
+        val enabledPluginIds = localState.sections.asSequence()
+          .filter { it.id == PluginSectionId.Installed || it.id == PluginSectionId.Bundled }
+          .flatMap { it.items.asSequence() }
+          .filter { it.rowInput?.enabled == true }
+          .map { it.pluginId }
+          .toHashSet()
+        updates.copy(enabledUpdates = updates.all.filter { it.pluginId in enabledPluginIds })
       }.collect(updateAllController::acceptUpdates)
     }
     PluginManagerUsageCollector.logUnifiedSessionStarted(openSource)
@@ -717,8 +722,7 @@ internal class UnifiedPluginsPageSession @RequiresEdt(generateAssertion = false 
           host.requestRestart(customizer, headerComponent)
         }
         else {
-          host.closeSession()
-          PluginManagerConfigurable.shutdownOrRestartApp()
+          host.runRestartButton(headerComponent)
         }
       }
     }
@@ -732,7 +736,7 @@ internal class UnifiedPluginsPageSession @RequiresEdt(generateAssertion = false 
       host.updateCustomRepositoryPlugins(state.settledRepositoryPlugins)
     }
     val data = state.listModelData
-    listModel.replaceAll(data.installedModels, data.errors, data.installationStates, data.updateSources)
+    listModel.replaceAll(data.installedModels, data.errors, data.installationStates, data.updateSources, data.expectedExplanations)
     controller.replaceSourceState(
       query = state.query,
       updatedSections = state.sections,

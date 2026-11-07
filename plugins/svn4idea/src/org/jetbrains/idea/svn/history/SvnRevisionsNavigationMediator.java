@@ -24,6 +24,7 @@ import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
 
+import static com.intellij.ide.impl.ProjectUtil.isRealProject;
 import static org.jetbrains.idea.svn.SvnBundle.message;
 
 public class SvnRevisionsNavigationMediator implements CommittedChangesNavigation {
@@ -65,7 +66,7 @@ public class SvnRevisionsNavigationMediator implements CommittedChangesNavigatio
       throw new VcsException(message("error.could.not.get.head.info.for.url", location));
     }
 
-    final Iterator<ChangesBunch> visualIterator = project.isDefault() ? null :
+    final Iterator<ChangesBunch> visualIterator = !isRealProject(project) ? null :
                                                   CommittedChangesCache.getInstance(project)
                                                     .getBackBunchedIterator(vcs, vcsRoot, location, CHUNK_SIZE);
     final Iterator<ChangesBunch> internalIterator =

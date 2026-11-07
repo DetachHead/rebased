@@ -25,6 +25,8 @@ import com.intellij.openapi.vfs.VirtualFileVisitor;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.idea.svn.api.Depth;
 
+import static com.intellij.ide.impl.ProjectUtil.isRealProject;
+
 public class SvnExcludingIgnoredOperation {
   private final Operation myImportAction;
   private final Depth myDepth;
@@ -45,7 +47,7 @@ public class SvnExcludingIgnoredOperation {
     public Filter(final Project project) {
       myProject = project;
 
-      if (!project.isDefault()) {
+      if (isRealProject(project)) {
         myVcsManager = ProjectLevelVcsManager.getInstance(project);
         myClManager = ChangeListManager.getInstance(project);
       }
@@ -56,7 +58,7 @@ public class SvnExcludingIgnoredOperation {
     }
 
     public boolean accept(final VirtualFile file) {
-      if (!myProject.isDefault()) {
+      if (isRealProject(myProject)) {
         if (isIgnoredByVcs(file) || myClManager.isIgnoredFile(file)) {
           return false;
         }
