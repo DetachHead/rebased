@@ -291,6 +291,35 @@ Sometimes you also have to run this (but idk under what circumstances):
 
 after merging upstream, various different errors can occur when building Rebased. Most of the time, these are caused by a plugin or something we've removed being referenced by a new change. This section documents some examples of common build errors I've encountered and how to fix them if they happen again.
 
+**Error:** `Exception in thread "main" java.lang.IllegalArgumentException: Cannot resolve module intellij.gradle.java.tests (dependency of 'intellij.gradle.java.coverage.tests') in /mnt/projects/rebased/.idea/modules.xml`
+
+**Fix:**
+
+```diff
+Index: .idea/modules.xml
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/.idea/modules.xml b/.idea/modules.xml
+--- a/.idea/modules.xml	(revision 2a05b8d585767c1d2be9ab27e08e157f73bc744f)
++++ b/.idea/modules.xml	(revision 3d0fb13ca53d45328351003b287422e40ec90801)
+@@ -216,7 +216,6 @@
+       <module fileurl="file://$PROJECT_DIR$/plugins/gradle/completion/toml/intellij.gradle.completion.toml.tests.iml" filepath="$PROJECT_DIR$/plugins/gradle/completion/toml/intellij.gradle.completion.toml.tests.iml" />
+       <module fileurl="file://$PROJECT_DIR$/plugins/gradle/java/intellij.gradle.java.iml" filepath="$PROJECT_DIR$/plugins/gradle/java/intellij.gradle.java.iml" />
+       <module fileurl="file://$PROJECT_DIR$/plugins/gradle/java/coverage/intellij.gradle.java.coverage.iml" filepath="$PROJECT_DIR$/plugins/gradle/java/coverage/intellij.gradle.java.coverage.iml" />
+-      <module fileurl="file://$PROJECT_DIR$/plugins/gradle/java/coverage/tests/intellij.gradle.java.coverage.tests.iml" filepath="$PROJECT_DIR$/plugins/gradle/java/coverage/tests/intellij.gradle.java.coverage.tests.iml" />
+       <module fileurl="file://$PROJECT_DIR$/plugins/gradle/java/groovy/intellij.gradle.java.groovy.iml" filepath="$PROJECT_DIR$/plugins/gradle/java/groovy/intellij.gradle.java.groovy.iml" />
+       <module fileurl="file://$PROJECT_DIR$/plugins/gradle/java/groovy/ml/intellij.gradle.java.groovy.ml.iml" filepath="$PROJECT_DIR$/plugins/gradle/java/groovy/ml/intellij.gradle.java.groovy.ml.iml" />
+       <module fileurl="file://$PROJECT_DIR$/plugins/gradle/java/groovy/toml/intellij.gradle.java.groovy.toml.iml" filepath="$PROJECT_DIR$/plugins/gradle/java/groovy/toml/intellij.gradle.java.groovy.toml.iml" />
+```
+
+Then run:
+
+```bash
+./build/jpsModelToBazelCommunityOnly.cmd
+```
+
 **Error:** `java.lang.IllegalStateException: No maven artifact is created for the module intellij.platform.jewel.markdown.extensions.gfmTables`
 
 **Fix:**
