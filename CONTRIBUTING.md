@@ -266,3 +266,112 @@ config:
 > [!NOTE]
 > - the `*-base` branches (eg. `2026.2-base`) are only created for the purpose of merging the *base* (ie. common ancestor) of two branches/tags (eg. `upstream/262` and `idea/2026.2`) into our own `262` branch. This prevents us having to re-resolve the same conflicts for every subsequent `2026.*` release
 > - This is not an accurate reflection of the history of this repo. The release tags are only examples and don't reflect the actual upstream version that those releases were based on.
+
+> [!TIP]
+> Command to find the common ancestor commit of two branches:
+> ```bash
+> git merge-base upstream/master idea/2026.2
+> ```
+
+### Resolving conflicts
+
+When resolving conflicts in `BUILD.bazel` files, it doesn't matter whether you accept the left or right version of the conflicting code as long as it's inside a `### auto-generated section`. Just make sure you run this afterwards to regenerate them:
+
+```bash
+./build/jpsModelToBazelCommunityOnly.cmd
+```
+
+Sometimes you also have to run this (but idk under what circumstances):
+
+```bash
+./bazel.cmd run //build:dev_dist_generator
+```
+
+### Fixing build errors
+
+after merging upstream, various different errors can occur when building Rebased. Most of the time, these are caused by a plugin or something we've removed being referenced by a new change. This section documents some examples of common build errors I've encountered and how to fix them if they happen again.
+
+**Error:** `java.lang.IllegalStateException: No maven artifact is created for the module intellij.platform.jewel.markdown.extensions.gfmTables`
+
+**Fix:**
+```diff
+Index: build/src/org/jetbrains/intellij/build/JewelMavenArtifacts.kt
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/build/src/org/jetbrains/intellij/build/JewelMavenArtifacts.kt b/build/src/org/jetbrains/intellij/build/JewelMavenArtifacts.kt
+--- a/build/src/org/jetbrains/intellij/build/JewelMavenArtifacts.kt	(revision bf1c57dbd9b2f5e1fc46c61235320db46f82c7d7)
++++ b/build/src/org/jetbrains/intellij/build/JewelMavenArtifacts.kt	(date 1793493648992)
+@@ -52,7 +52,6 @@
+   "intellij.platform.jewel.foundation" to "jewel-foundation",
+   "intellij.platform.jewel.markdown.core" to "jewel-markdown-core",
+   "intellij.platform.jewel.ui" to "jewel-ui",
+-  "intellij.platform.jewel.markdown.extensions.gfmTables" to "jewel-markdown-extensions-gfm-tables",
+   "intellij.platform.jewel.markdown.extensions.gfmStrikethrough" to "jewel-markdown-extensions-gfm-strikethrough",
+   "intellij.platform.jewel.markdown.extensions.autolink" to "jewel-markdown-extensions-autolink",
+   "intellij.platform.jewel.markdown.extensions.gfmAlerts" to "jewel-markdown-extensions-gfm-alerts",
+@@ -74,7 +73,6 @@
+   //"jewel-markdown-extensions-front-matter" to setOf("jewel-foundation", "jewel-ui"),
+   "jewel-markdown-extensions-gfm-alerts" to setOf("jewel-foundation", "jewel-ui"),
+   "jewel-markdown-extensions-gfm-strikethrough" to setOf("jewel-foundation", "jewel-ui"),
+-  "jewel-markdown-extensions-gfm-tables" to setOf("jewel-foundation", "jewel-ui"),
+   "jewel-markdown-extensions-images" to setOf("jewel-foundation", "jewel-ui"),
+   "jewel-int-ui-standalone" to setOf("jewel-foundation"),
+   "jewel-int-ui-decorated-window" to setOf("jewel-foundation", "jewel-ui", "jewel-int-ui-standalone"),
+```
+
+**Error:** `plugin 'Compose UI' (com.intellij.modules.compose, 263.99999999.0) requires plugin 'Compose UI' (com.intellij.modules.compose, 263.99999999.0): module intellij.libraries.compose.foundation.desktop depends on module intellij.libraries.compose.runtime.desktop which is absent`
+
+**Fix:**
+
+```diff
+Index: platform/build-scripts/src/org/jetbrains/intellij/build/productLayout/ProductModulesLayout.kt
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/platform/build-scripts/src/org/jetbrains/intellij/build/productLayout/ProductModulesLayout.kt b/platform/build-scripts/src/org/jetbrains/intellij/build/productLayout/ProductModulesLayout.kt
+--- a/platform/build-scripts/src/org/jetbrains/intellij/build/productLayout/ProductModulesLayout.kt	(revision 5620dfd440dbe425cd7cfb3f0ba7e6d0254b3b53)
++++ b/platform/build-scripts/src/org/jetbrains/intellij/build/productLayout/ProductModulesLayout.kt	(revision c5751564652b1b558489399238f6a0645259bf68)
+@@ -97,7 +97,7 @@
+   "intellij.grid.plugin",
+   JNA_PLUGIN_MODULE,
+   PTY4J_PLUGIN_MODULE,
+-  COMPOSE_PLUGIN_MODULE,
+   "intellij.platform.bookmarks.plugin",
+   "intellij.platform.navbar.plugin",
+   //"intellij.platform.problemView.plugin",
+```
+
+> [!NOTE]
+> In this example, `COMPOSE_PLUGIN_MODULE` was a variable with the value `"intellij.platform.compose.plugin"`
+
+**Error:** `com.intellij.platform.buildScripts.concurrency.TaskFailedException: A build task failed: Module intellij.java.ide.resources is a content module. Implicit platform auto-inclusion is prohibited; plugin model must be the only truth for packaging (chain: [intellij.idea.community.customization])`
+
+**Fix:**
+
+```diff
+Index: community-resources/intellij.idea.community.customization.iml
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/community-resources/intellij.idea.community.customization.iml b/community-resources/intellij.idea.community.customization.iml
+--- a/community-resources/intellij.idea.community.customization.iml	(revision d30860a0657e5863cae422ca804b822266208202)
++++ b/community-resources/intellij.idea.community.customization.iml	(revision 909cc73eb711b85e5a44b2da0e399d594e16ac29)
+@@ -7,7 +7,6 @@
+     </content>
+     <orderEntry type="inheritedJdk" />
+     <orderEntry type="sourceFolder" forTests="false" />
+-    <orderEntry type="module" module-name="intellij.java.ide.resources" scope="RUNTIME" />
+     <orderEntry type="module" module-name="intellij.platform.ide.impl" scope="RUNTIME" />
+     <orderEntry type="module" module-name="intellij.platform.customization.min" scope="RUNTIME" />
+     <orderEntry type="module" module-name="intellij.idea.customization.base" scope="RUNTIME" />
+```
+
+Then run:
+
+```bash
+./build/jpsModelToBazelCommunityOnly.cmd
+```
