@@ -15,9 +15,11 @@ import org.jetbrains.annotations.Nullable;
 
 import java.util.List;
 
+import static com.intellij.ide.impl.ProjectUtil.isRealProject;
+
 public abstract class VcsOptionsTopHitProviderBase implements OptionsSearchTopHitProvider.ProjectLevelProvider {
   protected boolean isEnabled(@NotNull Project project, @Nullable VcsKey vcsKey) {
-    if (project.isDefault()) return true;
+    if (!isRealProject(project)) return true;
     if (vcsKey == null) return false;
     List<VcsDirectoryMapping> mappings = ProjectLevelVcsManager.getInstance(project).getDirectoryMappings();
     return ContainerUtil.exists(mappings, it -> vcsKey.getName().equals(it.getVcs()));

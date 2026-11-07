@@ -38,6 +38,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.function.Function;
 
+import static com.intellij.ide.impl.ProjectUtil.isRealProject;
 import static com.intellij.openapi.vcs.changes.ui.TreeModelBuilderKeys.IS_CACHING_ROOT;
 import static com.intellij.util.ObjectUtils.notNull;
 import static com.intellij.util.containers.ContainerUtil.sorted;
@@ -93,7 +94,7 @@ public class TreeModelBuilder implements ChangesViewModelBuilder {
    * Requires non-null Project for local changes.
    */
   public TreeModelBuilder(@Nullable Project project, @NotNull ChangesGroupingPolicyFactory grouping) {
-    myProject = project != null && !project.isDefault() ? project : null;
+    myProject = project != null && isRealProject(project) ? project : null;
     myRoot = ChangesBrowserNode.createRoot();
     myModel = new ChangesTreeModel(myRoot);
     myGroupingPolicyFactory = grouping;

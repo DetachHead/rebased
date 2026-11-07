@@ -97,6 +97,7 @@ import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
 
+import static com.intellij.ide.impl.ProjectUtil.isRealProject;
 import static com.intellij.openapi.vcs.changes.ChangesUtil.getAfterPath;
 import static com.intellij.openapi.vcs.changes.ChangesUtil.getBeforePath;
 import static com.intellij.openapi.vfs.VfsUtilCore.virtualToIoFile;
@@ -155,7 +156,7 @@ public final class SvnVcs extends AbstractVcs {
   }
 
   private void postStartup() {
-    if (myProject.isDefault()) return;
+    if (!isRealProject(myProject)) return;
 
     if (!getSvnConfiguration().isCleanupRun()) {
       ApplicationManager.getApplication().invokeLater(() -> {

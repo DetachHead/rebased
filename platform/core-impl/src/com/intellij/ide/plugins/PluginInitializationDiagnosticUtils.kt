@@ -154,8 +154,8 @@ object PluginInitializationDiagnosticUtils {
   }
 
   private fun DescriptorExclusionReason.getDependencyCycleRepresentative(): IdeaPluginDescriptorImpl =
-    asSafely<PartOfDependencyCycle>()?.dependencyCycle?.nodesWithDependenciesOnCycle?.keys?.first()
-    ?: asSafely<PartOfRuntimeModuleGroupDependencyCycle>()?.dependencyCycle?.nodesWithDependenciesOnCycle?.keys?.first()?.representativeModule
+    asSafely<PartOfDependencyCycle>()?.dependencyCycle?.nodes?.first()
+    ?: asSafely<PartOfRuntimeModuleGroupDependencyCycle>()?.dependencyCycle?.nodes?.first()?.representativeModule
     ?: error("$this is not a cycle exclusion reason")
 
   private fun DescriptorExclusionReason.exclusionTreeLogMessage(): String {
@@ -192,10 +192,14 @@ object PluginInitializationDiagnosticUtils {
       }
       is PartOfRuntimeModuleGroupDependencyCycle -> buildString {
         appendLine("Classloaders made from the following groups form a dependency cycle:")
+        fun descriptorFromGroupText(descriptor: IdeaPluginDescriptorImpl): String {
+          val group = descriptorFromCycleToGroup[descriptor]?.representativeModule?.shortLogDescription
+          return "${descriptor.shortLogDescription} from ${group ?: "unknown group"}"
+        }
         explainCycle(
           dependencyCycle,
-          fmtNode = { "${it.representativeModule.shortLogDescription} (${it.sortedDescriptors.joinToString { it.shortLogDescription }})" },
-          fmtDeps = { it.joinToString(", ") { it.representativeModule.shortLogDescription } }
+          fmtNode = ::descriptorFromGroupText,
+          fmtDeps = { it.joinToString(", ", transform = ::descriptorFromGroupText) }
         )
       }
       is ProductRulesImposedExclusion -> "$logDescr is excluded: ${productReason.getLogMessage()}"
@@ -219,9 +223,9 @@ object PluginInitializationDiagnosticUtils {
     if (indent > 0) append("└ ")
   }
 
-  private fun <N> StringBuilder.explainCycle(cycle: DependencyCycleInfo<N>, fmtNode: (N) -> String, fmtDeps: (List<N>) -> String = { it.joinToString(", ") { fmtNode(it) }}) {
+  private fun <N> StringBuilder.explainCycle(cycle: DependencyCycleInfo<N>, fmtNode: (IdeaPluginDescriptorImpl) -> String, fmtDeps: (List<IdeaPluginDescriptorImpl>) -> String = { it.joinToString(", ") { fmtNode(it) }}) {
     var endLine = false
-    cycle.nodesWithDependenciesOnCycle.forEach { (node, dependencies) ->
+    cycle.descriptorsToTheirDependenciesFromCycle.forEach { (node, dependencies) ->
       if (endLine) appendLine()
       else endLine = true
       append("    | ${fmtNode(node)} depends on: ${fmtDeps(dependencies)}")
@@ -353,13 +357,22 @@ object PluginInitializationDiagnosticUtils {
     if (rootCause is ExcludedByEnvironmentConfiguration) {
       return null
     }
+    // TODO(IJPL-258861): Replace the Ultimate check with a product exclusion reason.
+    if (rootCause is PluginIsMarkedDisabled && rootCause.descriptor.pluginId == PluginManagerCore.ULTIMATE_PLUGIN_ID) {
+      return null
+    }
     return when (rootCause) {
       is PluginIsMarkedDisabled ->
         "${plugin.shortLogDescription} requires ${rootCause.descriptor.getMainDescriptor().shortLogDescription} to be enabled"
       is PartOfDependencyCycle, is PartOfRuntimeModuleGroupDependencyCycle ->
         "${plugin.shortLogDescription} requires ${rootCause.descriptor.shortLogDescription} which is a part of a dependency cycle"
       else ->
-        "${plugin.shortLogDescription} requires ${rootCause.descriptor.getMainDescriptor().shortLogDescription}: ${rootCause.logMessage()}"
+        if (rootCause.descriptor.getMainDescriptor() === plugin) {
+          "${plugin.shortLogDescription} cannot be loaded: ${rootCause.logMessage()}"
+        }
+        else {
+          "${plugin.shortLogDescription} requires ${rootCause.descriptor.getMainDescriptor().shortLogDescription}: ${rootCause.logMessage()}"
+        }
     }
   }
 
@@ -384,9 +397,9 @@ object PluginInitializationDiagnosticUtils {
     if (!isMajorProblemRootCause()) return null
     return when (this) {
       // more concise messages for cycles
-      is PartOfDependencyCycle -> "Dependency cycle detected between ${dependencyCycle.nodesWithDependenciesOnCycle.keys.joinToString { it.shortLogDescription }}"
+      is PartOfDependencyCycle -> "Dependency cycle detected between ${dependencyCycle.nodes.joinToString { it.shortLogDescription }}"
       is PartOfRuntimeModuleGroupDependencyCycle -> "Runtime module group dependency cycle detected between " +
-                                                    dependencyCycle.nodesWithDependenciesOnCycle.keys.joinToString { it.representativeModule.shortLogDescription }
+                                                    dependencyCycle.nodes.joinToString { it.representativeModule.shortLogDescription }
       else -> logMessage()
     }
   }
