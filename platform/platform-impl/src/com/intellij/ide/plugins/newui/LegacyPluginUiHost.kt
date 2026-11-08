@@ -109,6 +109,10 @@ class LegacyPluginUiHost @RequiresEdt(generateAssertion = false /* IJPL-115548 *
   val sessionId: String
     get() = model.sessionId
 
+  internal fun filterPluginUpdates(updates: Flow<PluginUpdatesEvent>): Flow<PluginUpdatesEvent> {
+    return model.updateSourceFilter.filter(updates)
+  }
+
   val createShutdownCallback: Boolean
     get() = model.createShutdownCallback
 
@@ -231,6 +235,12 @@ class LegacyPluginUiHost @RequiresEdt(generateAssertion = false /* IJPL-115548 *
   @RequiresEdt(generateAssertion = false /* IJPL-115548 */)
   fun requestRestart(customizer: PluginManagerCustomizer, parentComponent: JComponent) {
     customizer.requestRestart(facade, parentComponent)
+  }
+
+  @RequiresEdt
+  fun runRestartButton(parentComponent: JComponent) {
+    lifecycle.checkActive()
+    model.runRestartButton(parentComponent)
   }
 
   fun closeSession() {

@@ -103,7 +103,6 @@ import com.intellij.openapi.wm.ex.WelcomeScreenProjectProvider
 import com.intellij.openapi.wm.ex.WindowManagerEx
 import com.intellij.openapi.wm.ex.isBackgroundActivitiesSuppressed
 import com.intellij.openapi.wm.impl.welcomeScreen.WelcomeFrame
-import com.intellij.platform.PROJECT_CLOSE_WITH_CONFIRMATION
 import com.intellij.platform.PROJECT_NEWLY_CREATED
 import com.intellij.platform.PROJECT_NEWLY_OPENED
 import com.intellij.platform.PlatformProjectOpenProcessor
@@ -118,6 +117,7 @@ import com.intellij.platform.eel.EelUnavailableException
 import com.intellij.platform.eel.fs.EelFileUtils
 import com.intellij.platform.eel.provider.EelInitialization
 import com.intellij.platform.eel.provider.getEelDescriptor
+import com.intellij.platform.ide.core.customization.ProjectLifecycleUiCustomization
 import com.intellij.platform.ide.diagnostic.startUpPerformanceReporter.FUSProjectHotStartUpMeasurer
 import com.intellij.platform.isLoadedFromCacheButHasNoModules
 import com.intellij.platform.isProjectOpenWithoutModule
@@ -440,17 +440,6 @@ open class ProjectManagerImpl : ProjectManagerEx(), Disposable {
     }
   }
 
-  private fun closeProjectWithConfirmation(project: Project): Boolean {
-    try {
-      project.putUserData(PROJECT_CLOSE_WITH_CONFIRMATION, true)
-
-      return closeProject(project, checkCanClose = true)
-    }
-    finally {
-      project.putUserData(PROJECT_CLOSE_WITH_CONFIRMATION, null)
-    }
-  }
-
   protected open fun closeProject(project: Project, saveProject: Boolean = true, dispose: Boolean = true, checkCanClose: Boolean): Boolean {
     val projectCloseStartedMs = System.currentTimeMillis()
 
@@ -741,7 +730,18 @@ open class ProjectManagerImpl : ProjectManagerEx(), Disposable {
         return null
       }
     }
+    else {
+      confirmTrustedStateOrCancel(projectIdentityFile, options)
+    }
 
+    return span("ProjectManager.openAsync") {
+      FUSProjectHotStartUpMeasurer.withProjectContextElement(projectIdentityFile) {
+        doOpenAsync(options, projectIdentityFile)
+      }
+    }
+  }
+
+  private suspend fun confirmTrustedStateOrCancel(projectIdentityFile: Path, options: OpenProjectTask) {
     span("checkTrustedState") {
       if (!checkTrustedState(projectIdentityFile, options.projectName)) {
         LOG.info("Project is not trusted, aborting")
@@ -758,12 +758,6 @@ open class ProjectManagerImpl : ProjectManagerEx(), Disposable {
         cancelProjectOpening(options.project, it)
       }
       throw it
-    }
-
-    return span("ProjectManager.openAsync") {
-      FUSProjectHotStartUpMeasurer.withProjectContextElement(projectIdentityFile) {
-        doOpenAsync(options, projectIdentityFile)
-      }
     }
   }
 
@@ -1217,9 +1211,12 @@ open class ProjectManagerImpl : ProjectManagerEx(), Disposable {
    *
    * `false` if [projectToClose]'s frame was successfully freed up for reuse, or the user chose "New Window" and
    * it can be opened in this same process — either way, the caller should proceed to open [projectDir] here.
+   *
+   * The function confirms the trusted state of [projectDir] when [projectDir] opens in this process.
    */
   private suspend fun attachToExistingOrOpenInTheSameFrame(projectToClose: Project, options: OpenProjectTask, projectDir: Path): Boolean {
-    if (options.forceReuseFrame || WelcomeUtils.noCheckOpenConfirmation(projectToClose)) {
+    if (options.forceReuseFrame || reusesWelcomeFrameWithoutConfirmation(projectToClose)) {
+      confirmTrustedStateOrCancel(projectDir, options)
       return !closeAndDisposeKeepingFrame(projectToClose, options.forceReuseFrame)
     }
 
@@ -1233,12 +1230,16 @@ open class ProjectManagerImpl : ProjectManagerEx(), Disposable {
         return true
       }
       GeneralSettings.OPEN_PROJECT_SAME_WINDOW -> {
+        val perProcessSupport = processPerProjectSupport()
+        val canBeOpenedInThisProcess = perProcessSupport.canBeOpenedInThisProcess(projectDir)
+        if (canBeOpenedInThisProcess) {
+          confirmTrustedStateOrCancel(projectDir, options)
+        }
         if (!closeAndDisposeKeepingFrame(projectToClose)) {
           return true
         }
 
-        val perProcessSupport = processPerProjectSupport()
-        if (!perProcessSupport.canBeOpenedInThisProcess(projectDir)) {
+        if (!canBeOpenedInThisProcess) {
           perProcessSupport.openInChildProcess(projectDir)
 
           val app = ApplicationManagerEx.getApplicationEx()
@@ -1259,6 +1260,7 @@ open class ProjectManagerImpl : ProjectManagerEx(), Disposable {
           return true
         }
 
+        confirmTrustedStateOrCancel(projectDir, options)
         return false
       }
       else -> {
@@ -1268,6 +1270,15 @@ open class ProjectManagerImpl : ProjectManagerEx(), Disposable {
     }
   }
 
+  /**
+   * A welcome project without user data gives its frame to the new project without a confirmation.
+   * An IDE that always opens a project in a new window does not place the project itself, so its welcome project stays open.
+   */
+  private suspend fun reusesWelcomeFrameWithoutConfirmation(projectToClose: Project): Boolean {
+    return !ProjectLifecycleUiCustomization.getInstance().alwaysOpenProjectInNewWindow &&
+           WelcomeUtils.noCheckOpenConfirmation(projectToClose)
+  }
+
   private suspend fun closeAndDisposeKeepingFrame(project: Project, enableReuse: Boolean = true): Boolean {
     return withContext(Dispatchers.EDT) {
       try {
@@ -1275,11 +1286,11 @@ open class ProjectManagerImpl : ProjectManagerEx(), Disposable {
         writeIntentReadAction {
           if (enableReuse) {
             windowManager.withFrameReuseEnabled().use {
-              closeProjectWithConfirmation(project)
+              closeProject(project, checkCanClose = true)
             }
           }
           else {
-            closeProjectWithConfirmation(project)
+            closeProject(project, checkCanClose = true)
           }
         }
       }

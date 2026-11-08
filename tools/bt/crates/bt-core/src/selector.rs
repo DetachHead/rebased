@@ -1,13 +1,14 @@
 //! Selector classification and resolution: what a selector names, and the targets and filter it runs.
 
-use std::collections::HashMap;
 use std::fmt;
 use std::str::FromStr;
 
 use refusal::Refusal;
 
-use crate::areas::AREAS_FILE;
+use crate::areas::{AREAS_FILE, Areas};
+use crate::catalog::read_suite_documents;
 use crate::exit::fail_usage;
+use crate::modules::{Layout, resolve_module};
 use crate::runtime::{Platform, Runtime};
 use crate::scan::{Candidate, Index, ResolutionInputs, TestRoot, derive_package, read_dir_or_none, read_text};
 use crate::suites::{AffectedSuite, resolve_suite_run};
@@ -29,6 +30,9 @@ pub enum SelectorKind {
     Flow,
     /// A generated or authored suite id, the base name of one committed suite document.
     Suite,
+    /// A JPS module name, from `--module`. [`Selector::classify`] never answers it, because a module name reads as a
+    /// package. [`crate::modules::resolve_module`] resolves it.
+    Module,
 }
 
 impl SelectorKind {
@@ -48,6 +52,7 @@ impl SelectorKind {
             Self::Package => "package",
             Self::Flow => "flow",
             Self::Suite => "suite",
+            Self::Module => "module",
         }
     }
 }
@@ -62,8 +67,8 @@ impl fmt::Display for SelectorKind {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Selector {
     pub kind: SelectorKind,
-    /// A class simple name, a class FQN, a package, a directory path, a bazel label, a flow id or a suite id,
-    /// depending on the kind.
+    /// A class simple name, a class FQN, a package, a directory path, a bazel label, a flow id, a suite id or a
+    /// module name, depending on the kind.
     pub name: String,
     /// The single test method to run. `Foo#` is not a selector this accepts, so there is no empty method.
     pub method: Option<String>,
@@ -81,7 +86,7 @@ impl Selector {
 
     /// Reads one selector without touching the filesystem.
     pub fn classify(raw: &str) -> Result<Self, Refusal> {
-        if raw.starts_with("//") {
+        if is_target_pattern(raw) {
             let kind = if raw.ends_with("/...") || raw.contains('*') {
                 SelectorKind::Pattern
             } else {
@@ -157,9 +162,16 @@ impl Selector {
         Err(fail_usage(format!(
             "Cannot interpret selector: {raw}\n\
              Expected ClassName, ClassName#method, a.b.c.ClassName, a.b.c (package), a/directory/path, \
-             //pkg:target, //pkg/..., flow-id, or suite-id"
+             //pkg:target, @repo//pkg:target, //pkg/..., flow-id, or suite-id"
         )))
     }
+}
+
+/// Whether a value is a bazel label or a target pattern from the root of a repository: `//pkg:target`, or
+/// `@repo//pkg:target` of another repository. The hint of a module outside the migrated list names the second form. No
+/// other kind of selector starts with `//` or `@`.
+pub fn is_target_pattern(value: &str) -> bool {
+    value.starts_with("//") || value.starts_with('@')
 }
 
 impl FromStr for Selector {
@@ -243,19 +255,20 @@ pub fn resolve_selector(runtime: &dyn Runtime, selector: &Selector, inputs: &Res
         // Before any tree scan: a label and a pattern already name their targets.
         SelectorKind::Label | SelectorKind::Pattern => {
             return Ok(Resolution {
-                labels: vec![selector.name.clone()],
+                labels: vec![checkout_label(runtime, &selector.name)],
                 multi_target: selector.kind == SelectorKind::Pattern,
                 ..Resolution::default()
             });
         }
         SelectorKind::Dir => {
-            let dir = repo_relative_dir(runtime, &selector.name)?;
             return Ok(Resolution {
-                labels: vec![format!("//{dir}/...")],
+                labels: vec![directory_pattern(runtime, &selector.name)?],
                 multi_target: true,
                 ..Resolution::default()
             });
         }
+        // Before the tree scan too: the module list and one BUILD.bazel answer it.
+        SelectorKind::Module => return resolve_module(runtime, inputs.areas(), &selector.name),
         SelectorKind::Package | SelectorKind::SimpleName | SelectorKind::Fqn if inputs.areas().is_empty() => {
             return Err(fail_usage(format!(
                 "{} is a {} selector, and {AREAS_FILE} names no area to scan for it; pass a //label or a \
@@ -273,27 +286,43 @@ pub fn resolve_selector(runtime: &dyn Runtime, selector: &Selector, inputs: &Res
 
     let index = inputs.index()?;
     let simple_name = wanted_simple_name(selector);
+    let documented = documented_classes(runtime, inputs.areas(), simple_name)?;
     let mut candidates = index.get(simple_name).cloned().unwrap_or_default();
-    if candidates.is_empty() {
+    if candidates.is_empty() && documented.is_empty() {
         // The @Nested / secondary-class fallback: the filename told us nothing, so read every indexed file.
         candidates = scan_for_type(runtime, index, simple_name)?;
     }
-    if selector.kind == SelectorKind::Fqn && candidates.len() > 1 {
-        let expected_package = selector.name.rsplit_once('.').map_or("", |(package, _)| package);
-        let mut narrowed = Vec::new();
-        for candidate in &candidates {
-            if derive_package(&read_text(runtime, &candidate.file)?) == expected_package {
-                narrowed.push(candidate.clone());
-            }
-        }
+
+    // Keyed by FQN and kept in candidate order, which is what the caller is asked to copy a name out of. A class that a
+    // suite document names runs in the lane of the document, so its label is the test label of that lane, also where
+    // the index found the class in a module.
+    let mut found: Vec<(String, String)> = Vec::new();
+    let mut keep = |fqn: String, label: String| match found.iter_mut().find(|(known, _)| *known == fqn) {
+        Some(entry) => entry.1 = label,
+        None => found.push((fqn, label)),
+    };
+    for candidate in candidates {
+        let package = derive_package(&read_text(runtime, &candidate.file)?);
+        let fqn = if package.is_empty() {
+            candidate.simple_name.clone()
+        } else {
+            format!("{package}.{}", candidate.simple_name)
+        };
+        keep(fqn, candidate.root.label.clone());
+    }
+    for (fqn, label) in documented {
+        keep(fqn, label);
+    }
+    if selector.kind == SelectorKind::Fqn && found.len() > 1 {
+        let narrowed: Vec<(String, String)> = found.iter().filter(|(fqn, _)| *fqn == selector.name).cloned().collect();
         // An FQN that narrows to nothing keeps the wide list, so the answer is the ambiguity refusal naming every
         // real candidate rather than "no such class" for a class that plainly exists.
         if !narrowed.is_empty() {
-            candidates = narrowed;
+            found = narrowed;
         }
     }
 
-    if candidates.is_empty() {
+    if found.is_empty() {
         let suggestions = suggest_names(simple_name, index.keys().map(String::as_str), 3);
         let hint = if suggestions.is_empty() {
             "  (no similar name found; @Nested and secondary top-level classes need a full FQN)".to_owned()
@@ -310,43 +339,50 @@ pub fn resolve_selector(runtime: &dyn Runtime, selector: &Selector, inputs: &Res
         )));
     }
 
-    // Keyed by FQN and kept in candidate order, which is what the caller is asked to copy a name out of.
-    let mut order: Vec<String> = Vec::new();
-    let mut by_fqn: HashMap<String, Candidate> = HashMap::new();
-    for candidate in candidates {
-        let package = derive_package(&read_text(runtime, &candidate.file)?);
-        let fqn = if package.is_empty() {
-            candidate.simple_name.clone()
-        } else {
-            format!("{package}.{}", candidate.simple_name)
-        };
-        if !by_fqn.contains_key(&fqn) {
-            order.push(fqn.clone());
-        }
-        by_fqn.insert(fqn, candidate);
-    }
-    if order.len() > 1 {
-        let listed: Vec<String> = order
-            .iter()
-            .map(|fqn| format!("  {fqn}\n      {}", by_fqn[fqn].root.label))
-            .collect();
+    if found.len() > 1 {
+        let listed: Vec<String> = found.iter().map(|(fqn, label)| format!("  {fqn}\n      {label}")).collect();
         return Err(fail_usage(format!(
             "{} classes named {simple_name}; pass the fully-qualified name:\n{}",
-            order.len(),
+            found.len(),
             listed.join("\n")
         )));
     }
 
-    let fqn = &order[0];
+    let (fqn, label) = found.swap_remove(0);
     let filter = match &selector.method {
         Some(method) => format!("{fqn}#{method}"),
-        None => fqn.clone(),
+        None => fqn,
     };
     Ok(Resolution {
-        labels: vec![by_fqn[fqn].root.label.clone()],
+        labels: vec![label],
         filter: Some(filter),
         ..Resolution::default()
     })
+}
+
+/// The classes named `simple_name` that a committed suite document names, each as its FQN and the test label of the
+/// lane of its document. The class of a UI lane needs no test target of its module: the lane runs it.
+///
+/// An area set without a suite catalog, or a catalog directory that holds no document yet, names no class. A
+/// document that cannot be read is refused, as every reader of the catalog refuses it.
+fn documented_classes(runtime: &dyn Runtime, areas: &Areas, simple_name: &str) -> Result<Vec<(String, String)>, Refusal> {
+    let Some(catalog) = areas.iter().find_map(|area| area.lanes().catalog()) else {
+        return Ok(Vec::new());
+    };
+    let holds_documents = read_dir_or_none(runtime, catalog.flow_profile_dir)
+        .is_some_and(|entries| entries.iter().any(|entry| !entry.is_dir && entry.name.ends_with(".json")));
+    if !holds_documents {
+        return Ok(Vec::new());
+    }
+    let area = areas.with_catalog()?;
+    Ok(read_suite_documents(runtime, area)?
+        .iter()
+        .filter(|document| document.test_class_name == simple_name)
+        .filter_map(|document| {
+            let label = area.lanes().by_suite_lane(&document.lane)?.test_label.clone()?;
+            Some((document.test_class().to_owned(), label))
+        })
+        .collect())
 }
 
 /// The roots whose declared package prefix covers a package.
@@ -392,11 +428,61 @@ fn resolve_package(runtime: &dyn Runtime, selector: &Selector, inputs: &Resoluti
     })
 }
 
+/// The recursive target pattern of a directory selector. In the ultimate root, the root `.bazelignore` hides
+/// `community/`, so a directory under it is a package of the `@community` repository.
+pub fn directory_pattern(runtime: &dyn Runtime, raw: &str) -> Result<String, Refusal> {
+    let dir = repo_relative_dir(runtime, raw)?;
+    Ok(Layout::detect(runtime).pattern(&dir))
+}
+
+/// A label or a target pattern as the checkout root runs it. In the ultimate root, the root `.bazelignore` hides
+/// `community/`: bazel only warns that `//community/tools/vm/...` was filtered out, and it builds nothing. So such a
+/// value becomes its `@community` spelling, as a directory selector does. Every other value stays as it is.
+pub fn checkout_label(runtime: &dyn Runtime, raw: &str) -> String {
+    // Only a value that can name the community directory costs the layout probe.
+    if !raw.starts_with("//community") {
+        return raw.to_owned();
+    }
+    Layout::detect(runtime).community_label(raw).unwrap_or_else(|| raw.to_owned())
+}
+
+/// Refuses a label or a target pattern of the root repository whose package directory is not in the checkout.
+///
+/// `bt` runs every pattern in the checkout root, which `bt.cmd` finds from its own path, also when the working
+/// directory is `community/` of the ultimate root. There `//tools/vm/...` names a directory of the community
+/// repository, and the refusal names its `@community` spelling. A label of another repository, a package with a
+/// wildcard and the root package are not checked.
+pub fn check_package_dir(runtime: &dyn Runtime, label: &str) -> Result<(), Refusal> {
+    let Some(body) = label.strip_prefix("//") else {
+        return Ok(());
+    };
+    let path = body.split_once(':').map_or(body, |(path, _)| path);
+    let dir = if path == "..." {
+        ""
+    } else {
+        path.strip_suffix("/...").unwrap_or(path)
+    };
+    if dir.is_empty() || dir.contains('*') || runtime.exists(&repo_file(runtime, dir)) {
+        return Ok(());
+    }
+    let root = runtime.repo_root().to_string_lossy();
+    let community = format!("community/{dir}");
+    let hint = if Layout::detect(runtime) == Layout::Ultimate && runtime.exists(&repo_file(runtime, &community)) {
+        format!(";\n   for {community}, pass @community//{body}")
+    } else {
+        String::new()
+    };
+    Err(fail_usage(format!(
+        "No such directory: {dir}\n  (bt runs every target pattern in the checkout root {root}, whatever the working \
+         directory{hint})"
+    )))
+}
+
 /// Resolves a directory selector against the repository root, not the process working directory: under `bt.cmd`
 /// the working directory is a runfiles tree, and a bazel target pattern is repo-relative anyway. A path that does
 /// not exist is a usage refusal rather than an empty pattern, because a typo would otherwise become a silent
 /// zero-target run reported as "no tests".
-pub fn repo_relative_dir(runtime: &dyn Runtime, raw: &str) -> Result<String, Refusal> {
+fn repo_relative_dir(runtime: &dyn Runtime, raw: &str) -> Result<String, Refusal> {
     // A trailing `/...` is bazel's wildcard rather than part of the path, and a Windows shell spells it with the
     // other separator.
     let trimmed = raw

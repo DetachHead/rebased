@@ -7700,6 +7700,26 @@ public abstract class K2LocalInspectionTestGenerated extends AbstractK2LocalInsp
             runTest("../../../idea/tests/testData/inspectionsLocal/mayBeConstant/simplest.kt");
         }
 
+        @TestMetadata("unsignedExpression.kt")
+        public void testUnsignedExpression() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/mayBeConstant/unsignedExpression.kt");
+        }
+
+        @TestMetadata("unsignedLiteral.kt")
+        public void testUnsignedLiteral() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/mayBeConstant/unsignedLiteral.kt");
+        }
+
+        @TestMetadata("unsignedLongLiteral.kt")
+        public void testUnsignedLongLiteral() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/mayBeConstant/unsignedLongLiteral.kt");
+        }
+
+        @TestMetadata("unsignedShortExpression.kt")
+        public void testUnsignedShortExpression() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/mayBeConstant/unsignedShortExpression.kt");
+        }
+
         @TestMetadata("var.kt")
         public void testVar() throws Exception {
             runTest("../../../idea/tests/testData/inspectionsLocal/mayBeConstant/var.kt");

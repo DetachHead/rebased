@@ -5,8 +5,12 @@ import com.intellij.idea.TestFor
 import com.jetbrains.python.allure.Components
 import com.jetbrains.python.allure.Layers
 import com.jetbrains.python.allure.Subsystems
+import com.jetbrains.python.codeInsight.decorator.PyFunctoolsWrapsDecoratedFunctionTypeProvider
+import com.jetbrains.python.codeInsight.stdlib.PyStdlibTypeProvider
 import com.jetbrains.python.fixtures.PyCodeInsightTestCase
+import com.jetbrains.python.inspections.PyTypeHintsInspection
 import com.jetbrains.python.psi.LanguageLevel
+import com.jetbrains.python.psi.types.PyFunctionTypeImpl
 import org.junit.jupiter.api.Nested
 import org.junit.jupiter.api.Test
 
@@ -885,7 +889,7 @@ class PyCallableTypeTest : PyCodeInsightTestCase() {
       def f(items: list[A]):
           item = items[0]
           _ = item(-7)
-      #   └ TYPE int
+      #   └ TYPE Literal[-7]
           _ = items[0](1)
       #   └ TYPE Literal[1]
       """.trimIndent())
@@ -902,6 +906,36 @@ class PyCallableTypeTest : PyCodeInsightTestCase() {
       #            ^^^ WARNING Expected type 'int', got 'Literal["s"]' instead
       bar("s")
       #   ^^^ WARNING Expected type 'int', got 'Literal["s"]' instead
+      """.trimIndent())
+
+    @Test
+    @TestFor(classes = [PyFunctionTypeImpl::class])
+    fun `bound method has __self__`() = test("""
+      class Cls:
+          def meth(self) -> int: return 1
+
+      res = Cls().meth.__self__
+      #                ^^^^^^^^ WARNING Cannot find reference '__self__' in '() -> int' FIXME
+      """.trimIndent())
+
+    @Test
+    @TestFor(classes = [PyFunctionTypeImpl::class])
+    fun `bound method has __func__`() = test("""
+      class Cls:
+          def meth(self) -> int: return 1
+
+      res = Cls().meth.__func__
+      #                ^^^^^^^^ WARNING Cannot find reference '__func__' in '() -> int' FIXME
+      """.trimIndent())
+
+    @Test
+    @TestFor(classes = [PyFunctionTypeImpl::class])
+    fun `bound method __name__ is str`() = test("""
+      class Cls:
+          def meth(self) -> int: return 1
+
+      res = Cls().meth.__name__
+      # └ TYPE str
       """.trimIndent())
   }
 
@@ -1929,6 +1963,105 @@ class PyCallableTypeTest : PyCodeInsightTestCase() {
           expr = f(fn)
       #   └ TYPE MyCallable[Concatenate(int, int, **P3)]
       """.trimIndent())
+
+    @Test
+    @TestFor(issues = ["PY-93095"])
+    fun `class generic over single ParamSpec accepts type arguments without brackets`() = test("""
+      class A[**P]:
+          def f(self, *args: P.args, **kwargs: P.kwargs): ...
+
+      b: A[int, str] = A()
+      expr = b
+      #└ TYPE A[[int, str]]
+      b.f(1, "a")
+      b.f(1, 2) # WARNING Expected type 'str', got 'Literal[2]' instead
+      """.trimIndent())
+
+    @Test
+    @TestFor(issues = ["PY-93095"])
+    fun `class generic over single ParamSpec accepts type arguments without brackets old style`() = test("""
+      from typing import Generic, ParamSpec
+
+      P = ParamSpec("P")
+
+      class A(Generic[P]):
+          def f(self, *args: P.args, **kwargs: P.kwargs): ...
+
+      b: A[int, str] = A()
+      expr = b
+      #└ TYPE A[[int, str]]
+      b.f(1, "a")
+      b.f(1, 2) # WARNING Expected type 'str', got 'Literal[2]' instead
+      """.trimIndent())
+
+    @Test
+    @TestFor(issues = ["PY-93095"])
+    fun `class generic over ParamSpec parameterized with ellipsis accepts any arguments`() = test("""
+      class A[**P]:
+          def f(self, *args: P.args, **kwargs: P.kwargs): ...
+
+      A[...]().f(1, "a")
+      a: A[...] = A()
+      a.f(1, "a")
+      """.trimIndent())
+
+    @Test
+    @TestFor(issues = ["PY-93095"])
+    fun `class generic over ParamSpec parameterized with ellipsis accepts any arguments old style`() = test("""
+      from typing import Generic, ParamSpec
+
+      P = ParamSpec("P")
+
+      class A(Generic[P]):
+          def f(self, *args: P.args, **kwargs: P.kwargs): ...
+
+      A[...]().f(1, "a")
+      a: A[...] = A()
+      a.f(1, "a")
+      """.trimIndent())
+
+    @Test
+    @TestFor(issues = ["PY-93095"])
+    fun `class generic over single ParamSpec parameterized with one type`() = test("""
+      from typing import Any
+
+      class A[**P]:
+          def f(self, *args: P.args, **kwargs: P.kwargs): ...
+
+      a: A[Any]
+      a.f(1, "a")
+      #      ^^^ WARNING Unexpected argument
+      b: A[int]
+      expr = b
+      #└ TYPE A[[int]]
+      """.trimIndent())
+
+    @Test
+    @TestFor(issues = ["PY-93095"])
+    @TestInspections(disableInspections = [PyTypeHintsInspection::class])
+    fun `ParamSpec Callable alias parameterized with ellipsis`() = test("""
+      from typing import Callable, ParamSpec, TypeAlias
+
+      P = ParamSpec("P")
+
+      Callback1: TypeAlias = Callable[P, str]
+
+      expr: Callback1[...]
+      #└ TYPE (...) -> str
+      """.trimIndent())
+
+    @Test
+    @TestFor(issues = ["PY-93095"])
+    fun `ellipsis inside parameter list is an error`() = test("""
+      from typing import Callable
+
+      class A[**P]: ...
+
+      a: A[[...]]
+      #     ^^^ ERROR '...' is not allowed in a parameter list
+      c: Callable[[...], int]
+      #            ^^^ ERROR '...' is not allowed in a parameter list
+      """.trimIndent())
   }
 
   @Nested
@@ -2113,6 +2246,129 @@ class PyCallableTypeTest : PyCodeInsightTestCase() {
       expr = Clazz[..., [float]]()
       #└ TYPE Clazz[Unknown, [float | int], [float | int]]
       """.trimIndent())
+
+    @Test
+    @TestFor(issues = ["PY-92890"])
+    fun `omitted ParamSpec with ellipsis default old style`() = test("""
+      from typing import Generic, ParamSpec
+
+      P2 = ParamSpec("P2", default=[int, str])
+      P3 = ParamSpec("P3", default=...)
+
+      class Clazz2(Generic[P2, P3]): ...
+
+      def f(omitted: Clazz2[[float]], explicit: Clazz2[[float], ...]):
+          omitted
+      #   └ TYPE Clazz2[[float | int], Unknown]
+          explicit
+      #   └ TYPE Clazz2[[float | int], Unknown]
+      """.trimIndent())
+
+    @Test
+    @TestFor(issues = ["PY-92890"])
+    fun `omitted ParamSpec with ellipsis default`() = test("""
+      class Clazz2[**P2 = [int, str], **P3 = ...]: ...
+
+      def f(omitted: Clazz2[[float]], explicit: Clazz2[[float], ...], bare: Clazz2):
+          omitted
+      #   └ TYPE Clazz2[[float | int], Unknown]
+          explicit
+      #   └ TYPE Clazz2[[float | int], Unknown]
+          bare
+      #   └ TYPE Clazz2[[int, str], Unknown]
+      """.trimIndent())
+
+    @Test
+    @TestFor(issues = ["PY-92890"])
+    fun `member typed with omitted ParamSpec with ellipsis default`() = test("""
+      from typing import Callable
+
+      class Clazz2[**P2 = [int, str], **P3 = ...]:
+          def first(self) -> Callable[P2, int]: ...
+          def second(self) -> Callable[P3, int]: ...
+
+      def f(c: Clazz2[[float]]):
+          first = c.first()
+      #   └ TYPE (float | int) -> int
+          second = c.second()
+      #   └ TYPE (...) -> int
+          second(1, "a", x=None)
+      """.trimIndent())
+
+    @Test
+    @TestFor(issues = ["PY-92890"])
+    fun `function with ParamSpec with ellipsis default`() = test("""
+      from typing import Callable
+
+      def f[**P = ...]() -> Callable[P, int]: ...
+
+      # using a list to widen to a PyCallableType
+      expr = [f][0]
+      #└ TYPE [**P = ...]() -> (**P) -> int
+      result = f()
+      #└ TYPE (...) -> int
+      """.trimIndent())
+
+    @Test
+    @TestFor(issues = ["PY-92890"])
+    fun `type alias with ParamSpec with ellipsis default`() = test("""
+      from typing import Callable
+
+      type PAlias[T = str, **P = ...] = Callable[P, T]
+
+      def f(omitted: PAlias[int], bare: PAlias):
+          omitted
+      #   └ TYPE (...) -> int
+          bare
+      #   └ TYPE (...) -> str
+      """.trimIndent())
+
+    @Test
+    @TestFor(issues = ["PY-92890"])
+    fun `imported class with ParamSpec with ellipsis default`() = test("""
+      from mod import Clazz2, Clazz3
+
+      def f(c2: Clazz2[[float]], c3: Clazz3[[float]]):
+          c2
+      #   └ TYPE Clazz2[[float | int], Unknown]
+          second = c2.second()
+      #   └ TYPE (...) -> int
+          c3
+      #   └ TYPE Clazz3[[float | int], Unknown]
+      """.trimIndent(),
+      "mod.py" to """
+        from typing import Callable, Generic, ParamSpec
+
+        P2 = ParamSpec("P2", default=[int, str])
+        P3 = ParamSpec("P3", default=...)
+
+        class Clazz2(Generic[P2, P3]):
+            def second(self) -> Callable[P3, int]: ...
+
+        class Clazz3[**P4 = [int, str], **P5 = ...]: ...
+        """.trimIndent())
+
+    @Test
+    @TestFor(issues = ["PY-92890"])
+    fun `stub class with ParamSpec with ellipsis default`() = test("""
+      from mod import Clazz2, Clazz3
+
+      def f(c2: Clazz2[[float]], c3: Clazz3[[float]]):
+          c2
+      #   └ TYPE Clazz2[[float | int], Unknown]
+          c3
+      #   └ TYPE Clazz3[[float | int], Unknown]
+      """.trimIndent(),
+      "mod.pyi" to """
+        from typing import Generic, ParamSpec
+
+        P2 = ParamSpec("P2", default=[int, str])
+        P3 = ParamSpec("P3", default=...)
+
+        class Clazz2(Generic[P2, P3]): ...
+
+        class Clazz3[**P4 = [int, str], **P5 = ...]: ...
+        """.trimIndent())
   }
 
   @Nested
@@ -2510,7 +2766,6 @@ class PyCallableTypeTest : PyCodeInsightTestCase() {
 
       type TypeAliasWithP[**P] = Callable[P, None]
       #                          ^^^^^^^^ ERROR Unresolved reference 'Callable'
-      #                          ^^^^^^^^^^^^^^^^^ WARNING Invalid type annotation
 
       def func[**P](proto: ProtocolWithP[P], ta: TypeAliasWithP[P]):
         # These two types are equivalent
@@ -3461,6 +3716,70 @@ class PyCallableTypeTest : PyCodeInsightTestCase() {
             def route(self, s: str):
                 pass
         """.trimIndent())
+
+    @Test
+    @TestFor(classes = [PyStdlibTypeProvider::class])
+    fun `partial keyword bound parameter can be overridden`() = test("""
+      from functools import partial
+
+      def func(a: int, b: str = "") -> bytes: ...
+
+      par = partial(func, b="x")
+      par(1, b="y")
+      #      ^^^^^ WARNING Unexpected argument FIXME
+      """.trimIndent())
+
+    @Test
+    @TestFor(classes = [PyStdlibTypeProvider::class])
+    fun `partial object has the func attribute`() = test("""
+      from functools import partial
+
+      def func(a: int, b: str = "") -> bytes: ...
+
+      par = partial(func, 1)
+      par.func
+      #   ^^^^ WARNING Cannot find reference 'func' in '(b: str) -> bytes' FIXME
+      res = par()
+      # └ TYPE bytes
+      """.trimIndent())
+
+    @Test
+    @TestFor(classes = [PyStdlibTypeProvider::class])
+    fun `unknown attribute of an lru_cache function is reported`() = test("""
+      from functools import lru_cache
+
+      @lru_cache
+      def func(x: int) -> str: ...
+
+      func.no_such_attribute # WARNING FIXME Cannot find reference 'no_such_attribute' in '_lru_cache_wrapper[str]'
+      """.trimIndent())
+
+    @Test
+    @TestFor(classes = [PyStdlibTypeProvider::class])
+    fun `unknown attribute of a cache function is reported`() = test("""
+      from functools import cache
+
+      @cache
+      def func(x: int) -> str: ...
+
+      func.no_such_attribute # WARNING Unresolved attribute reference 'no_such_attribute' for class '_lru_cache_wrapper'
+      """.trimIndent())
+
+    @Test
+    @TestFor(classes = [PyFunctoolsWrapsDecoratedFunctionTypeProvider::class])
+    fun `wraps keeps the signature of a typed wrapper`() = test("""
+      from functools import wraps
+
+      def orig(x: int) -> int: ...
+
+      @wraps(orig)
+      def wrapper(x: str, y: str) -> str: ...
+
+      res = wrapper("a", "b")
+      # │           │    ^^^ WARNING Unexpected argument FIXME
+      # │           ^^^ WARNING Expected type 'int', got 'Literal["a"]' instead FIXME
+      # └ TYPE int FIXME str
+      """.trimIndent())
   }
 
   @Test

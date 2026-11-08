@@ -7,7 +7,7 @@ members = ["crates/*", "bins/*"]
 [workspace.package]
 version = "0.1.0"
 edition = "2024"
-rust-version = "1.93"
+rust-version = "1.99"
 publish = false
 license = "Apache-2.0"
 
@@ -122,13 +122,17 @@ verbose_file_reads = "warn"
 
 # Features are additive, and rules_rs resolves one feature set per crate for the whole workspace, so every feature is
 # named here. A crate lists a dependency with `.workspace = true`, with one exception. The Air UI-lane workspace,
-# `plugins/air/tests/integration/vm-lane`, links `bt-junit` and `bt-core` through path dependencies, and rules_rs reads
+# `community/tools/vm`, links `bt-junit` and `bt-core` through path dependencies, and rules_rs reads
 # their `[dependencies]` without this workspace. Those two crates spell each normal dependency inline, with the version
 # and the features of this table.
 [workspace.dependencies]
 # Workspace crates.
 bt-core = { path = "crates/bt-core" }
 bt-junit = { path = "crates/bt-junit" }
+# The client of yonder, for `--host`, and its link. rules_rs finds the path of a crate of the lock only in a
+# dependency of a member, so `bt` names both. `defs.bzl` maps both to their targets in this module.
+yonder-client = { path = "../yonder/crates/yonder-client" }
+yonder-link = { path = "../yonder/crates/yonder-link" }
 
 # Documents and text.
 jiff = "0.2.37"

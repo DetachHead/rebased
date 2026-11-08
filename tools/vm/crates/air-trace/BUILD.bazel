@@ -1,0 +1,20 @@
+load("//tools/vm:avl.bzl", "avl_crate")
+
+# The planner tests that read the suite documents skip here, because the flow-profiles jar is a target of the ultimate
+# root. `//plugins/air/tests/integration/vm-contract:air-trace-plan-test` runs them with the jar.
+avl_crate(
+    closure = True,
+    portable = True,
+    # The recorded TeamCity REST answers of `serve --teamcity`, and the golden of `teamcity-publish`.
+    test_data = [
+        ":testdata",
+        "//tools/vm/crates/avl-trace:testdata",
+    ],
+)
+
+# Public: `//plugins/air/tests/integration/vm-contract:air-trace-plan-test` runs the same tests from the ultimate root.
+filegroup(
+    name = "testdata",
+    srcs = glob(["testdata/**"]),
+    visibility = ["//visibility:public"],
+)

@@ -7,6 +7,7 @@ import com.jetbrains.python.allure.Layers
 import com.jetbrains.python.allure.Subsystems
 import com.jetbrains.python.fixtures.PyCodeInsightTestCase
 import com.jetbrains.python.psi.LanguageLevel
+import com.jetbrains.python.psi.impl.PyPrefixExpressionImpl
 import com.jetbrains.python.psi.impl.PyYieldExpressionImpl
 import org.junit.jupiter.api.Nested
 import org.junit.jupiter.api.Test
@@ -838,6 +839,22 @@ class PyComprehensionAndIteratorTypeTest : PyCodeInsightTestCase() {
       # └ TYPE Generator[Literal[1], Unknown, Literal["foo"]]
       """.trimIndent())
 
+    @TestFor(issues = ["PY-92828"])
+    @Test
+    @TestCaseOptions(assertRecursionPrevention = false)
+    fun `yielded tuple type after the type of the generator function`() = test("""
+      def g(line):
+      #   └ TYPE (line: {find, startswith}) -> Generator[tuple[Literal[0], Literal["def"]] | tuple[Unknown, Literal["if"]], Unknown, None]
+          found = line.find(":")
+          while -1 < found:
+              if line.startswith("def"):
+                  yield 0, "def"
+      #                  └ TYPE tuple[Literal[0], Literal["def"]]
+              elif line.startswith("if"):
+                  yield found, "if"
+              found = line.find(":", found + 1)
+      """.trimIndent())
+
     @TestFor(issues = ["PY-20710"])
     @Test
     fun `yield expression type from generator send type hint`() = test("""
@@ -1287,6 +1304,18 @@ class PyComprehensionAndIteratorTypeTest : PyCodeInsightTestCase() {
           c = C()
           expr = await c
       #   └ TYPE Literal[0]
+      """.trimIndent())
+
+    @Test
+    @TestFor(classes = [PyPrefixExpressionImpl::class])
+    fun `await an object whose __await__ returns no generator`() = test("""
+      class C:
+          def __await__(self):
+              pass
+
+      async def foo():
+          expr = await C()
+      #   └ TYPE Unknown
       """.trimIndent())
 
     @Test

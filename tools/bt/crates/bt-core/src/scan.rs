@@ -113,6 +113,58 @@ pub fn parse_jps_test_name(build_text: &str) -> Result<Option<String>, Refusal> 
     }
 }
 
+/// The `jps_test` target of a BUILD.bazel that runs the tests of one module, or `None` when no target runs them.
+///
+/// A target runs the module when its `runtime_deps` name a rule of the same file whose `module_name` is the module, or
+/// the `<rule>_test_lib` of such a rule. The BUILD generator names the test library so, and it omits `module_name` on
+/// a test library that has `associates`. One directory can hold several modules, and its BUILD.bazel then declares a target for each of them. A target that
+/// pins `JB_TEST_JUNIT5_FILTERS` counts too, because for some modules it is the only target. When the module has an
+/// unfiltered target too, the unfiltered target wins, as in [`parse_jps_test_name`].
+pub fn module_jps_test_name(build_text: &str, module: &str) -> Result<Option<String>, Refusal> {
+    let rule_start = regex!(r"(?m)^([A-Za-z_][A-Za-z0-9_]*)\(");
+    let rule_name = regex!(r#"(?:^|[\s,(])name\s*=\s*"([^"]+)""#);
+    let module_name = regex!(r#"(?:^|[\s,(])module_name\s*=\s*"([^"]+)""#);
+    let first = |pattern: &Regex, body: &str| pattern.captures(body).and_then(|found| Some(found.get(1)?.as_str().to_owned()));
+    let rules: Vec<(String, String)> = rule_start
+        .captures_iter(build_text)
+        .filter_map(|found| Some((found.get(1)?.as_str().to_owned(), rule_body(build_text, found.get(0)?.end()))))
+        .collect();
+    let module_rules: Vec<String> = rules
+        .iter()
+        .filter(|(_, body)| first(module_name, body).as_deref() == Some(module))
+        .filter_map(|(_, body)| first(rule_name, body))
+        .collect();
+    let targets: Vec<(String, bool)> = rules
+        .iter()
+        .filter(|(kind, body)| {
+            kind == "jps_test"
+                && module_rules
+                    .iter()
+                    .any(|rule| body.contains(&format!("\":{rule}\"")) || body.contains(&format!("\":{rule}_test_lib\"")))
+        })
+        .filter_map(|(_, body)| Some((first(rule_name, body)?, body.contains("JB_TEST_JUNIT5_FILTERS"))))
+        .collect();
+    let unfiltered: Vec<&str> = targets
+        .iter()
+        .filter(|(_, filtered)| !filtered)
+        .map(|(name, _)| name.as_str())
+        .collect();
+    let chosen: Vec<&str> = if unfiltered.is_empty() {
+        targets.iter().map(|(name, _)| name.as_str()).collect()
+    } else {
+        unfiltered
+    };
+    match chosen.as_slice() {
+        [] => Ok(None),
+        [only] => Ok(Some((*only).to_owned())),
+        _ => Err(fail_infra(format!(
+            "Expected one jps_test of module {module} per BUILD.bazel, found {}: {}",
+            chosen.len(),
+            chosen.join(", ")
+        ))),
+    }
+}
+
 /// The text of a rule's argument list, from just past its opening paren to the matching close, with `#` comments
 /// blanked out so a commented-out `name = "..."` cannot be mistaken for the real one.
 ///
@@ -238,33 +290,44 @@ pub fn read_text(runtime: &dyn Runtime, file: &str) -> Result<String, Refusal> {
         .map_err(|error| fail_infra(format!("{file} is unreadable: {error}")))
 }
 
-/// One pruned, breadth-first, concurrent pass over the directories; both discovery passes read its result.
-pub fn scan_tree(runtime: &dyn Runtime, dirs: &[&str]) -> TreeScan {
-    let mut scan = TreeScan::default();
-    let mut frontier: Vec<String> = dirs.iter().map(|dir| (*dir).to_owned()).collect();
+/// Walks the repo-relative directories breadth first, with one concurrent listing pass per level.
+///
+/// `visit` gets each readable directory with its entries, and pushes the subdirectories to walk into `next`. A
+/// directory that cannot be read is skipped.
+pub fn walk_dirs(runtime: &dyn Runtime, roots: Vec<String>, mut visit: impl FnMut(&str, Vec<DirEntry>, &mut Vec<String>)) {
+    let mut frontier = roots;
     while !frontier.is_empty() {
         let listings = par_map(&frontier, |dir| read_dir_or_none(runtime, dir));
         let mut next = Vec::new();
         for (dir, entries) in frontier.iter().zip(listings) {
-            let Some(entries) = entries else { continue };
-            scan.dirs.insert(dir.clone());
-            for entry in entries {
-                let path = format!("{dir}/{}", entry.name);
-                if entry.is_dir {
-                    // `bazel-*` is the convenience symlink farm bazel drops in a workspace; following it would walk
-                    // the whole output base and index stale generated copies of these sources.
-                    if !PRUNED_DIRS.contains(&entry.name.as_str()) && !entry.name.starts_with("bazel-") {
-                        next.push(path);
-                    }
-                } else if entry.name.ends_with(".iml") {
-                    scan.imls.push(path);
-                } else if source_simple_name(&entry.name).is_some() {
-                    scan.sources.push(path);
-                }
+            if let Some(entries) = entries {
+                visit(dir, entries, &mut next);
             }
         }
         frontier = next;
     }
+}
+
+/// One pruned, breadth-first, concurrent pass over the directories; both discovery passes read its result.
+pub fn scan_tree(runtime: &dyn Runtime, dirs: &[&str]) -> TreeScan {
+    let mut scan = TreeScan::default();
+    walk_dirs(runtime, dirs.iter().map(|dir| (*dir).to_owned()).collect(), |dir, entries, next| {
+        scan.dirs.insert(dir.to_owned());
+        for entry in entries {
+            let path = format!("{dir}/{}", entry.name);
+            if entry.is_dir {
+                // `bazel-*` is the convenience symlink farm bazel drops in a workspace; following it would walk
+                // the whole output base and index stale generated copies of these sources.
+                if !PRUNED_DIRS.contains(&entry.name.as_str()) && !entry.name.starts_with("bazel-") {
+                    next.push(path);
+                }
+            } else if entry.name.ends_with(".iml") {
+                scan.imls.push(path);
+            } else if source_simple_name(&entry.name).is_some() {
+                scan.sources.push(path);
+            }
+        }
+    });
     scan
 }
 

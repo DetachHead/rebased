@@ -265,9 +265,7 @@
     <extensionPoint qualifiedName="com.intellij.fileTypeOverrider" interface="com.intellij.openapi.fileTypes.impl.FileTypeOverrider" dynamic="true"/>
     <extensionPoint qualifiedName="com.intellij.colorPickerListenerFactory" interface="com.intellij.ui.ColorPickerListenerFactory" dynamic="true"/>
     <extensionPoint qualifiedName="com.intellij.search.projectOptionsTopHitProvider" interface="com.intellij.ide.ui.OptionsSearchTopHitProvider$ProjectLevelProvider" dynamic="true"/>
-    <extensionPoint qualifiedName="com.intellij.pluginInitializationErrorHandler"
-                    interface="com.intellij.ide.plugins.PluginInitializationErrorHandler"
-                    dynamic="true"/>
+    <extensionPoint qualifiedName="com.intellij.pluginLoadingProblemsNotificationHandler" interface="com.intellij.ide.plugins.PluginLoadingProblemsNotificationHandler" dynamic="true"/>
     <extensionPoint qualifiedName="com.intellij.pluginSuggestionProvider" dynamic="true"
                     interface="com.intellij.openapi.updateSettings.impl.pluginsAdvertisement.PluginSuggestionProvider"/>
     <extensionPoint qualifiedName="com.intellij.pluginAdvertiserSuppressor" dynamic="true"
@@ -431,7 +429,7 @@
                     dynamic="true"/>
     <extensionPoint qualifiedName="com.intellij.managedCacheFactory" interface="com.intellij.util.io.cache.ManagedCacheFactory" dynamic="true" />
     <extensionPoint qualifiedName="com.intellij.editorSkeletonPolicy" interface="com.intellij.openapi.fileEditor.impl.EditorSkeletonPolicy" dynamic="true"/>
-    <extensionPoint qualifiedName="com.intellij.whatsNewPageProvider" interface="com.intellij.ide.actions.WhatsNewPageProvider" dynamic="true"/>
+    <extensionPoint qualifiedName="com.intellij.whatsNewPageProvider" interface="com.intellij.ide.whatsNew.WhatsNewPageProvider" dynamic="true"/>
     <extensionPoint qualifiedName="com.intellij.frontend.splitComponentProvider" interface="com.intellij.ui.split.SplitComponentProvider"
                     dynamic="true"/>
     <extensionPoint qualifiedName="com.intellij.ide.gdpr.traceConsentManager"
@@ -500,7 +498,7 @@
     />
     <registryKey
       key="ide.welcome.screen.recent.project.vcs.actions"
-      defaultValue="false"
+      defaultValue="true"
       description="Show the VCS actions icon and menu for a recent version control project on the welcome screen"
       restartRequired="true"
     />
@@ -641,6 +639,9 @@
                        helpTopic="configurable.group.language.help.topic"
                        displayNameKey="configurable.group.language.settings.display.name"
                        descriptionKey="configurable.group.language.settings.description"/>
+    <groupConfigurable id="ai" weight="15"
+                       displayNameKey="configurable.group.ai.settings.display.name"
+                       descriptionKey="configurable.group.ai.settings.description"/>
     <groupConfigurable id="tools" weight="10"
                        helpTopic="configurable.group.tools.help.topic"
                        displayNameKey="configurable.group.tools.settings.display.name"
@@ -723,7 +724,7 @@
         Enable new inspection widget experiment
       </description>
     </experimentalFeature>
-    <pluginInitializationErrorHandler implementation="com.intellij.ide.plugins.DefaultPluginInitializationErrorHandler"/>
+    <pluginLoadingProblemsNotificationHandler implementation="com.intellij.ide.plugins.DefaultPluginLoadingProblemsNotificationHandler"/>
     <applicationService serviceInterface="com.intellij.execution.wsl.WslDistributionManager"
                         serviceImplementation="com.intellij.execution.wsl.WslDistributionManagerImpl"/>
     <virtualFileSystem implementationClass="com.intellij.openapi.vfs.impl.local.AsyncableLocalFileSystemImpl" key="file" physical="true"/>
@@ -900,6 +901,7 @@
     <projectService serviceInterface="com.intellij.openapi.util.WindowStateService"
                     serviceImplementation="com.intellij.openapi.util.WindowStateProjectService"/>
     <statistics.counterUsagesCollector implementationClass="com.intellij.openapi.fileEditor.impl.IdeScriptEngineUsageCollector"/>
+    <statistics.counterUsagesCollector implementationClass="com.intellij.openapi.fileEditor.impl.FileCacheConflictCollector"/>
     <applicationService serviceInterface="com.intellij.ide.UiActivityMonitor"
                         serviceImplementation="com.intellij.ide.UiActivityMonitorImpl"/>
     <applicationService serviceImplementation="com.intellij.diagnostic.WindowsDefenderChecker" open="true"/>
@@ -1409,8 +1411,10 @@
       implementationClass="com.intellij.platform.ide.diagnostic.startUpPerformanceReporter.WelcomeScreenPerformanceCollector"/>
     <statistics.counterUsagesCollector
       implementationClass="com.intellij.platform.ide.diagnostic.startUpPerformanceReporter.HotProjectReopenStartUpPerformanceCollector"/>
+    <statistics.counterUsagesCollector implementationClass="com.intellij.ide.whatsNew.WhatsNewUsagesCollector"/>
     <postStartupActivity implementation="com.intellij.ide.startup.CheckProjectActivity"/>
     <postStartupActivity implementation="com.intellij.ide.startup.CheckKeysStartupActivity"/>
+    <postStartupActivity implementation="com.intellij.openapi.editor.impl.SmoothCaretAutoEnableActivity"/>
     <environmentKeyProvider implementation="com.intellij.ide.impl.ProjectOpenKeyProvider"/>
     <environmentKeyProvider implementation="com.intellij.ide.plugins.PluginEnvironmentKeyProvider"/>
     <actionConfigurationCustomizer implementation="com.intellij.platform.ide.menu.IdeMainMenuActionCustomizer"/>
@@ -1959,7 +1963,7 @@
   <applicationListeners>
     <listener class="com.intellij.ide.plugins.DynamicPluginsFrameStateListener"
               topic="com.intellij.openapi.application.ApplicationActivationListener"/>
-    <listener class="com.intellij.ide.plugins.PluginInitializationErrorStartupReporter"
+    <listener class="com.intellij.ide.plugins.PluginLoadingProblemsStartupReporter"
               topic="com.intellij.ide.AppLifecycleListener"/>
     <listener class="com.intellij.openapi.updateSettings.impl.PluginAutoUpdateService$PluginAutoUpdateAppLifecycleListener"
               topic="com.intellij.ide.AppLifecycleListener"/>
