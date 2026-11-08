@@ -220,14 +220,29 @@ internal class BazelBuildFileGenerator(
     )
     moduleToDescriptor.put(module, moduleContent)
 
+    val errors = mutableListOf<String>()
     for (element in module.dependenciesList.dependencies) {
       if (element is JpsModuleDependency) {
         val ref = element.moduleReference
-        val resolved = requireNotNull(ref.resolve()) {
-          "Cannot resolve module ${ref.moduleName} (dependency of '${module.name}') in $projectDir/.idea/modules.xml"
+        val resolved = ref.resolve()
+        if (resolved == null) {
+          errors.add("Cannot resolve module ${ref.moduleName} (dependency of '${module.name}') in $projectDir/.idea/modules.xml")
+        } else {
+          try {
+            getModuleDescriptor(resolved)
+          } catch(e: IllegalArgumentException) {
+            val message = e.message
+            if (message!=null) {
+              errors.add(message)
+            } else {
+              throw e
+            }
+          }
         }
-        getModuleDescriptor(resolved)
       }
+    }
+    if (errors.isNotEmpty()) {
+      throw IllegalArgumentException(errors.joinToString("\n"))
     }
 
     return moduleContent
