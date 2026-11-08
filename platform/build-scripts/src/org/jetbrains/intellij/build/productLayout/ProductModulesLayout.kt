@@ -94,7 +94,7 @@ val DEFAULT_BUNDLED_PLUGINS: PersistentList<String> = persistentListOf(
   //"intellij.dev",
   //"intellij.java.aetherDependencyResolver.plugin",
   //"intellij.jcef.plugin",
-  "intellij.grid.plugin",
+  //"intellij.grid.plugin",
   JNA_PLUGIN_MODULE,
   PTY4J_PLUGIN_MODULE,
   //COMPOSE_PLUGIN_MODULE,
