@@ -16,6 +16,8 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
+import static com.intellij.ide.impl.ProjectUtil.isRealProject;
+
 @ApiStatus.Internal
 public final class ChangeListsScopesProvider extends CustomScopesProviderEx {
   private final @NotNull Project myProject;
@@ -30,7 +32,7 @@ public final class ChangeListsScopesProvider extends CustomScopesProviderEx {
 
   @Override
   public @NotNull List<NamedScope> getCustomScopes() {
-    if (myProject.isDefault() || !ProjectLevelVcsManager.getInstance(myProject).hasActiveVcss()) {
+    if (!isRealProject(myProject) || !ProjectLevelVcsManager.getInstance(myProject).hasActiveVcss()) {
       return Collections.emptyList();
     }
 
@@ -50,7 +52,7 @@ public final class ChangeListsScopesProvider extends CustomScopesProviderEx {
 
   @Override
   public NamedScope getCustomScope(@NotNull String name) {
-    if (myProject.isDefault()) return null;
+    if (!isRealProject(myProject)) return null;
     final ChangeListManager changeListManager = ChangeListManager.getInstance(myProject);
     if (ChangeListScope.ALL_CHANGED_FILES_SCOPE_NAME.equals(name)) {
       return new ChangeListScope(changeListManager);
@@ -67,7 +69,7 @@ public final class ChangeListsScopesProvider extends CustomScopesProviderEx {
   @Override
   public boolean isVetoed(NamedScope scope, ScopePlace place) {
     if (place == ScopePlace.SETTING) {
-      if (myProject.isDefault()) return false;
+      if (!isRealProject(myProject)) return false;
       final ChangeListManager changeListManager = ChangeListManager.getInstance(myProject);
       return changeListManager.findChangeList(scope.getScopeId()) != null;
     }

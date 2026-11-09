@@ -7,15 +7,21 @@ import com.intellij.ide.IdeBundle
 import com.intellij.ide.dnd.FileCopyPasteUtil
 import com.intellij.ide.gdpr.showDataSharingOptionsDialog
 import com.intellij.ide.plugins.PluginManagerConfigurable
+import com.intellij.ide.ui.laf.darcula.DarculaNewUIUtil
+import com.intellij.ide.ui.laf.darcula.DarculaUIUtil
 import com.intellij.openapi.Disposable
+import com.intellij.openapi.actionSystem.ActionButtonComponent
 import com.intellij.openapi.actionSystem.ActionManager
 import com.intellij.openapi.actionSystem.ActionToolbar
 import com.intellij.openapi.actionSystem.ActionUpdateThread
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.actionSystem.DefaultActionGroup
 import com.intellij.openapi.actionSystem.Presentation
+import com.intellij.openapi.actionSystem.ex.ActionButtonLook
 import com.intellij.openapi.actionSystem.ex.CustomComponentAction
+import com.intellij.openapi.actionSystem.impl.ActionButton
 import com.intellij.openapi.actionSystem.impl.ActionButtonWithText
+import com.intellij.openapi.actionSystem.impl.IdeaActionButtonLook
 import com.intellij.openapi.actionSystem.toolbarLayout.ToolbarLayoutStrategy
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.UI
@@ -53,7 +59,9 @@ import com.intellij.ui.dsl.gridLayout.UnscaledGaps
 import com.intellij.ui.dsl.gridLayout.builders.RowsGridBuilder
 import com.intellij.util.cancelOnDispose
 import com.intellij.util.ui.AbstractLayoutManager
+import com.intellij.util.ui.JBInsets
 import com.intellij.util.ui.JBUI
+import com.intellij.util.ui.JBValue
 import com.intellij.util.ui.UIUtil
 import com.intellij.util.ui.components.BorderLayoutPanel
 import com.intellij.util.ui.launchOnShow
@@ -72,6 +80,7 @@ import kotlinx.coroutines.withContext
 import java.awt.Container
 import java.awt.Dimension
 import java.awt.Graphics
+import java.awt.Insets
 import java.awt.KeyboardFocusManager
 import java.awt.Rectangle
 import java.awt.dnd.DnDConstants
@@ -80,6 +89,8 @@ import java.awt.dnd.DropTargetAdapter
 import java.awt.dnd.DropTargetDropEvent
 import java.awt.event.ComponentAdapter
 import java.awt.event.ComponentEvent
+import java.awt.event.KeyAdapter
+import java.awt.event.KeyEvent
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
 import java.util.function.Supplier
@@ -87,6 +98,7 @@ import javax.swing.Icon
 import javax.swing.JComponent
 import javax.swing.JLabel
 import javax.swing.JPanel
+import javax.swing.KeyStroke
 import javax.swing.LayoutFocusTraversalPolicy
 import javax.swing.SwingConstants
 import javax.swing.border.Border
@@ -325,6 +337,10 @@ internal class WelcomeScreenRightTabImpl(
         button.icon = model.icon
 
         button.addActionListener { model.onClick(project, contentProvider.coroutineScope) }
+        button.getInputMap(JComponent.WHEN_FOCUSED).apply {
+          put(KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, 0, false), "pressed")
+          put(KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, 0, true), "released")
+        }
 
         gridBuilder.cell(button, gaps = UnscaledGaps(right = 10))
       }
@@ -360,7 +376,7 @@ internal class WelcomeScreenRightTabImpl(
   }
 
   private fun createSingleBanner(parentPanel: JPanel, extraContent: Boolean) {
-    val singleBanner = WelcomeScreenRightTabBannerProvider.createSurveyBanner(project)
+    val singleBanner = WelcomeScreenRightTabBannerProvider.createSingleBanner(project)
     if (singleBanner is Disposable) {
       Disposer.register(this, singleBanner)
     }
@@ -691,6 +707,8 @@ private class ComboBoxInfoPanelAction(
 
   override fun createCustomComponent(presentation: Presentation, place: String): JComponent {
     val component = super.createCustomComponent(presentation, place)
+    component.isFocusable = true
+    component.isRequestFocusEnabled = false
     if (addBorder) {
       component.border = JBUI.Borders.emptyRight(16)
     }
@@ -738,6 +756,12 @@ private class ButtonInfoPanelAction(
         return JBUI.scale(4)
       }
 
+      override fun getMargins(): Insets {
+        // Set the same margins as the toolbar combo buttons next to it so the hover and focus border sizes match
+        val margin = JBInsets.create(JBUI.CurrentTheme.MainToolbar.Dropdown.margin()).unscaled
+        return JBUI.insets(margin.top, margin.left, margin.bottom, margin.left)
+      }
+
       override fun setBorder(border: Border?) {
         if (addBorder) {
           if (border == null) {
@@ -751,10 +775,42 @@ private class ButtonInfoPanelAction(
           super.setBorder(border)
         }
       }
+
+      override fun getButtonLook(): ActionButtonLook = FocusRingActionButtonLook
+    }.apply {
+      isFocusable = true
+      isRequestFocusEnabled = false
+      addKeyListener(object : KeyAdapter() {
+        override fun keyReleased(e: KeyEvent) {
+          if (e.modifiersEx == 0 && e.keyCode == KeyEvent.VK_ENTER) click()
+        }
+      })
     }
   }
 
   override fun actionPerformed(e: AnActionEvent) {
     model.onClick(project, coroutineScope)
+  }
+}
+
+private object FocusRingActionButtonLook : IdeaActionButtonLook() {
+  override fun getButtonArc(): JBValue = JBUI.CurrentTheme.MainToolbar.Dropdown.hoverArc()
+
+  override fun paintBackground(g: Graphics, component: JComponent, state: Int) {
+    if (state == ActionButtonComponent.SELECTED && component.isFocusOwner && !(component as ActionButton).isSelected) {
+      return
+    }
+    super.paintBackground(g, component, state)
+  }
+
+  override fun paintBorder(g: Graphics, component: JComponent, state: Int) {
+    if (!component.isFocusOwner) {
+      super.paintBorder(g, component, state)
+      return
+    }
+    val rect = Rectangle(component.size)
+    JBInsets.removeFrom(rect, component.insets)
+    DarculaNewUIUtil.drawRoundedRectangle(g, rect, JBUI.CurrentTheme.Focus.focusColor(),
+                                          JBUI.CurrentTheme.MainToolbar.Dropdown.hoverArc().float, DarculaUIUtil.BW.float)
   }
 }

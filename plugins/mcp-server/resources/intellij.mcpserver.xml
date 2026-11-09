@@ -84,6 +84,7 @@
       notificationIds="mcp.client.detected;mcp.client.autoconfigured;mcp.client.error.autoconfigured;mcp.client.wrong.port.detected"/>
 
     <mcpServer.mcpToolsProvider implementation="com.intellij.mcpserver.impl.ReflectionToolsProvider" />
+    <mcpServer.elicitationProvider implementation="com.intellij.mcpserver.elicitation.McpAirChatElicitationProvider" />
     <mcpServer.elicitationProvider implementation="com.intellij.mcpserver.elicitation.McpElicitationCliProvider" />
     <mcpServer.mcpToolFilterProvider implementation="com.intellij.mcpserver.impl.DisallowListBasedMcpToolFilterProvider" />
     <mcpServer.mcpToolFilterProvider implementation="com.intellij.mcpserver.impl.SettingsBasedMcpToolFilterProvider" />
@@ -110,6 +111,9 @@
     <registryKey defaultValue="1000"
                  description="Throttle interval in milliseconds for MCP progress notifications and keep-alives"
                  key="mcp.server.progress.notification.interval.ms"/>
+    <registryKey defaultValue="300"
+                 description="How long, in seconds, the MCP server waits for the user to answer an elicitation form"
+                 key="mcp.server.elicitation.timeout.seconds"/>
     <registryKey defaultValue="300000"
                  description="Idle time in milliseconds after which an abandoned MCP Streamable HTTP session is closed"
                  key="mcp.server.streamable.session.idle.timeout.ms"/>
