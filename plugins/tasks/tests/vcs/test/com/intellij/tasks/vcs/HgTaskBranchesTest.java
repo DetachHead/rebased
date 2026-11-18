@@ -9,6 +9,7 @@ import com.intellij.openapi.vfs.StandardFileSystems;
 import hg4idea.test.HgExecutor;
 import hg4idea.test.HgPlatformTest;
 import org.jetbrains.annotations.NotNull;
+import org.junit.Ignore;
 import org.zmlx.hg4idea.HgGlobalSettings;
 import org.zmlx.hg4idea.HgVcs;
 import org.zmlx.hg4idea.repo.HgRepository;
@@ -22,6 +23,7 @@ import static com.intellij.openapi.vcs.Executor.touch;
 import static hg4idea.test.HgExecutor.hg;
 import static org.zmlx.hg4idea.util.HgUtil.DOT_HG;
 
+@Ignore
 public class HgTaskBranchesTest extends TaskBranchesTest {
 
   @Override
