@@ -26,7 +26,7 @@ public interface MethodBreakpointBase extends FilteredRequestor {
 
   XBreakpoint<JavaMethodBreakpointProperties> getXBreakpoint();
 
-  boolean isEmulated();
+  boolean isEmulated(@NotNull VirtualMachine vm);
 
   boolean isWatchEntry();
 
@@ -82,7 +82,7 @@ public interface MethodBreakpointBase extends FilteredRequestor {
     }
 
     if (Registry.is("debugger.emulated.method.return.values") &&
-        breakpoint.isEmulated() &&
+        breakpoint.isEmulated(event.virtualMachine()) &&
         breakpoint.isWatchExit() &&
         eventRequest.getProperty(METHOD_ENTRY_KEY) instanceof Boolean entryKey &&
         !entryKey) {

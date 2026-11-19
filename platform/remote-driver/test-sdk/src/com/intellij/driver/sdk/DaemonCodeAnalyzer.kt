@@ -16,6 +16,8 @@ interface DaemonCodeAnalyzer {
 
   fun isAllAnalysisFinished(psiFile: PsiFile): Boolean
   fun getHighlights(document: Document, severity: HighlightSeverity?, project: Project): List<HighlightInfo>
+
+  @Deprecated("Removed from DaemonCodeAnalyzerImpl in 263 (IJPL-256395), works only with older IDEs. Use LineMarkersPass.getDisplayedLineMarkers instead.")
   fun getLineMarkers(document: Document, project: Project): List<LineMarkerInfo>
   fun restart(reason: String)
 }
@@ -52,6 +54,11 @@ interface HighlightInfoType {
 interface TextAttributesKey {
   fun compareTo(key: TextAttributesKey): Int
   fun getExternalName(): String
+}
+
+@Remote("com.intellij.codeInsight.daemon.impl.LineMarkersPass")
+interface LineMarkersPass {
+  fun getDisplayedLineMarkers(document: Document, project: Project): List<LineMarkerInfo>
 }
 
 @Remote("com.intellij.codeInsight.daemon.LineMarkerInfo")

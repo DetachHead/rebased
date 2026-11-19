@@ -495,7 +495,7 @@ class PyTypingTypeProvider : PyTypeProviderWithCustomContext<Context?>() {
       }
     }
     if (anchor is PyExpression && referenceTarget is PyClass && isGeneric(referenceTarget, context.typeContext)) {
-      val parameterizedType = parameterizeClassDefaultAware(referenceTarget, listOf(), context)
+      val parameterizedType = parameterizeClassThroughDefinition(referenceTarget, listOf(), context)
       if (parameterizedType != null) {
         return Ref(parameterizedType.toClass())
       }
@@ -795,6 +795,7 @@ class PyTypingTypeProvider : PyTypeProviderWithCustomContext<Context?>() {
     const val TYPE_ALIAS: String = "typing.TypeAlias"
     const val TYPE_ALIAS_EXT: String = "typing_extensions.TypeAlias"
     const val TYPE_ALIAS_TYPE: String = "typing.TypeAliasType"
+    const val TYPE_ALIAS_TYPE_EXT: String = "typing_extensions.TypeAliasType"
     const val SPECIAL_FORM: String = "typing._SpecialForm"
     const val SPECIAL_FORM_EXT: String = "typing_extensions._SpecialForm"
     const val REQUIRED: String = "typing.Required"
@@ -1401,7 +1402,12 @@ class PyTypingTypeProvider : PyTypeProviderWithCustomContext<Context?>() {
         if (unpackedType != null) {
           return Ref(unpackedType)
         }
-        val typeParameterType: PyType? = getTypeParameterTypeFromTypeParameter(resolved, context)
+        // The default or the bound of a type parameter can refer to the type parameter itself
+        val typeParameterType: PyType? = (resolved as? PyTypeParameter)?.let { typeParameter ->
+          RecursionManager.doPreventingRecursion(typeParameter, false) {
+            getTypeParameterTypeFromTypeParameter(typeParameter, context)
+          }
+        }
         if (typeParameterType != null) {
           return Ref(typeParameterType)
         }
@@ -2276,10 +2282,9 @@ class PyTypingTypeProvider : PyTypeProviderWithCustomContext<Context?>() {
         }
 
         PyAstTypeParameter.Kind.ParamSpec -> {
-          val defaultType = (Ref.deref(defaultType) as? PyCallableParameterVariadicType)?.let { Ref(it) }
           return PyParamSpecType(name)
             .withBound(bound)
-            .withDefaultType(defaultType)
+            .withDefaultType(getParamSpecDefaultType(defaultExpression, defaultType))
             .withVariance(variance)
         }
       }
@@ -2345,17 +2350,14 @@ class PyTypingTypeProvider : PyTypeProviderWithCustomContext<Context?>() {
       val typeParameterOwner = ScopeUtil.getScopeOwner(element)
       val scopeOwner: PyQualifiedNameOwner? = typeParameterOwner as? PyQualifiedNameOwner
 
-      val defaultType = element.defaultExpressionText
-        ?.let {
-          PyUtil.createExpressionFromFragment(it, element)
+      val defaultExpression = element.defaultExpressionText?.let { PyUtil.createExpressionFromFragment(it, element) }
+      val defaultType = defaultExpression?.let {
+        val defaultExprWithoutParens = PyPsiUtils.flattenParens(it)
+        if (defaultExprWithoutParens != null) {
+          getTypePreventingRecursion(defaultExprWithoutParens, context)
         }
-        ?.let { defaultExpression ->
-          val defaultExprWithoutParens = PyPsiUtils.flattenParens(defaultExpression)
-          if (defaultExprWithoutParens != null) {
-            getTypePreventingRecursion(defaultExprWithoutParens, context)
-          }
-          else Ref<PyType?>(PyAnyType.unknown)
-        }
+        else Ref<PyType?>(PyAnyType.unknown)
+      }
 
       val boundExpression = element.boundExpressionText?.let { boundExpressionText ->
         PyPsiUtils.flattenParens(PyUtil.createExpressionFromFragment(boundExpressionText, element))
@@ -2393,15 +2395,25 @@ class PyTypingTypeProvider : PyTypeProviderWithCustomContext<Context?>() {
         }
 
         PyAstTypeParameter.Kind.ParamSpec -> {
-          val defaultType = (defaultType?.get() as? PyCallableParameterVariadicType)?.let { Ref(it) }
           PyParamSpecType(name)
             .withScopeOwner(scopeOwner)
             .withBound(boundType)
-            .withDefaultType(defaultType)
+            .withDefaultType(getParamSpecDefaultType(defaultExpression, defaultType))
             .withVariance(variance)
             .withDeclarationElement(declarationElement)
         }
       }
+    }
+
+    /**
+     * Returns [PyAnyType.unknown] for the `...` default of a ParamSpec.
+     * An explicit `...` type argument of a ParamSpec gets the same type.
+     */
+    private fun getParamSpecDefaultType(defaultExpression: PyExpression?, defaultType: Ref<PyType?>?): Ref<PyType>? {
+      if (PyPsiUtils.flattenParens(defaultExpression) is PyEllipsisLiteralExpression) {
+        return Ref<PyType>(PyAnyType.unknown)
+      }
+      return (Ref.deref(defaultType) as? PyCallableParameterVariadicType)?.let { Ref<PyType>(it) }
     }
 
     private fun getTypePreventingRecursion(expression: PyExpression, context: Context): Ref<PyType?>? {
@@ -2582,15 +2594,23 @@ class PyTypingTypeProvider : PyTypeProviderWithCustomContext<Context?>() {
       return elements.map { getType(it, context).derefOrUnknown() }
     }
 
-    private fun parameterizeClassDefaultAware(
+    /**
+     * Parameterizes [pyClass] through its generic definition when the raw [actualTypeParams] are not in the final shape.
+     * This is the case when a type parameter has a default,
+     * or when a class generic only over one ParamSpec gets `A[int, str]` as a shorthand for `A[[int, str]]`.
+     */
+    private fun parameterizeClassThroughDefinition(
       pyClass: PyClass,
       actualTypeParams: List<PyType?>,
       context: Context,
     ): PyClassType? {
       val genericDefinitionType = RecursionManager.doPreventingRecursion(pyClass, false) {
         PyTypeChecker.findGenericDefinitionType(pyClass, context.typeContext)
-      }
-      if (genericDefinitionType != null && genericDefinitionType.typeArguments.any { it is PyTypeParameterType && it.defaultType != null }) {
+      } ?: return null
+      val typeParameters = genericDefinitionType.typeArguments
+      val hasDefaults = typeParameters.any { it is PyTypeParameterType && it.defaultType != null }
+      val isSingleParamSpecParameterization = actualTypeParams.isNotEmpty() && typeParameters.singleOrNull() is PyParamSpecType
+      if (hasDefaults || isSingleParamSpecParameterization) {
         val parameterizedType = PyTypeChecker.parameterizeType(genericDefinitionType, actualTypeParams, context.typeContext)
         if (parameterizedType is PyClassType && parameterizedType.isParameterized) {
           return parameterizedType
@@ -2747,7 +2767,7 @@ class PyTypingTypeProvider : PyTypeProviderWithCustomContext<Context?>() {
               }
 
               if (isGeneric(operandType, context.typeContext)) {
-                parameterizeClassDefaultAware(operandType.pyClass, indexTypes, context)?.let {
+                parameterizeClassThroughDefinition(operandType.pyClass, indexTypes, context)?.let {
                   return it.toInstance()
                 }
               }

@@ -6,8 +6,11 @@ package com.intellij.platform.ijent
 import com.intellij.platform.eel.EelDescriptor
 import com.intellij.platform.eel.EelMachine
 import com.intellij.platform.eel.EelPlatform
+import com.intellij.platform.eel.EelUnavailableException
 import kotlinx.coroutines.DelicateCoroutinesApi
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.job
+import org.jetbrains.annotations.ApiStatus
 
 /**
  * Describes the IJent deployment state for a machine.
@@ -38,6 +41,14 @@ interface IjentSession {
   val isRunning: Boolean
   val platform: EelPlatform
   val remotePathToBinary: String  // TODO Use IjentPath.Absolute.
+
+  /**
+   * `false` while the transport is down on a live session and the reconnect layer is recovering it.
+   *
+   * A dead session keeps its last value, which may be `true`, so check [isRunning] first.
+   * Always `true` without a reconnect layer (stdio, reconnects off): there is nothing to recover.
+   */
+  val transportConnected: StateFlow<Boolean>
 
   /**
    * A scope for the process. Use very cautiously, it's not a supervisor scope, it can destroy the whole communication.
@@ -71,4 +82,16 @@ interface IjentSession {
   interface Windows : IjentSession {
     override fun getIjentInstance(descriptor: EelDescriptor): IjentWindowsApi
   }
+}
+
+/**
+ * Suspends until the session ends.
+ * Returns a copy of its exit reason, see [IjentScope.resolveExitReason], or `null` when none was recorded.
+ */
+@ApiStatus.Internal
+@OptIn(DelicateCoroutinesApi::class)
+suspend fun IjentSession.awaitEnd(): EelUnavailableException? {
+  val ijentScope = sessionCoroutineScope
+  ijentScope.s.coroutineContext.job.join()
+  return ijentScope.resolveExitReason() as EelUnavailableException?
 }

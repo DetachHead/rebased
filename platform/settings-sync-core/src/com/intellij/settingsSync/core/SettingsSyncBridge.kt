@@ -10,7 +10,6 @@ import com.intellij.settingsSync.core.SettingsSyncBridge.PushRequestMode.MUST_PU
 import com.intellij.settingsSync.core.SettingsSyncBridge.PushRequestMode.PUSH_IF_NEEDED
 import com.intellij.settingsSync.core.communicator.RemoteCommunicatorHolder
 import com.intellij.settingsSync.core.communicator.SettingsSyncUserData
-import com.intellij.settingsSync.core.plugins.SettingsSyncPluginsState
 import com.intellij.settingsSync.core.statistics.SettingsSyncEventsStatistics
 import com.intellij.util.containers.ContainerUtil
 import kotlinx.coroutines.CancellationException
@@ -29,7 +28,9 @@ import java.nio.file.Path
 import java.time.Instant
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
+import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.Duration.Companion.nanoseconds
 import kotlin.time.Duration.Companion.seconds
 
 /**
@@ -59,7 +60,9 @@ class SettingsSyncBridge(
    * deadlocking startup. [Dispatchers.IO] has a much larger thread cap and is designed for blocking calls.
    */
   private suspend fun <T> withRemoteCommunicator(block: SettingsSyncRemoteCommunicator.() -> T): T =
-    withContext(Dispatchers.IO) { remoteCommunicator.block() }
+    withLockHolderStage("remote communicator call") {
+      withContext(Dispatchers.IO) { remoteCommunicator.block() }
+    }
 
   @Volatile
   private var queueJob: Job? = null
@@ -84,26 +87,67 @@ class SettingsSyncBridge(
   private val eventsMutex = Mutex()
   private val initializationMutex = Mutex()
 
+  /**
+   * Describes the operation that holds [eventsMutex]. The bridge adds it to the log when another operation waits for the lock too long.
+   * [stage] describes the part of the work that runs now, for example a pending event or a remote call.
+   */
+  private class LockHolder(val description: String) {
+    val startNanos: Long = System.nanoTime()
+
+    @Volatile
+    var stage: String? = null
+  }
+
+  @Volatile
+  private var lockHolder: LockHolder? = null
+
+  /**
+   * Is `true` while a [SyncSettingsEvent.SyncRequest] waits for [eventsMutex].
+   * The bridge skips a new `SyncRequest` in this state, because the waiting request does the same check after it gets the lock.
+   */
+  private val syncRequestIsWaiting = AtomicBoolean()
+
+  @Volatile
+  private var lockWaitErrorTimeout: Duration = 60.seconds
+
   private val settingsChangeListener = object : SettingsSyncEventListener {
     override fun settingChanged(event: SyncSettingsEvent) {
       LOG.debug("Adding settings changed event $event to the queue")
       if (event is SyncSettingsEvent.ExclusiveEvent) { // such events will be processed separately from all others
+        val isSyncRequest = event is SyncSettingsEvent.SyncRequest
+        if (isSyncRequest && !syncRequestIsWaiting.compareAndSet(false, true)) {
+          LOG.info("Another SyncRequest waits for the lock already, skipping this one")
+          return
+        }
+        val syncEnabledWhenFired = SettingsSyncSettings.getInstance().syncEnabled
         pendingExclusiveEvents.add(event)
         coroutineScope.launch {
+          var ownsSyncRequestFlag = isSyncRequest
           try {
-            withTimeoutOrNull(60.seconds) {
-              eventsMutex.withLock {
-                LOG.debug("Lock obtained for exclusive event")
-                processExclusiveEvent(event)
+            withEventsLock("exclusive event $event") {
+              if (ownsSyncRequestFlag) {
+                // from now on, a new SyncRequest must wait for the lock, because this one can start too early to see the latest changes
+                syncRequestIsWaiting.set(false)
+                ownsSyncRequestFlag = false
               }
-            } ?: run {
-              LOG.error("Could not acquire lock for exclusive event within 60 seconds", Throwable())
+              if (syncEnabledWhenFired && !SettingsSyncSettings.getInstance().syncEnabled) {
+                LOG.info("Settings sync was disabled while exclusive event $event waited for the lock, skipping it")
+                return@withEventsLock
+              }
+              LOG.debug("Lock obtained for exclusive event $event")
+              processExclusiveEvent(event)
             }
           }
+          catch (e: CancellationException) {
+            throw e
+          }
           catch (th: Throwable) {
-            LOG.warn("An error occurred while obtaining lock for exclusive event", th)
+            LOG.warn("An error occurred while processing exclusive event $event", th)
           }
           finally {
+            if (ownsSyncRequestFlag) {
+              syncRequestIsWaiting.set(false)
+            }
             pendingExclusiveEvents.remove(event)
           }
         }
@@ -207,7 +251,7 @@ class SettingsSyncBridge(
 
       when (initMode) {
         is InitMode.TakeFromServer -> applySnapshotFromServer(initMode.cloudEvent)
-        InitMode.PushToServer -> forcePushKeepingServerPlugins(previousState)
+        InitMode.PushToServer -> mergeAndPush(previousState.idePosition, previousState.cloudPosition, FORCE_PUSH)
         InitMode.JustInit -> mergeAndPush(previousState.idePosition, previousState.cloudPosition, PUSH_IF_NEEDED)
         is InitMode.MigrateFromOldStorage -> migrateFromOldStorage(initMode.migration)
       }
@@ -280,50 +324,6 @@ class SettingsSyncBridge(
     }
   }
 
-  /**
-   * Force-pushes the log to the server.
-   * If the IDE does not sync plugins, master takes the plugin state from the cloud branch (see [GitSettingsLog]),
-   * but that state may be stale, and a force push would overwrite a newer one. Instead, logs the server plugin state
-   * as a cloud change, and pushes only if the server still has the file that state was read from; re-reads it on reject.
-   * The state is logged on the cloud branch, so after a failed push the next merge does not treat it as a local change.
-   */
-  private suspend fun forcePushKeepingServerPlugins(previousState: CurrentState) {
-    if (ideMediator.pluginSyncSupported) {
-      mergeAndPush(previousState.idePosition, previousState.cloudPosition, FORCE_PUSH)
-      return
-    }
-    var statePositions = previousState
-    repeat(KEEP_SERVER_PLUGINS_PUSH_ATTEMPTS) {
-      val (updateResult, serverVersionId) = withRemoteCommunicator { receiveUpdatesWithVersion() }
-      val serverPlugins = when (updateResult) {
-        is UpdateResult.Success -> updateResult.settingsSnapshot.plugins
-        // no file, a deletion marker, or an unreadable file has no plugins: clear the logged ones, as a ZIP without plugins reads
-        UpdateResult.NoFileOnServer, UpdateResult.FileDeletedFromServer -> SettingsSyncPluginsState(emptyMap())
-        is UpdateResult.Error -> throw IllegalStateException("Cannot read plugin state from server: ${updateResult.message}")
-      }
-      if (serverPlugins != null) {
-        val snapshot = SettingsSnapshot(SettingsSnapshot.MetaInfo(Instant.now(), getLocalApplicationInfo()),
-                                        emptySet(), serverPlugins, emptyMap(), emptySet())
-        settingsLog.applyCloudState(snapshot, "Keep plugin state from server")
-      }
-      // the server has no versions to push against
-      val force = updateResult is UpdateResult.Success && serverVersionId == null
-      val masterPosition = advanceMasterAndPushToIde(statePositions.idePosition, statePositions.cloudPosition)
-      // a null version expects no file on the server
-      val pushResult = withRemoteCommunicator { push(settingsLog.collectCurrentSnapshot(), force, serverVersionId) }
-      if (force || pushResult != SettingsSyncPushResult.Rejected) {
-        handlePushResult(pushResult, masterPosition, onRejectedPush = {
-          LOG.error("Reject shouldn't happen when force push is used")
-          SettingsSyncStatusTracker.getInstance().updateOnError(SettingsSyncBundle.message("notification.title.push.error"))
-        })
-        return
-      }
-      LOG.info("Push keeping server plugin state was rejected: the server has changed, retrying")
-      statePositions = collectCurrentState()
-    }
-    SettingsSyncStatusTracker.getInstance().updateOnError(SettingsSyncBundle.message("notification.title.push.error"))
-  }
-
   private suspend fun forcePushToCloud(masterPosition: SettingsLog.Position) {
     pushAndHandleResult(true, masterPosition, onRejectedPush = {
       LOG.error("Reject shouldn't happen when force push is used")
@@ -355,13 +355,7 @@ class SettingsSyncBridge(
         else {
           withRemoteCommunicator { deleteFile(CROSS_IDE_SYNC_MARKER_FILE) }
         }
-        if (ideMediator.pluginSyncSupported) {
-          forcePushToCloud(settingsLog.getMasterPosition())
-        }
-        else {
-          // the snapshot path on the server has changed, so the server plugin state may differ from the logged one
-          forcePushKeepingServerPlugins(collectCurrentState())
-        }
+        forcePushToCloud(settingsLog.getMasterPosition())
       }
       is SyncSettingsEvent.SyncRequest -> {
         checkServer()
@@ -384,19 +378,95 @@ class SettingsSyncBridge(
     if (force) {
       withTimeoutOrNull(60.seconds) {
         eventsMutex.withLock {
-          processPendingEventsUnderLock()
+          runAsLockHolder("pending events") {
+            processPendingEventsUnderLock()
+          }
         }
       } ?: run {
-        LOG.error("Could not acquire lock for exclusive event within 60 seconds", Throwable())
+        reportLongLockWait("pending events", 60.seconds)
       }
     } else {
       if (eventsMutex.tryLock()) {
-        processPendingEventsUnderLock()
-        eventsMutex.unlock()
+        try {
+          runAsLockHolder("pending events") {
+            processPendingEventsUnderLock()
+          }
+        }
+        finally {
+          eventsMutex.unlock()
+        }
       } else {
         LOG.debug("Events are being processed by another coroutine, will retry later")
       }
     }
+  }
+
+  /**
+   * Runs [action] under [eventsMutex] and records [holderDescription] as the lock holder.
+   * If the lock is not available within [lockWaitErrorTimeout], reports an error with the lock holder, skips [action] and returns `null`.
+   * The timeout applies only to the wait for the lock: [action] is never cancelled by it.
+   */
+  private suspend fun <T> withEventsLock(holderDescription: String, action: suspend () -> T): T? {
+    val owner = Any()
+    val timeout = lockWaitErrorTimeout
+    val locked = withTimeoutOrNull(timeout) { eventsMutex.lock(owner) } != null
+    // the timeout can fire right after the lock is obtained, so check the lock owner too
+    if (!locked && !eventsMutex.holdsLock(owner)) {
+      reportLongLockWait(holderDescription, timeout)
+      return null
+    }
+    try {
+      return runAsLockHolder(holderDescription, action)
+    }
+    finally {
+      eventsMutex.unlock(owner)
+    }
+  }
+
+  /**
+   * Reports to the error log that [waiterDescription] could not get [eventsMutex] within [waitTime] and is skipped.
+   * The message contains the lock holder, its current stage and the pending events.
+   * The message is the exception message, so the error report shows it instead of a bare `Throwable`.
+   */
+  private fun reportLongLockWait(waiterDescription: String, waitTime: Duration) {
+    val message = "$waiterDescription could not get the settings sync events lock within ${waitTime.inWholeSeconds} s and is skipped. " +
+                  "${describeLockHolder()} " +
+                  "Pending exclusive events: $pendingExclusiveEvents. Pending events: $pendingEvents."
+    LOG.error(RuntimeException(message))
+  }
+
+  /**
+   * Records [stage] as the current stage of the lock holder while [action] runs. The stage is shown in [reportLongLockWait].
+   * A nested stage is added to the outer stage, for example `pending event X / remote communicator call`.
+   */
+  private suspend fun <T> withLockHolderStage(stage: String, action: suspend () -> T): T {
+    val holder = lockHolder ?: return action()
+    val previousStage = holder.stage
+    holder.stage = if (previousStage == null) stage else "$previousStage / $stage"
+    try {
+      return action()
+    }
+    finally {
+      holder.stage = previousStage
+    }
+  }
+
+  private suspend fun <T> runAsLockHolder(holderDescription: String, action: suspend () -> T): T {
+    lockHolder = LockHolder(holderDescription)
+    try {
+      return action()
+    }
+    finally {
+      lockHolder = null
+    }
+  }
+
+  private fun describeLockHolder(): String {
+    val holder = lockHolder ?: return "No lock holder is recorded."
+    val holdTime = (System.nanoTime() - holder.startNanos).nanoseconds
+    val stage = holder.stage
+    val stageDescription = if (stage == null) "" else " The current stage is '$stage'."
+    return "The lock is held by ${holder.description} for ${holdTime.inWholeSeconds} s.$stageDescription"
   }
 
   private suspend fun processPendingEventsUnderLock() {
@@ -409,33 +479,35 @@ class SettingsSyncBridge(
           val event = pendingEvents.removeAt(0)
           eventProcessingFlag.set(true)
           LOG.debug("Processing event $event")
-          when (event) {
-            is SyncSettingsEvent.IdeChange -> {
-              settingsLog.applyIdeState(event.snapshot, "Local changes made in the IDE")
+          withLockHolderStage("pending event $event") {
+            when (event) {
+              is SyncSettingsEvent.IdeChange -> {
+                settingsLog.applyIdeState(event.snapshot, "Local changes made in the IDE")
+              }
+              is SyncSettingsEvent.CloudChange -> {
+                settingsLog.applyCloudState(event.snapshot, "Remote changes")
+                SettingsSyncLocalSettings.getInstance().knownAndAppliedServerId = event.serverVersionId
+              }
+              is SyncSettingsEvent.LogCurrentSettings -> {
+                settingsLog.logExistingSettings()
+              }
+              is SyncSettingsEvent.MustPushRequest -> {
+                pushRequestMode = MUST_PUSH
+              }
+              is SyncSettingsEvent.DeleteServerData -> {
+                mergeAndPushAfterProcessingEvents = false
+                stopSyncingAndRollback(previousState)
+                deleteServerData(event.afterDeleting)
+              }
+              SyncSettingsEvent.DeletedOnCloud -> {
+                mergeAndPushAfterProcessingEvents = false
+                stopSyncingAndRollback(previousState)
+              }
             }
-            is SyncSettingsEvent.CloudChange -> {
-              settingsLog.applyCloudState(event.snapshot, "Remote changes")
-              SettingsSyncLocalSettings.getInstance().knownAndAppliedServerId = event.serverVersionId
-            }
-            is SyncSettingsEvent.LogCurrentSettings -> {
-              settingsLog.logExistingSettings()
-            }
-            is SyncSettingsEvent.MustPushRequest -> {
-              pushRequestMode = MUST_PUSH
-            }
-            is SyncSettingsEvent.DeleteServerData -> {
-              mergeAndPushAfterProcessingEvents = false
-              stopSyncingAndRollback(previousState)
-              deleteServerData(event.afterDeleting)
-            }
-            SyncSettingsEvent.DeletedOnCloud -> {
-              mergeAndPushAfterProcessingEvents = false
-              stopSyncingAndRollback(previousState)
-            }
-          }
 
-          if (mergeAndPushAfterProcessingEvents) {
-            mergeAndPush(previousState.idePosition, previousState.cloudPosition, pushRequestMode)
+            if (mergeAndPushAfterProcessingEvents) {
+              mergeAndPush(previousState.idePosition, previousState.cloudPosition, pushRequestMode)
+            }
           }
           eventsProcessed.incrementAndGet()
         }
@@ -462,7 +534,9 @@ class SettingsSyncBridge(
     when (val result = withRemoteCommunicator { checkServerState() }) {
       is ServerState.UpdateNeeded -> {
         LOG.debug("Updating from server")
-        updateChecker.scheduleUpdateFromServer()
+        withLockHolderStage("update from server") {
+          withContext(Dispatchers.IO) { updateChecker.scheduleUpdateFromServer() }
+        }
         // the push will happen automatically after updating and merging (if there is anything to merge)
       }
       ServerState.FileNotExists -> {
@@ -544,8 +618,21 @@ class SettingsSyncBridge(
     previousCloudPosition: SettingsLog.Position,
     pushRequestMode: PushRequestMode,
   ) {
+    val newIdePosition = settingsLog.getIdePosition()
     val newCloudPosition = settingsLog.getCloudPosition()
-    val masterPosition = advanceMasterAndPushToIde(previousIdePosition, previousCloudPosition)
+    val masterPosition: SettingsLog.Position
+    if (newIdePosition != previousIdePosition || newCloudPosition != previousCloudPosition) {
+      // move master to the actual position. It can be a fast-forward to either ide, or cloud changes, or it can be a merge
+      masterPosition = settingsLog.advanceMaster()
+    }
+    else {
+      // there were only fake events without actual changes to the repository => master doesn't need to be changed either
+      masterPosition = settingsLog.getMasterPosition()
+    }
+
+    if (newIdePosition != masterPosition) { // master has advanced further that ide => the ide needs to be updated
+      pushToIde(settingsLog.collectCurrentSnapshot(), masterPosition, null)
+    }
 
     if (newCloudPosition != masterPosition || pushRequestMode == MUST_PUSH || pushRequestMode == FORCE_PUSH) {
       pushAndHandleResult(pushRequestMode == FORCE_PUSH, masterPosition, onRejectedPush = {
@@ -556,7 +643,9 @@ class SettingsSyncBridge(
         // it will be processed in the next session anyway
         if (pendingEvents.none { it is SyncSettingsEvent.CloudChange }) {
           // not to wait for too long, schedule an update right away unless it has already been scheduled
-          updateChecker.scheduleUpdateFromServer()
+          withLockHolderStage("update from server") {
+            withContext(Dispatchers.IO) { updateChecker.scheduleUpdateFromServer() }
+          }
         }
       })
     }
@@ -565,34 +654,8 @@ class SettingsSyncBridge(
     }
   }
 
-  private suspend fun advanceMasterAndPushToIde(
-    previousIdePosition: SettingsLog.Position,
-    previousCloudPosition: SettingsLog.Position,
-  ): SettingsLog.Position {
-    val newIdePosition = settingsLog.getIdePosition()
-    val newCloudPosition = settingsLog.getCloudPosition()
-    val masterPosition: SettingsLog.Position
-    if (newIdePosition != previousIdePosition || newCloudPosition != previousCloudPosition) {
-      // move master to the actual position. It can be a fast-forward to either ide, or cloud changes, or it can be a merge
-      masterPosition = settingsLog.advanceMaster()
-    }
-    else {
-      // there were only fake events without actual changes to the repository => master doesn't need to be merged,
-      // but it may be pushed, and it may hold a plugin state of its own: left by an older build, or by a restore from history
-      masterPosition = settingsLog.keepPluginStateFromCloud()
-    }
-
-    if (newIdePosition != masterPosition) { // master has advanced further that ide => the ide needs to be updated
-      pushToIde(settingsLog.collectCurrentSnapshot(), masterPosition, null)
-    }
-    return masterPosition
-  }
-
-  private suspend fun pushAndHandleResult(force: Boolean, positionToSetCloudBranch: SettingsLog.Position, onRejectedPush: () -> Unit) {
-    handlePushResult(pushToCloud(settingsLog.collectCurrentSnapshot(), force), positionToSetCloudBranch, onRejectedPush)
-  }
-
-  private fun handlePushResult(pushResult: SettingsSyncPushResult, positionToSetCloudBranch: SettingsLog.Position, onRejectedPush: () -> Unit) {
+  private suspend fun pushAndHandleResult(force: Boolean, positionToSetCloudBranch: SettingsLog.Position, onRejectedPush: suspend () -> Unit) {
+    val pushResult: SettingsSyncPushResult = pushToCloud(settingsLog.collectCurrentSnapshot(), force)
     LOG.debug("Result of pushing settings to the cloud: $pushResult")
     when (pushResult) {
       is SettingsSyncPushResult.Success -> {
@@ -637,7 +700,9 @@ class SettingsSyncBridge(
   }
 
   private suspend fun pushToIde(settingsSnapshot: SettingsSnapshot, targetPosition: SettingsLog.Position, syncSettings: SettingsSyncState?) {
-    ideMediator.applyToIde(settingsSnapshot, syncSettings)
+    withLockHolderStage("apply settings to the IDE") {
+      ideMediator.applyToIde(settingsSnapshot, syncSettings)
+    }
     settingsLog.setIdePosition(targetPosition)
     LOG.debug("Applied settings to the IDE.")
   }
@@ -652,6 +717,11 @@ class SettingsSyncBridge(
     if (queueSize > 0) {
       LOG.warn("Queue size > 0 !!!!!!")
     }
+  }
+
+  @TestOnly
+  internal fun setLockWaitErrorTimeout(timeout: Duration) {
+    lockWaitErrorTimeout = timeout
   }
 
   @TestOnly
@@ -702,7 +772,6 @@ class SettingsSyncBridge(
 
   companion object {
     private val LOG = logger<SettingsSyncBridge>()
-    private const val KEEP_SERVER_PLUGINS_PUSH_ATTEMPTS = 3
 
     fun removeRemoteData(userData: SettingsSyncUserData): DeleteServerDataResult {
       if (RemoteCommunicatorHolder.getCurrentUserData() != userData) {

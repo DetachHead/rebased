@@ -1,13 +1,20 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.jetbrains.python.types
 
+import com.intellij.openapi.application.runReadActionBlocking
+import com.intellij.psi.util.PsiTreeUtil
+import com.intellij.testFramework.runInEdtAndWait
 import com.jetbrains.python.allure.Subsystems
 import com.jetbrains.python.allure.Layers
 import com.jetbrains.python.allure.Components
 import com.intellij.idea.TestFor
 import com.jetbrains.python.codeInsight.stdlib.PyStdlibTypeProvider
+import com.jetbrains.python.extensions.isExhaustive
 import com.jetbrains.python.fixtures.PyCodeInsightTestCase
 import com.jetbrains.python.psi.LanguageLevel
+import com.jetbrains.python.psi.PyMatchStatement
+import com.jetbrains.python.psi.types.TypeEvalContext
+import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Nested
 import org.junit.jupiter.api.Test
 
@@ -545,6 +552,68 @@ class PyEnumTypeTest : PyCodeInsightTestCase() {
       b: str = E.SECOND_MEMBER.value
       #        ^^^^^^^^^^^^^^^^^^^^^ WARNING Expected type 'str', got 'Literal[43]' instead
       """.trimIndent())
+
+    @Test
+    @TestFor(classes = [PyStdlibTypeProvider::class])
+    fun `_value_ annotation decides the type of value`() = test("""
+      from enum import Enum
+
+      class Planet(Enum):
+          _value_: int
+
+          def __init__(self, value: int, mass: float) -> None:
+              self._value_ = value
+
+          MERCURY = (1, 3.3)
+
+      res = Planet.MERCURY.value
+      # └ TYPE tuple[Literal[1], float | int] FIXME int
+      """.trimIndent())
+
+    @Test
+    @TestFor(classes = [PyStdlibTypeProvider::class])
+    fun `value is Any when a custom __new__ sets it`() = test("""
+      from enum import Enum
+
+      class Coin(Enum):
+          def __new__(cls, label: str):
+              obj = object.__new__(cls)
+              obj._value_ = len(label)
+              return obj
+
+          PENNY = "penny"
+
+      res = Coin.PENNY.value
+      # └ TYPE Literal["penny"] FIXME Any
+      """.trimIndent())
+
+    @Test
+    @TestFor(classes = [PyStdlibTypeProvider::class])
+    fun `Flag name is an optional str`() = test("""
+      from enum import Flag
+
+      class Perm(Flag):
+          R = 1
+          W = 2
+
+      def func(perm: Perm) -> None:
+          res = perm.name
+      #    └ TYPE str FIXME str | None
+      """.trimIndent())
+
+    @Test
+    @TestFor(classes = [PyStdlibTypeProvider::class])
+    fun `__members__ matches a Mapping with str keys`() = test("""
+      from enum import Enum
+      from typing import Mapping
+
+      class Color(Enum):
+          RED = 1
+
+      def take(members: Mapping[str, Color]) -> None: ...
+
+      take(Color.__members__)
+      """.trimIndent())
   }
 
   @Nested
@@ -779,6 +848,59 @@ class PyEnumTypeTest : PyCodeInsightTestCase() {
               expr = v
       #       └ TYPE Color
       """.trimIndent())
+
+    @Test
+    @TestFor(issues = ["PY-92703"])
+    fun `match that covers every member is exhaustive`() = runInEdtAndWait {
+      val file = myFixture.configureByText("a.py", """
+        from enum import Enum
+
+        class Color(Enum):
+            RED = 1
+            GREEN = 2
+
+        def f(c: Color) -> int:
+            match c:
+                case Color.RED: return 1
+                case Color.GREEN: return 2
+        """.trimIndent())
+      val match = PsiTreeUtil.findChildOfType(file, PyMatchStatement::class.java)!!
+      val context = TypeEvalContext.codeAnalysis(file.project, file)
+      // FIXME: the match is exhaustive
+      assertEquals(false, runReadActionBlocking { match.isExhaustive(context) })
+    }
+
+    @Test
+    @TestFor(issues = ["PY-92703"])
+    fun `match that misses a member is reported`() = test("""
+      from enum import Enum
+
+      class Color(Enum):
+          RED = 1
+          GREEN = 2
+          BLUE = 3
+
+      def f(c: Color) -> int:
+      #                  ^^^ WARNING Expected type 'int', got 'Literal[2, 1] | None' instead
+          match c: # WEAK_WARNING FIXME Cases do not cover Color.BLUE
+              case Color.RED: return 1
+              case Color.GREEN: return 2
+      """.trimIndent())
+
+    @Test
+    @TestFor(issues = ["PY-92703"])
+    fun `function with an exhaustive match does not return None`() = test("""
+      from enum import Enum
+
+      class Color(Enum):
+          RED = 1
+          GREEN = 2
+
+      def f(c: Color) -> int:
+          match c:
+              case Color.RED: return 1
+              case Color.GREEN: return 2
+      """.trimIndent())
   }
 
   @Nested
@@ -1008,20 +1130,20 @@ class PyEnumTypeTest : PyCodeInsightTestCase() {
         blue = 3
 
     Color.__members__
-    #        └ TYPE MappingProxyType[Literal["red", "green", "blue"], Literal[Color.red, Color.green, Color.blue]]
+    #        └ TYPE MappingProxyType[str, Color] FIXME MappingProxyType[Literal["red", "green", "blue"], Literal[Color.red, Color.green, Color.blue]]
     
     
     class Empty(Enum):
         pass
 
     Empty.__members__
-    #       └ TYPE MappingProxyType[str, object]
+    #       └ TYPE MappingProxyType[str, Empty]
     
     class EmptyInt(IntEnum):
         pass
 
     EmptyInt.__members__
-    #         └ TYPE MappingProxyType[str, int]
+    #         └ TYPE MappingProxyType[str, EmptyInt]
     """.trimIndent())
 
   @Test

@@ -35,13 +35,15 @@ targets:
 # Plugin Operations
 
 Status: Active
-Date: 2026-09-18
+Date: 2026-10-16
 
 ## Purpose
 
 The Plugins page starts and presents plugin installation, update, state, and removal operations.
 
 This specification defines their stable lifecycle. The [UI contract](./unified-plugin-manager-ui.spec.md) defines their page presentation.
+
+[Plugin Loading Problems](./plugin-loading-problems.spec.md) defines loading explanations and offered recovery actions.
 
 ## Scope
 
@@ -58,6 +60,7 @@ This specification covers plugin operations that the Plugins page starts or pres
 - This specification does not define download or installation mechanics.
 - This specification does not require one transaction across multiple plugins.
 - This specification does not define split-mode routing.
+- This specification does not define loading problem classification or reporting.
 
 ## Operation Lifecycle
 
@@ -169,6 +172,20 @@ Untested: No focused test verifies state isolation across two page sessions.
     `reused update button resolves the refreshed descriptor`
   )
 
+- A disabled plugin must not offer Update in its row or details.
+- Enabling a plugin must restore its cached Update action before Apply or restart.
+- Disabling the plugin again must hide its Update action before Apply or restart.
+  [@test] ../../testSrc/com/intellij/ide/plugins/unified/LegacyPluginRowFactoryTest.kt (
+    `disabled plugin updates appear in rows and details after enabling`
+  )
+
+- Applying a disable change must retain the known update for later session enablement.
+- If cached updates share a plugin ID, disabling must retain all their sources.
+  [@test] ../../testSrc/com/intellij/ide/plugins/newui/DefaultPluginUpdatesProviderTest.kt (
+    `disabling retains known updates for later session enablement`;
+    `disabling merges sources for cached updates with the same plugin id`
+  )
+
 - An install or update must show Downloading while its operation runs.
 - A successful install or update must retain its Prepared state until Apply or Reset.
 - A query change or source refresh must not clear the Prepared state.
@@ -219,6 +236,13 @@ Untested: No focused test covers every management edit and refresh path.
 
 ## Update All
 
+- The local header Restart action must commit prepared changes before it restarts the IDE.
+- If the user declines restart, the page must keep the plugin session and its prepared changes.
+  [@test] ../../testSrc/com/intellij/ide/plugins/UnifiedPluginsPageSessionTest.kt (
+    `header Restart applies the session before restart`;
+    `declining header Restart keeps the session`
+  )
+
 - Update All must remain unavailable until the local inventory resolves each update to an installed plugin.
   [@test] ../../testSrc/com/intellij/ide/plugins/UnifiedPluginsPageSessionTest.kt (
     `Update All waits for the local plugin inventory`
@@ -226,6 +250,12 @@ Untested: No focused test covers every management edit and refresh path.
 
 - Update All must capture the current enabled update set when the user starts it.
 - Disabled updates must not enter an Update All request.
+- Update All must use pending enablement changes from the current settings session.
+- Enabling a plugin must admit its cached update even when the update check classified the plugin as disabled.
+  [@test] ../../testSrc/com/intellij/ide/plugins/UnifiedPluginsPageSessionTest.kt (
+    `Update All follows session enablement with cached disabled updates`
+  )
+
 - The captured total must stay fixed while that request runs.
 - A successful prepared update must advance the prepared count.
 - A failed or cancelled update must not advance the prepared count.

@@ -103,8 +103,8 @@
   <!-- endregion -->
 
   <extensionPoints>
-    <extensionPoint qualifiedName="com.intellij.canBeSelectedInProjectPaneProvider"
-                    interface="com.intellij.ide.projectView.impl.canBeSelected.CanBeSelectedInProjectPaneProvider"
+    <extensionPoint qualifiedName="com.intellij.projectPaneSelectableFileContributor"
+                    interface="com.intellij.ide.projectView.ProjectPaneSelectableFileContributor"
                     dynamic="true"/>
     <extensionPoint qualifiedName="com.intellij.scratchLanguageFilter"
                     interface="com.intellij.ide.scratch.ScratchFileTypeFilter"
@@ -492,6 +492,8 @@
     </extensionPoint>
     <!--<extensionPoint interface="com.intellij.facet.impl.invalid.FacetIgnorer" qualifiedName="com.intellij.facetIgnorer" dynamic="true"/>-->
     <extensionPoint qualifiedName="com.intellij.autoHintsSuppressor" interface="com.intellij.codeInsight.daemon.impl.AutoHintsSuppressor" dynamic="true"/>
+    <extensionPoint qualifiedName="com.intellij.watchRootExcludePolicy" interface="com.intellij.openapi.roots.impl.WatchRootExcludePolicy"
+                    dynamic="true"/>
   </extensionPoints>
 
   <extensions defaultExtensionNs="com.intellij">
@@ -508,12 +510,12 @@
                         serviceImplementation="com.intellij.ide.actions.NewProjectEntryPointImpl"/>
     <applicationService serviceInterface="com.intellij.openapi.module.ModuleTypeManager" open="true"
                         serviceImplementation="com.intellij.openapi.module.impl.ModuleTypeManagerImpl"/>
-    <canBeSelectedInProjectPaneProvider
-      implementation="com.intellij.ide.projectView.impl.canBeSelected.SourceOrLibraryCanBeSelectedInProjectPaneProvider"/>
-    <canBeSelectedInProjectPaneProvider
-      implementation="com.intellij.ide.projectView.impl.canBeSelected.ArchiveCanBeSelectedInProjectPaneProvider"/>
-    <canBeSelectedInProjectPaneProvider
-      implementation="com.intellij.ide.projectView.impl.canBeSelected.ScratchCanBeSelectedInProjectPaneProvider"/>
+    <projectPaneSelectableFileContributor
+      implementation="com.intellij.ide.projectView.impl.selection.SourceOrLibraryProjectPaneSelectableFileContributor"/>
+    <projectPaneSelectableFileContributor
+      implementation="com.intellij.ide.projectView.impl.selection.ArchiveProjectPaneSelectableFileContributor"/>
+    <projectPaneSelectableFileContributor
+      implementation="com.intellij.ide.projectView.impl.selection.ScratchProjectPaneSelectableFileContributor"/>
 
     <completion.frontendFriendlyPrefixMatcher target="com.intellij.codeInsight.completion.command.LimitedToleranceMatcher"
                                               converter="com.intellij.codeInsight.completion.command.LimitedToleranceMatcher$Converter"
@@ -900,7 +902,6 @@
     <scratch.rootType implementation="com.intellij.execution.console.HistoryRootType"/>
     <scratch.rootType implementation="com.intellij.ide.actions.WelcomeFilesRootType"/>
     <nonProjectFileWritingAccessExtension implementation="com.intellij.ide.actions.WelcomeNonProjectFileWritingAccessExtension"/>
-    <virtualFilePreCloseCheck implementation="com.intellij.ide.actions.WelcomeFilePreCloseCheck"/>
     <projectCloseHandler implementation="com.intellij.ide.actions.WelcomeProjectCloseHandler" order="last"/>
     <!--  Inlay hints  -->
     <editorFactoryMouseListener implementation="com.intellij.codeInsight.hints.declarative.impl.DeclarativeInlayEditorMouseListener"/>
@@ -1157,7 +1158,7 @@
                            dynamic="true"/>
     <editorOptionsProvider instance="com.intellij.application.options.editor.EditorAppearanceConfigurable"
                            id="editor.preferences.appearance" bundle="messages.ApplicationBundle"
-                           key="tab.editor.settings.appearance" newOptions="true"/>
+                           key="tab.editor.settings.appearance"/>
     <editorAppearanceInlineDocHandler instance="com.intellij.application.options.editor.EditorAppearanceConfigurable$DefaultInlineDocAdditionalConfigurable"
                                       id="default"/>
     <editorOptionsProvider instance="com.intellij.application.options.editor.GutterIconsConfigurable" id="editor.preferences.gutterIcons"

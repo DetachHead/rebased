@@ -20,6 +20,7 @@ import org.jetbrains.annotations.Nullable;
 
 import javax.swing.Icon;
 
+import static com.intellij.ide.impl.ProjectUtil.isRealProject;
 import static com.intellij.util.FontUtil.spaceAndThinSpace;
 
 public class ChangesBrowserChangeNode extends ChangesBrowserNode<Change> implements TreeLinkMouseListener.HaveTooltip {
@@ -90,7 +91,7 @@ public class ChangesBrowserChangeNode extends ChangesBrowserNode<Change> impleme
   }
 
   private void appendSwitched(@NotNull ChangesBrowserNodeRenderer renderer, @Nullable VirtualFile file) {
-    if (file != null && myProject != null && !myProject.isDefault() && !myProject.isDisposed()) {
+    if (file != null && myProject != null && isRealProject(myProject) && !myProject.isDisposed()) {
       String branch = ChangesTreeCompatibilityProvider.getInstance().getSwitchedBranch(myProject, file);
       if (branch != null) {
         String switchedToBranch = "[" + VcsBundle.message("changes.switched.to.branch.name", branch) + "]";

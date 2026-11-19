@@ -24,6 +24,19 @@ class PyAttributeAndDescriptorTypeTest : PyCodeInsightTestCase() {
   @Nested
   inner class PropertyTypeInference {
     @Test
+    @TestFor(issues = ["PY-85200"])
+    fun `property is still known when the file has a star import`() = test("""
+      from os.path import *
+
+      class C:
+          @property
+          def x(self) -> int: ...
+
+      expr = C().x
+      #└ TYPE int
+      """.trimIndent())
+
+    @Test
     fun `property attribute accessed on class`() = test("""
       class C:
           x = property(lambda self: 'foo', None, None)
@@ -1248,6 +1261,119 @@ class PyAttributeAndDescriptorTypeTest : PyCodeInsightTestCase() {
       #└ TYPE int
       """.trimIndent())
 
+    /** The shape of `propcache._helpers_py`: a module re-exports `functools.cached_property` under the same name. */
+    @Test
+    @TestFor(issues = ["PY-85200"])
+    fun `cached_property re-exported by another module is still a property`() = test("""
+      from propcache_helpers import cached_property
+
+      class C:
+          @cached_property
+          def x(self) -> int: ...
+
+      expr = C().x
+      #└ TYPE int
+      """.trimIndent(),
+      "propcache_helpers.py" to "from functools import cached_property")
+
+    /** The same re-export, one level deeper, because a package facade re-exports from a leaf module. */
+    @Test
+    @TestFor(issues = ["PY-85200"])
+    fun `cached_property re-exported twice is still a property`() = test("""
+      from propcache_api import cached_property
+
+      class C:
+          @cached_property
+          def x(self) -> int: ...
+
+      expr = C().x
+      #└ TYPE int
+      """.trimIndent(),
+      "propcache_helpers.py" to "from functools import cached_property",
+      "propcache_api.py" to "from propcache_helpers import cached_property")
+
+    @Test
+    @TestFor(issues = ["PY-85200"])
+    fun `descriptor imported under the name cached_property is not a property`() = test("""
+      from propcache_api import under_cached_property as cached_property
+
+      class C:
+          _cache: dict[str, object]
+          @cached_property
+          def x(self) -> int: ...
+
+      expr = C().x
+      #└ TYPE int
+      """.trimIndent(),
+      "propcache_api.py" to DESCRIPTOR_MODULE)
+
+    @Test
+    @TestFor(issues = ["PY-85200"])
+    fun `descriptor imported by a relative import is not a property`() = test("""
+      from .propcache_api import cached_property
+
+      class C:
+          _cache: dict[str, object]
+          @cached_property
+          def x(self) -> int: ...
+
+      expr = C().x
+      #└ TYPE int
+      """.trimIndent(),
+      "propcache_api.py" to (DESCRIPTOR_MODULE + "\n\ncached_property = under_cached_property\n"))
+
+    @Test
+    @TestFor(issues = ["PY-85200"])
+    fun `descriptor class named cached_property is not a property`() = test("""
+      from typing import Any, Callable, Mapping, Protocol, Self, overload
+
+      class _CacheImpl[Cache: Mapping[str, Any]](Protocol):
+          _cache: Cache
+
+      class cached_property[T]:
+          def __init__(self, wrapped: Callable[[Any], T]): ...
+          @overload
+          def __get__(self, inst: None, owner: type[object] | None = None) -> Self: ...
+          @overload
+          def __get__(self, inst: _CacheImpl[Any], owner: type[object] | None = None) -> T: ...
+          def __get__(self, inst: _CacheImpl[Any] | None, owner: type[object] | None = None) -> T | Self: ...
+
+      class C:
+          _cache: dict[str, Any]
+          @cached_property
+          def x(self) -> int: ...
+
+      expr = C().x
+      #└ TYPE int
+      """.trimIndent())
+
+    @Test
+    @TestFor(issues = ["PY-85200"])
+    fun `descriptor aliased to the name cached_property is not a property`() = test("""
+      from typing import Any, Callable, Mapping, Protocol, Self, overload
+
+      class _CacheImpl[Cache: Mapping[str, Any]](Protocol):
+          _cache: Cache
+
+      class under_cached_property[T]:
+          def __init__(self, wrapped: Callable[[Any], T]): ...
+          @overload
+          def __get__(self, inst: None, owner: type[object] | None = None) -> Self: ...
+          @overload
+          def __get__(self, inst: _CacheImpl[Any], owner: type[object] | None = None) -> T: ...
+          def __get__(self, inst: _CacheImpl[Any] | None, owner: type[object] | None = None) -> T | Self: ...
+
+      cached_property = under_cached_property
+
+      class C:
+          _cache: dict[str, Any]
+          @cached_property
+          def x(self) -> int: ...
+
+      expr = C().x
+      #└ TYPE int
+      """.trimIndent())
+
     @Test
     @TestFor(issues = ["PY-63737"])
     fun `generic descriptor subclass used as decorator accessed on class`() = test("""
@@ -1653,6 +1779,27 @@ class PyAttributeAndDescriptorTypeTest : PyCodeInsightTestCase() {
       """.trimIndent())
 
     @Test
+    @TestFor(issues = ["PY-92890"])
+    fun `access to attribute of generic class with ParamSpec with ellipsis default is not ambiguous`() = test("""
+      from typing import Generic, ParamSpec
+
+      P1 = ParamSpec("P1", default=...)
+
+      class Inner[**P]: ...
+
+      class Test1[**P = ...]:
+          attr: Inner[P]
+      class Test2(Generic[P1]):
+          attr: Inner[P1]
+      class Test3[**P]:
+          attr: Inner[P]
+
+      Test1.attr
+      Test2.attr
+      Test3.attr # WARNING Access to generic instance variables via class is ambiguous
+      """.trimIndent())
+
+    @Test
     fun `generic attribute assignment is checked`() = test("""
       class C[T]:
           attr: list[T]
@@ -1913,4 +2060,121 @@ class PyAttributeAndDescriptorTypeTest : PyCodeInsightTestCase() {
       expr = C().attr
       #└ TYPE int
       """.trimIndent())
+
+  /** A descriptor with one `__get__` overload for the class and one for an instance, in a `.pyi` stub. */
+  @Nested
+  inner class OverloadedDunderGetInStub {
+    @Test
+    @TestFor(issues = ["PY-24183"])
+    fun `instance read of a ClassVar descriptor uses the instance overload`() = test(
+      """
+      from sig import Widget
+
+      w = Widget()
+      x = w.class_var
+      #   ^^^^^^^^^^^ TYPE Bound
+      w.class_var.connect()
+      """.trimIndent(),
+      "sig.pyi" to SIGNAL_STUB,
+    )
+
+    @Test
+    @TestFor(issues = ["PY-24183"])
+    fun `instance read of an annotated descriptor uses the instance overload`() = test(
+      """
+      from sig import Widget
+
+      w = Widget()
+      x = w.declared
+      #   ^^^^^^^^^^ TYPE Bound
+      """.trimIndent(),
+      "sig.pyi" to SIGNAL_STUB,
+    )
+
+    @Test
+    @TestFor(issues = ["PY-24183"])
+    fun `instance read of an assigned descriptor uses the instance overload`() = test(
+      """
+      from sig import Widget
+
+      w = Widget()
+      x = w.assigned
+      #   ^^^^^^^^^^ TYPE Bound
+      """.trimIndent(),
+      "sig.pyi" to SIGNAL_STUB,
+    )
+
+    @Test
+    @TestFor(issues = ["PY-24183"])
+    fun `class read of a ClassVar descriptor uses the class overload`() = test(
+      """
+      from sig import Widget
+
+      x = Widget.class_var
+      #   ^^^^^^^^^^^^^^^^ TYPE Signal
+      """.trimIndent(),
+      "sig.pyi" to SIGNAL_STUB,
+    )
+
+    /**
+     * In the PyQt5 stubs, `class QPaintDevice(PyQt5.sipsimplewrapper)` names a base class that does not exist, so each
+     * `QWidget` has an unresolved ancestor. An unresolved base does not change which overload applies.
+     */
+    @Test
+    @TestFor(issues = ["PY-24183"])
+    fun `instance read on a class with an unresolved base uses the instance overload`() = test(
+      """
+      from sig import Widget, PaintDevice
+
+      class Button(Widget, PaintDevice):
+          pass
+
+      def f(b: Button):
+          x = b.class_var
+      #       ^^^^^^^^^^^ TYPE Signal FIXME Bound
+          b.class_var.connect()
+      #               ^^^^^^^ WARNING Unresolved attribute reference 'connect' for class 'Signal' FIXME
+      """.trimIndent(),
+      "sig.pyi" to SIGNAL_STUB,
+    )
+  }
+
+  companion object {
+    /** The shape of `QAbstractButton.clicked` in the PyQt5 stubs. */
+    private val SIGNAL_STUB = """
+      import typing
+
+      class Bound:
+          def connect(self) -> None: ...
+
+      class Signal:
+          @typing.overload
+          def __get__(self, instance: None, owner: typing.Type['Widget']) -> 'Signal': ...
+          @typing.overload
+          def __get__(self, instance: 'Widget', owner: typing.Type['Widget']) -> Bound: ...
+
+      class Widget:
+          class_var: typing.ClassVar[Signal]
+          declared: Signal
+          assigned = ...  # type: Signal
+
+      class PaintDevice(missing_module.MissingBase): ...
+      """.trimIndent()
+
+    /** A descriptor in the shape of `propcache.api.under_cached_property`. */
+    private val DESCRIPTOR_MODULE = """
+      from typing import Any, Callable, Mapping, Protocol, Self, overload
+
+      class _CacheImpl[Cache: Mapping[str, Any]](Protocol):
+          _cache: Cache
+
+      class under_cached_property[T]:
+          def __init__(self, wrapped: Callable[[Any], T]): ...
+          @overload
+          def __get__(self, inst: None, owner: type[object] | None = None) -> Self: ...
+          @overload
+          def __get__(self, inst: _CacheImpl[Any], owner: type[object] | None = None) -> T: ...
+          def __get__(self, inst: _CacheImpl[Any] | None, owner: type[object] | None = None) -> T | Self: ...
+      """.trimIndent()
+  }
 }

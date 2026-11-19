@@ -5,6 +5,7 @@ import com.intellij.ide.plugins.api.PluginDto
 import com.intellij.ide.plugins.newui.CustomPluginRepository
 import com.intellij.ide.plugins.newui.CustomPluginRepositoryLoadResult
 import com.intellij.ide.plugins.newui.PluginInstallationState
+import com.intellij.ide.plugins.newui.PluginInventoryChangeReason
 import com.intellij.ide.plugins.newui.PluginModelEvent
 import com.intellij.ide.plugins.newui.PluginOperationKind
 import com.intellij.ide.plugins.newui.PluginOperationTerminalResult
@@ -681,6 +682,36 @@ internal class UnifiedPluginsPageSourceCoordinatorTest {
   }
 
   @Test
+  fun `update filter follows session enablement with cached disabled updates`() = runTest {
+    val installed = inventoryItem("disabled.update.plugin", "Disabled Update Plugin")
+    val update = plugin(installed.model.pluginId.idString, "Plugin Update")
+    val provider = FakeLocalDataProvider(UnifiedPluginInventory(listOf(installed), emptyList()))
+    val events = MutableSharedFlow<PluginModelEvent>(extraBufferCapacity = 1)
+    val coordinator = coordinator(
+      provider,
+      initialQuery = "/outdated",
+      updates = flowOf(PluginUpdatesEvent(emptyList(), listOf(update), emptyList())),
+      hostEvents = events,
+    )
+    coordinator.start()
+    runCurrent()
+
+    for (enabled in listOf(false, true, false, true)) {
+      events.emit(PluginModelEvent.InventoryInvalidated(
+        PluginInventoryChangeReason.ENABLE_DISABLE,
+        setOf(installed.model.pluginId),
+        mapOf(installed.model.pluginId to enabled),
+      ))
+      runCurrent()
+
+      assertThat(installedIds(coordinator.state.value))
+        .containsExactlyElementsOf(if (enabled) listOf(installed.model.pluginId.idString) else emptyList())
+    }
+    assertThat(provider.loadCount).isEqualTo(1)
+    coordinator.close()
+  }
+
+  @Test
   fun `local relevance prioritizes errors and enabled plugins while explicit sorts override priorities`() {
     val healthy = plugin("healthy.plugin", "Alpha Plugin").apply {
       downloads = "100"
@@ -1100,7 +1131,7 @@ internal class UnifiedPluginsPageSourceCoordinatorTest {
     )
 
     val controls = state.searchControls
-    assertThat(controls.options.vendors).containsExactly("Acme", "JetBrains", "Missing", "zeta")
+    assertThat(controls.options.vendors).containsExactly("zeta", "Acme", "JetBrains", "Missing")
     assertThat(controls.options.categories).containsExactly("Languages", "Missing", "Tools", "Tools Integration")
     assertThat(controls.options.tags).containsExactly("Local Tag", "Manual Tag", "Repository Tag", "Shared", "shared", "Suggested Tag")
     assertThat(controls.options.repositories).containsExactly("second", "first", "removed")
@@ -1112,6 +1143,79 @@ internal class UnifiedPluginsPageSourceCoordinatorTest {
     assertThat(controls.selectedInstalledFilter).isEqualTo(UnifiedPluginInstalledFilter.Disabled)
     assertThat(controls.effectiveSort).isEqualTo(com.intellij.ide.plugins.MarketplaceTabSearchSortByOptions.RATING)
     assertThat(controls.filterSelected).isTrue()
+  }
+
+  @Test
+  fun `vendor options put local vendors before all Marketplace vendors`() {
+    val marketplaceVendors = (1..25).map { index -> "Marketplace Vendor ${index.toString().padStart(2, '0')}" }
+    val local = localState(
+      sections = listOf(
+        PluginSectionState(
+          PluginSectionId.Installed,
+          items = listOf(
+            item(plugin("local.plugin", "Local")).copy(searchVendor = " zeta "),
+            item(plugin("shared.plugin", "Shared")).copy(searchVendor = "Shared"),
+            item(plugin("blank.plugin", "Blank")).copy(searchVendor = " "),
+          ),
+        ),
+        PluginSectionState(
+          PluginSectionId.Bundled,
+          items = listOf(item(plugin("bundled.plugin", "Bundled")).copy(searchVendor = "Alpha")),
+        ),
+      ),
+    )
+    val query = PluginsQueryState("/vendor:Missing", "/vendor:Missing", 1)
+
+    val state = composeUnifiedPluginsPageSourceState(
+      query = query,
+      localState = local,
+      marketplaceState = UnifiedPluginMarketplaceSourceState(
+        queryRevision = 0,
+        section = PluginSectionState(PluginSectionId.Suggested),
+        listModelData = PluginListModelData.EMPTY,
+        marketplaceVendors = marketplaceVendors.asReversed() + listOf(" Shared ", "Alpha", "", " ", " Acme ", "Acme"),
+      ),
+    )
+
+    val expectedVendors = buildList {
+      addAll(listOf("Alpha", "Shared", "zeta", "Acme"))
+      addAll(marketplaceVendors)
+      add("Missing")
+    }
+    assertThat(state.searchControls.options.vendors).containsExactlyElementsOf(expectedVendors)
+    assertThat(state.searchControls.selectedVendors).containsExactly("Missing")
+    assertThat(state.sections.filter { it.id == PluginSectionId.Installed || it.id == PluginSectionId.Bundled })
+      .allSatisfy { assertThat(it.items).isEmpty() }
+  }
+
+  @Test
+  fun `local vendor options remain available without a Marketplace catalog`() {
+    val local = localState(
+      sections = listOf(
+        PluginSectionState(
+          PluginSectionId.Installed,
+          items = listOf(item(plugin("local.plugin", "Local")).copy(searchVendor = "Local Vendor")),
+        ),
+        PluginSectionState(PluginSectionId.Bundled),
+      ),
+    )
+    val query = PluginsQueryState("/vendor:Missing", "/vendor:Missing", 1)
+
+    listOf(false, true).forEach { loading ->
+      val state = composeUnifiedPluginsPageSourceState(
+        query = query,
+        localState = local,
+        marketplaceState = UnifiedPluginMarketplaceSourceState(
+          queryRevision = 1,
+          section = PluginSectionState(PluginSectionId.Marketplace),
+          listModelData = PluginListModelData.EMPTY,
+          marketplaceVendorsLoading = loading,
+        ),
+      )
+
+      assertThat(state.searchControls.options.vendors).containsExactly("Local Vendor", "Missing")
+      assertThat(state.searchControls.options.facetValuesLoading).isEqualTo(loading)
+    }
   }
 
   @Test

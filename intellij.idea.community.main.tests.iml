@@ -95,6 +95,7 @@
     <orderEntry type="module" module-name="intellij.platform.credentialStore.impl.tests" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.externalProcessAuthHelper.tests" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.ide.concurrency.tests" scope="TEST" />
+    <orderEntry type="module" module-name="intellij.platform.ide.initialConfigImport.tests" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.ide.presentationAssistant" scope="RUNTIME" />
     <orderEntry type="module" module-name="intellij.platform.buildScripts.usages.tests" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.ijent.tests" scope="TEST" />

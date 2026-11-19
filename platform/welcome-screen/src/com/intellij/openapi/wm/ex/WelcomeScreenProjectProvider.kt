@@ -83,11 +83,6 @@ abstract class WelcomeScreenProjectProvider {
       return extension.doIsWelcomeScreenProject(project) && extension.doIsEditableProject(project)
     }
 
-    fun isVcsEnabled(project: Project): Boolean {
-      val isEditable = isEditableWelcomeProject(project)
-      return isEditable && getWelcomeScreenProjectProvider()?.doIsVcsEnabled() ?: false
-    }
-
     fun isForceDisabledFileColors(): Boolean {
       val extension = getWelcomeScreenProjectProvider() ?: return false
       return extension.doIsForceDisabledFileColors()
@@ -212,12 +207,6 @@ abstract class WelcomeScreenProjectProvider {
     return false
   }
 
-  /**
-   * Return true if your project is a welcome screen that supports version control operations. This setting will be ignored unless the
-   * project is also editable. See [doIsEditableProject]
-   */
-  protected open fun doIsVcsEnabled(): Boolean = false
-
   protected abstract fun doIsForceDisabledFileColors(): Boolean
 
   protected abstract fun doGetCreateNewFileProjectPrefix(): String
@@ -238,11 +227,6 @@ abstract class WelcomeScreenProjectProvider {
    */
   protected open suspend fun doCreateOrOpenWelcomeScreenProjectInNewFrame(path: Path): Project {
     return serviceAsync<WelcomeScreenProjectSupport>().openProject(path, getWelcomeScreenProjectName(), forceOpenInNewFrame = true)
-  }
-
-  @Internal
-  suspend fun doCreateOrOpenWelcomeScreenProjectForInternalUsage(path: Path): Project {
-    return doCreateOrOpenWelcomeScreenProject(path, projectToClose = null)
   }
 
   @Internal

@@ -4,6 +4,7 @@ package com.jetbrains.python.types
 import com.intellij.idea.TestFor
 import com.jetbrains.python.allure.Layers
 import com.jetbrains.python.allure.Subsystems
+import com.jetbrains.python.codeInsight.typing.PyTypingAnnotationInjector
 import com.jetbrains.python.fixtures.PyCodeInsightTestCase
 import com.jetbrains.python.inspections.PyTypeHintsInspection
 import com.jetbrains.python.psi.LanguageLevel
@@ -118,6 +119,81 @@ class PyTypeAnnotationTest : PyCodeInsightTestCase() {
     T44 = TypeVar('T44', int, my_list_int)
     T55 = TypeVar('T55', bound=my_list_int)
     """.trimIndent())
+
+  @Test
+  @TestFor(issues = ["PY-92896"])
+  fun `TypeAliasType name`() = test("""
+    import typing
+    from typing import TypeAliasType
+    import typing_extensions
+
+    name = "TA3"
+    TA1 = TypeAliasType("TA1", int)
+    TA2 = TypeAliasType(name="TA2", value=int)
+    TA3 = TypeAliasType("Other", int)
+    #                   ^^^^^^^ WARNING Name of type alias must match the name of the variable to which it is assigned
+    TA4 = TypeAliasType(name, int)
+    #                   ^^^^ WARNING First argument to TypeAliasType must be a string literal
+    TA5 = typing_extensions.TypeAliasType("Other", int)
+    #                                     ^^^^^^^ WARNING Name of type alias must match the name of the variable to which it is assigned
+    TA6 = typing.TypeAliasType("Other", int)
+    #                          ^^^^^^^ WARNING Name of type alias must match the name of the variable to which it is assigned
+    print(TypeAliasType("Other", int))
+    print(TypeAliasType(name, int))
+    #                   ^^^^ WARNING First argument to TypeAliasType must be a string literal
+    """.trimIndent())
+
+  @Test
+  @TestFor(issues = ["PY-92896"])
+  fun `TypeAliasType type parameters`() = test("""
+    from typing import ParamSpec, TypeAliasType, TypeVar, TypeVarTuple
+    import typing_extensions
+
+    T = TypeVar("T")
+    P = ParamSpec("P")
+    Ts = TypeVarTuple("Ts")
+    params = (T,)
+
+    TA1 = TypeAliasType("TA1", int, type_params=(T, P, Ts))
+    TA2 = typing_extensions.TypeAliasType("TA2", int, type_params=(T,))
+    TA3 = TypeAliasType("TA3", int, type_params=())
+    TA4 = TypeAliasType("TA4", int, type_params=(int,))
+    #                               │           ^^^^^^ WARNING Type parameter list must be a tuple of type parameters
+    #                               ^^^^^^^^^^^^^^^^^^ WARNING Expected type 'tuple[TypeVar | ParamSpec | TypeVarTuple, ...]', got 'tuple[type[int]]' instead
+    TA5 = TypeAliasType("TA5", int, type_params=(T, "T"))
+    #                               │           ^^^^^^^^ WARNING Type parameter list must be a tuple of type parameters
+    #                               ^^^^^^^^^^^^^^^^^^^^ WARNING Expected type 'tuple[TypeVar | ParamSpec | TypeVarTuple, ...]', got 'tuple[TypeVar, Literal["T"]]' instead
+    TA6 = TypeAliasType("TA6", int, type_params=params)
+    #                                           ^^^^^^ WARNING Type parameter list must be a tuple of type parameters
+    TA7 = TypeAliasType("TA7", int, type_params=[T])
+    #                               │           ^^^ WARNING Type parameter list must be a tuple of type parameters
+    #                               ^^^^^^^^^^^^^^^ WARNING Expected type 'tuple[TypeVar | ParamSpec | TypeVarTuple, ...]', got 'list[TypeVar]' instead
+    TA8 = TypeAliasType("TA8", int, type_params=(Unknown,))
+    #                                            ^^^^^^^ ERROR Unresolved reference 'Unknown'
+    TA9 = TypeAliasType("TA9", int)
+    """.trimIndent())
+
+  @Test
+  @TestFor(issues = ["PY-92896"])
+  fun `TypeAliasType type parameters from another file`() = test(
+    """
+    from typing import TypeAliasType
+    from params import T, P, Ts, NotAParameter
+
+    TA1 = TypeAliasType("TA1", int, type_params=(T, P, Ts))
+    TA2 = TypeAliasType("TA2", int, type_params=(T, NotAParameter))
+    #                               │           ^^^^^^^^^^^^^^^^^^ WARNING Type parameter list must be a tuple of type parameters
+    #                               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ WARNING Expected type 'tuple[TypeVar | ParamSpec | TypeVarTuple, ...]', got 'tuple[TypeVar, type[int]]' instead
+    """.trimIndent(),
+    "params.py" to """
+      from typing import ParamSpec, TypeVar, TypeVarTuple
+
+      T = TypeVar("T")
+      P = ParamSpec("P")
+      Ts = TypeVarTuple("Ts")
+      NotAParameter = int
+      """.trimIndent(),
+  )
 
   @Test
   @TestFor(issues = ["PY-28227"])
@@ -2302,15 +2378,38 @@ class PyTypeAnnotationTest : PyCodeInsightTestCase() {
     """.trimIndent())
 
   @Test
-  @TestFor(issues = ["PY-71002"])
+  @TestFor(issues = ["PY-71002", "PY-92890"])
   fun `non-default ParamSpec following ones with defaults`() = test("""
-    from typing import ParamSpec, Generic
+    from typing import ParamSpec, Generic, TypeVar
 
     P1 = ParamSpec("P1")
     P2 = ParamSpec("P2", default=[int, str])
+    P3 = ParamSpec("P3", default=...)
+    T = TypeVar("T")
 
     class Clazz(Generic[P2, P1]): ...
     #                       ^^ ERROR Non-default TypeVars cannot follow ones with defaults
+    class Clazz2(Generic[P2, P3]): ...
+    class Clazz3(Generic[P3, T]): ...
+    #                        └ ERROR Non-default TypeVars cannot follow ones with defaults
+
+    c: Clazz2[[float]]
+    """.trimIndent())
+
+  @Test
+  @TestFor(issues = ["PY-92890"])
+  fun `omitted ParamSpec with ellipsis default`() = test("""
+    from typing import Generic, ParamSpec
+
+    P4 = ParamSpec("P4", default=(...))
+
+    class Clazz2[**P2 = [int, str], **P3 = ...]: ...
+    class Clazz3[**P2 = [int, str], **P3 = (...)]: ...
+    class Clazz4(Generic[P4]): ...
+
+    c2: Clazz2[[float]]
+    c3: Clazz3[[float]]
+    c4: Clazz4
     """.trimIndent())
 
   @Test
@@ -2368,6 +2467,77 @@ class PyTypeAnnotationTest : PyCodeInsightTestCase() {
     #                ^^ WARNING Type variable 'P1' is out of scope
     class Clazz8[T = [int]]: ...
     #                ^^^^^ WARNING Default type must be a type expression
+    """.trimIndent())
+
+  @Test
+  @TestFor(issues = ["PY-92893"])
+  @TestCaseOptions(assertRecursionPrevention = false)
+  fun `new-style default that refers to itself`() = test("""
+    class Itself[T = T]: ...
+    #                └ WARNING Default type of type parameter 'T' refers to itself
+    class SelfNested[T = list[T]]: ...
+    #                         └ WARNING Default type of type parameter 'T' refers to itself
+    def f_itself[T = T](): ...
+    #                └ WARNING Default type of type parameter 'T' refers to itself
+    type AItself[T = T] = list[T]
+    #                └ WARNING Default type of type parameter 'T' refers to itself
+    """.trimIndent())
+
+  @Test
+  @TestFor(issues = ["PY-92893"])
+  fun `new-style default that refers to a later type parameter`() = test("""
+    class Later[S2 = S1, S1 = str]: ...
+    #                ^^ WARNING Default type of this type parameter refers to one or more type variables that are out of scope
+    def f_later[S2 = S1, S1 = str](): ...
+    #                ^^ WARNING Default type of this type parameter refers to one or more type variables that are out of scope
+    type ALater[S2 = S1, S1 = str] = tuple[S1, S2]
+    #                ^^ WARNING Default type of this type parameter refers to one or more type variables that are out of scope
+    """.trimIndent())
+
+  @Test
+  @TestFor(issues = ["PY-92893"])
+  @TestCaseOptions(assertRecursionPrevention = false)
+  fun `new-style defaults that refer to each other`() = test("""
+    class Mutual[T = U, U = T]: ...
+    #                └ WARNING Default type of this type parameter refers to one or more type variables that are out of scope
+    """.trimIndent())
+
+  @Test
+  @TestFor(issues = ["PY-92893"])
+  @TestCaseOptions(assertRecursionPrevention = false)
+  fun `new-style bound that refers to its own type parameter`() = test("""
+    class SelfBound[T: T]: ...
+    #                  └ ERROR Generic types are not allowed inside constraints and bounds of type parameters
+    """.trimIndent())
+
+  @Test
+  @TestFor(issues = ["PY-92893"])
+  fun `new-style default that refers to a later type parameter inside a type expression`() = test("""
+    class Nested[S2 = list[S1], S1 = str]: ...
+    #                      ^^ WARNING Default type of this type parameter refers to one or more type variables that are out of scope
+    class PLater[**P = [T], T = int]: ...
+    #                   └ WARNING Default type of this type parameter refers to one or more type variables that are out of scope
+    class TsLater[*Ts = *tuple[T, ...], T = int]: ...
+    #                          │        ^^^^^^^ ERROR TypeVar with a default value cannot follow TypeVarTuple
+    #                          └ WARNING Default type of this type parameter refers to one or more type variables that are out of scope
+    """.trimIndent())
+
+  @Test
+  @TestFor(issues = ["PY-92893"])
+  fun `new-style default that refers to an earlier type parameter`() = test("""
+    class Ok[S1 = str, S2 = list[S1]]: ...
+    class POk[T = int, **P = [T]]: ...
+    class TsOk[T = int, *Ts = *tuple[T, ...]]: ...
+    def f_ok[S1 = str, S2 = S1](): ...
+    type AOk[S1 = str, S2 = S1] = tuple[S1, S2]
+    """.trimIndent())
+
+  @Test
+  @TestFor(issues = ["PY-92893"])
+  fun `new-style default that refers to an outer type parameter`() = test("""
+    class Outer[T]:
+        def m[U = T](self) -> U: ...
+    #             └ WARNING Type variable 'T' is out of scope
     """.trimIndent())
 
   @Test
@@ -2644,7 +2814,8 @@ class PyTypeAnnotationTest : PyCodeInsightTestCase() {
   fun `TypeVar default types are TypeVars`() = test("""
     from typing import TypeVar, TypeVarTuple, ParamSpec
 
-    type A1[**P, T = P] = tuple[P, T]  # false negative
+    type A1[**P, T = P] = tuple[P, T]
+    #                │          └ WARNING ParamSpec is not allowed in this context
     #                └ WARNING 'ParamSpec' cannot be used in default type of TypeVar
 
     Ts = TypeVarTuple("Ts")
@@ -3471,6 +3642,196 @@ class PyTypeAnnotationTest : PyCodeInsightTestCase() {
     class ClassA: ...
     """.trimIndent())
 
+  /**
+   * The annotations future import defers the evaluation, so the definition runs, but reading the annotation raises a `TypeError`. The `|` is in a type
+   * expression, so `__or__` does not apply.
+   */
+  @Test
+  @TestCaseOptions(languageLevel = LanguageLevel.PYTHON313)
+  fun `quoted name in a union with the annotations future import is an error without an operator warning`() = test("""
+    from __future__ import annotations
+
+    class Cls: ...
+
+    def func(val: "Cls" | None) -> None: ...
+    #             │     └ WARNING Class 'Literal["Cls"]' does not define '__or__', so the '|' operator cannot be used on its instances FIXME
+    #             ^^^^^ ERROR Union type annotations with forward references must be wrapped in quotes entirely
+    """.trimIndent())
+
+  /**
+   * Python 3.14 defers the evaluation of annotations, so the definition runs, but reading the annotation raises a `TypeError`. The `|` is in a type
+   * expression, so `__or__` does not apply.
+   */
+  @Test
+  fun `quoted name in a union with deferred evaluation of annotations is an error without an operator warning`() = test("""
+    class Cls: ...
+
+    def func(val: "Cls" | None) -> None: ...
+    #             │     └ WARNING Class 'Literal["Cls"]' does not define '__or__', so the '|' operator cannot be used on its instances FIXME
+    #             ^^^^^ ERROR Union type annotations with forward references must be wrapped in quotes entirely
+    """.trimIndent())
+
+  /** The parameter has the shape of `ts_input` of `Timestamp.__new__` in the `timestamps.pyi` stub of pandas 1.4.1. */
+  @Test
+  @TestFor(issues = ["PY-53491"])
+  fun `PEP 604 union split over lines in a stub accepts every member`() = test(
+    """
+    from ts import Timestamp
+
+    Timestamp("2022-03-17 00:00:00")
+    Timestamp(1)
+    Timestamp(1.5)
+    Timestamp(b"") # WARNING Expected type 'int | float | str', got 'bytes' instead
+    """.trimIndent(),
+    "ts.pyi" to """
+    class Timestamp:
+        def __new__(
+            cls,
+            ts_input: int
+            | float
+            | str = ...,
+        ) -> Timestamp: ...
+    """.trimIndent(),
+  )
+
+  @Test
+  @TestFor(issues = ["PY-53491"])
+  fun `PEP 604 union split over lines in another module accepts every member`() = test(
+    """
+    from other import f
+
+    f("a")
+    f(1)
+    f(b"") # WARNING Expected type 'int | str', got 'bytes' instead
+    """.trimIndent(),
+    "other.py" to """
+    def f(x: int
+               | str) -> None: ...
+    """.trimIndent(),
+  )
+
+  @Test
+  @TestFor(issues = ["PY-53491"])
+  fun `PEP 604 union in parentheses split over lines in another module accepts every member`() = test(
+    """
+    from other import f
+
+    f("a")
+    f(1)
+    f(b"") # WARNING Expected type 'int | str', got 'bytes' instead
+    """.trimIndent(),
+    "other.py" to """
+    def f(x: (int
+              | str)) -> None: ...
+    """.trimIndent(),
+  )
+
+  @Test
+  @TestFor(issues = ["PY-53491"])
+  fun `quoted PEP 604 union split over lines in another module accepts every member`() = test(
+    """
+    from other import f
+
+    f("a")
+    f(1)
+    f(b"") # WARNING Expected type 'int | str', got 'bytes' instead
+    """.trimIndent(),
+    "other.py" to """
+    def f(x: ''' int
+              | str ''') -> None: ...
+    """.trimIndent(),
+  )
+
+  @Test
+  @TestFor(issues = ["PY-53491"])
+  fun `PEP 604 union with a comment split over lines in another module accepts every member`() = test(
+    """
+    from other import f
+
+    f("a")
+    f(1)
+    f(b"") # WARNING Expected type 'int | str', got 'bytes' instead
+    """.trimIndent(),
+    "other.py" to """
+    def f(x: int  # a number
+               | str) -> None: ...
+    """.trimIndent(),
+  )
+
+  @Test
+  @TestFor(issues = ["PY-53491"])
+  fun `PEP 604 union bound split over lines in another module accepts every member`() = test(
+    """
+    from other import f
+
+    f("a")
+    f(1)
+    f(b"") # WARNING Expected type 'T ≤: int | str', got 'bytes' instead
+    """.trimIndent(),
+    "other.py" to """
+    def f[T: int
+             | str](x: T) -> T: ...
+    """.trimIndent(),
+  )
+
+  @Test
+  @TestFor(issues = ["PY-53491"])
+  fun `PEP 604 union in a TypedDict field split over lines in another module accepts every member`() = test(
+    """
+    from other import Movie
+
+    m: Movie = {"year": None}
+    """.trimIndent(),
+    "other.py" to """
+    from typing import TypedDict
+
+    Movie = TypedDict("Movie", {"year": int
+                                        | None})
+    """.trimIndent(),
+  )
+
+  @Test
+  @TestFor(issues = ["PY-53491"])
+  fun `PEP 604 union after a line continuation in another module keeps every member`() = test(
+    """
+    from other import C, g, x
+
+    r1 = g()
+    #    ^^^ TYPE int | str
+    r2 = x
+    #    └ TYPE int | str
+    r3 = C().attr
+    #    ^^^^^^^^ TYPE int | str
+    """.trimIndent(),
+    "other.py" to """
+    def g() -> int \
+            | str: ...
+
+    x: int \
+       | str
+
+    class C:
+        attr: int \
+              | str
+    """.trimIndent(),
+  )
+
+  @Test
+  @TestFor(issues = ["PY-53491"])
+  fun `PEP 604 union in a type alias split over lines in another module keeps every member`() = test(
+    """
+    from other import Alias
+
+    def f(a: Alias) -> None:
+        a
+    #   └ TYPE int | str
+    """.trimIndent(),
+    "other.py" to """
+    type Alias = (int
+                  | str)
+    """.trimIndent(),
+  )
+
   @Test
   @TestFor(issues = ["PY-76870"])
   fun `TypeVar default can be subclass of bound`() = test("""
@@ -3711,6 +4072,41 @@ class PyTypeAnnotationTest : PyCodeInsightTestCase() {
     """.trimIndent())
 
   @Test
+  @TestFor(issues = ["PY-92892"])
+  @TestCaseOptions(assertRecursionPrevention = false)
+  fun `recursive generic alias through forward references`() = test("""
+    from typing import Generic, Literal, TypeVar
+
+    T = TypeVar("T")
+
+    class Node(Generic[T]): ...
+
+    Tree = Node["Forest[T]"] | list["Forest[T]"]
+    Forest = Tree[T] | Node[Tree[T]]
+    #            │              └ WEAK-WARNING Member 'type[Node[Unknown]]' of 'UnionType | type[Node[Unknown]] | type[list[Unknown]]' does not have attribute '__getitem__' FIXME
+    #            └ WEAK-WARNING Member 'type[Node[Unknown]]' of 'UnionType | type[Node[Unknown]] | type[list[Unknown]]' does not have attribute '__getitem__' FIXME
+    forest: Forest[int]
+    #             └ WEAK-WARNING Member 'type[Node[Unknown]]' of 'UnionType | type[Node[Unknown]]' does not have attribute '__getitem__' FIXME
+    forest
+    #└ TYPE Unknown FIXME # recursive generic aliases are not inferred
+
+    Rec = Node["Rec[T]"]
+    rec: Rec[int]
+    rec
+    #└ TYPE Node[Unknown] FIXME # recursive generic aliases are not inferred
+    rec_extra: Rec[int, str]
+    #              ^^^^^^^^ WARNING Passed type arguments do not match type parameters of type alias 'Rec'
+
+    U = TypeVar("U")
+    P = tuple[U, "P[T, U]"]
+    p: P[int, str]
+
+    NotGeneric = Node[Literal["T"]]
+    not_generic: NotGeneric[int]
+    #                       ^^^ WARNING Type alias is not generic or already specialized
+    """.trimIndent())
+
+  @Test
   fun `Concatenate not reported as illegal first param`() = test("""
     from typing import Callable, Concatenate
 
@@ -3752,6 +4148,38 @@ class PyTypeAnnotationTest : PyCodeInsightTestCase() {
     #                     ^^^^^^^^^^^ WARNING Invalid type annotation
     type BadTypeAlias13 = f"{'int'}"
     #                     ^^^^^^^^^^ WARNING Invalid type annotation
+    """.trimIndent())
+
+  @Test
+  @TestFor(issues = ["PY-93096"], classes = [PyTypingAnnotationInjector::class])
+  fun `quoted type in a type alias statement is resolved`() = test("""
+    type X = list["Undefined"]
+    #             │^^^^^^^^^ WARNING Unresolved reference 'Undefined'
+    #             ^^^^^^^^^^^ ERROR Invalid type argument
+    """.trimIndent())
+
+  @Test
+  @TestFor(issues = ["PY-93096"], classes = [PyTypingAnnotationInjector::class])
+  fun `Literal string in a type alias statement is not a type`() = test("""
+    from typing import Literal
+
+    type X = Literal["a"]
+    """.trimIndent())
+
+  @Test
+  @TestFor(issues = ["PY-93096"], classes = [PyTypingAnnotationInjector::class])
+  fun `Annotated metadata string in a type alias statement is not a type`() = test("""
+    from typing import Annotated
+
+    type X = Annotated[int, "meta"]
+    """.trimIndent())
+
+  @Test
+  @TestFor(issues = ["PY-93096"], classes = [PyTypingAnnotationInjector::class])
+  fun `Literal string in a union of a type alias statement is not a type`() = test("""
+    from typing import Literal
+
+    type X = int | Literal["a b"]
     """.trimIndent())
 
   @Test
@@ -4723,6 +5151,160 @@ class PyTypeAnnotationTest : PyCodeInsightTestCase() {
     #                ^^^^^^ WARNING ParamSpec component can only be used to annotate '*args' or '**kwargs' parameters
         stored_kwargs: P.kwargs
     #                  ^^^^^^^^ WARNING ParamSpec component can only be used to annotate '*args' or '**kwargs' parameters
+    """.trimIndent())
+
+  @Test
+  @TestFor(issues = ["PY-92895"])
+  fun `ParamSpec as parameter annotation`() = test("""
+    def bar[**P](x: P) -> None: ...
+    #               └ WARNING ParamSpec cannot be used as the type of a parameter
+
+    def star[**P](*args: P, **kwargs: P) -> None: ...
+    #                    │            └ WARNING ParamSpec cannot be used as the type of a parameter
+    #                    └ WARNING ParamSpec cannot be used as the type of a parameter
+
+    def quoted[**P](x: "P") -> None: ...
+    #                   └ WARNING ParamSpec cannot be used as the type of a parameter
+
+    class C[**P]:
+        def m(self, x: P) -> None: ...
+    #                  └ WARNING ParamSpec cannot be used as the type of a parameter
+    """.trimIndent())
+
+  @Test
+  @TestFor(issues = ["PY-92895"])
+  fun `ParamSpec as parameter annotation old style`() = test("""
+    from typing import Callable, ParamSpec
+
+    P = ParamSpec("P")
+
+    def bar(f: Callable[P, int], x: P) -> None: ...
+    #                               └ WARNING ParamSpec cannot be used as the type of a parameter
+    """.trimIndent())
+
+  @Test
+  @TestFor(issues = ["PY-92895"])
+  fun `ParamSpec as variable and return annotation`() = test("""
+    from typing import Callable, ParamSpec, TypeAlias
+
+    def ret[**P](*args: P.args, **kwargs: P.kwargs) -> P: ...
+    #                                                  └ WARNING ParamSpec is not allowed in this context
+
+    def local[**P](f: Callable[P, int]) -> None:
+        x: P
+    #      └ WARNING ParamSpec is not allowed in this context
+
+    class C[**P]:
+        attr: P
+    #         └ WARNING ParamSpec is not allowed in this context
+
+    type Alias[**P] = P
+    #                 └ WARNING ParamSpec is not allowed in this context
+
+    Q = ParamSpec("Q")
+    OldAlias: TypeAlias = Q
+    #                     └ WARNING ParamSpec is not allowed in this context
+    """.trimIndent())
+
+  @Test
+  @TestFor(issues = ["PY-92895"])
+  fun `ParamSpec in invalid nested position`() = test("""
+    from typing import Annotated, Callable, Concatenate, Optional, Tuple, Unpack
+    from typing_extensions import TypeForm
+
+    def f[**P](
+        a: list[P],
+    #           └ WARNING Passed type arguments do not match type parameters [_T] of class 'list'
+        b: tuple[P],
+    #            └ WARNING ParamSpec is not allowed in this context
+        c: type[P],
+    #           └ WARNING ParamSpec is not allowed in this context
+        d: Optional[P],
+    #               └ WARNING ParamSpec is not allowed in this context
+        e: P | int,
+    #      └ WARNING ParamSpec is not allowed in this context
+        g: Annotated[P, 1],
+    #                └ WARNING ParamSpec is not allowed in this context
+        h: Callable[[P], int],
+    #                └ WARNING ParamSpec is not allowed in this context
+        i: Callable[Concatenate[int, P], P],
+    #                                    └ WARNING ParamSpec is not allowed in this context
+        j: Tuple[P],
+    #            └ WARNING ParamSpec is not allowed in this context
+        k: TypeForm[P],
+    #               └ WARNING ParamSpec is not allowed in this context
+        l: Unpack[P],
+    #             └ WARNING ParamSpec is not allowed in this context
+    ) -> None: ...
+    """.trimIndent())
+
+  @Test
+  @TestFor(issues = ["PY-92895"])
+  fun `ParamSpec in valid position`() = test("""
+    import collections.abc
+    from typing import Annotated, Callable, Concatenate, Generic, ParamSpec, Protocol, TypeVar
+
+    P = ParamSpec("P")
+    T = TypeVar("T")
+
+    class Old(Generic[T, P]): ...
+
+    class OldProto(Protocol[P]):
+        def __call__(self, *args: P.args, **kwargs: P.kwargs) -> None: ...
+
+    class New[**Q]: ...
+
+    type NewAlias[**Q] = Callable[Q, int]
+    OldAlias = Callable[P, int]
+
+    def f(
+        a: Callable[P, int],
+        b: collections.abc.Callable[P, int],
+        c: Callable[Concatenate[int, P], int],
+        d: Old[int, P],
+        e: New[P],
+        g: NewAlias[P],
+        h: OldAlias[P],
+        i: "Callable[P, int]",
+        j: "New[P]",
+        k: Annotated[int, P | None],
+        l: Annotated[int, [P]],
+        *args: P.args,
+        **kwargs: P.kwargs,
+    ) -> Callable[P, int]: ...
+    """.trimIndent())
+
+  @Test
+  @TestFor(issues = ["PY-92895"])
+  fun `ParamSpec from another module`() = test(
+    """
+    from typing import Callable
+    import mod
+    from mod import P
+
+    def f(x: P, y: mod.P, z: tuple[mod.P]) -> None: ...
+    #        │     │               ^^^^^ WARNING ParamSpec is not allowed in this context
+    #        │     ^^^^^ WARNING ParamSpec cannot be used as the type of a parameter
+    #        └ WARNING ParamSpec cannot be used as the type of a parameter
+
+    def g(c: Callable[P, int], d: Callable[mod.P, int], *args: P.args, **kwargs: P.kwargs) -> None: ...
+    """.trimIndent(),
+    "mod.py" to """
+      from typing import ParamSpec
+
+      P = ParamSpec("P")
+      """.trimIndent(),
+  )
+
+  @Test
+  @TestFor(issues = ["PY-92895"])
+  fun `ParamSpec in type comment`() = test("""
+    from typing import Callable
+
+    def f[**P](c: Callable[P, int]) -> None:
+        x = c  # type: P
+    #       │          └ WARNING ParamSpec is not allowed in this context
+    #       └ WARNING Expected type '**P', got '(**P) -> int' instead
     """.trimIndent())
 
   @Test

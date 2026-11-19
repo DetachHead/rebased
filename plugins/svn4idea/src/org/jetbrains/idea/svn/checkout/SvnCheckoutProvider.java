@@ -52,6 +52,7 @@ import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Predicate;
 
+import static com.intellij.ide.impl.ProjectUtil.isRealProject;
 import static com.intellij.openapi.application.ApplicationManager.getApplication;
 import static com.intellij.openapi.application.ModalityState.any;
 import static com.intellij.openapi.ui.Messages.showErrorDialog;
@@ -164,7 +165,7 @@ public class SvnCheckoutProvider implements CheckoutProvider {
   }
 
   private static void notifyRootManagerIfUnderProject(@NotNull Project project, @NotNull File directory) {
-    if (project.isDefault()) return;
+    if (!isRealProject(project)) return;
 
     VirtualFile[] files = SvnVcs.getInstance(project).getSvnFileUrlMapping().getNotFilteredRoots();
     for (VirtualFile file : files) {

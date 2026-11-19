@@ -5,12 +5,14 @@ import com.intellij.idea.TestFor
 import com.jetbrains.python.allure.Components
 import com.jetbrains.python.allure.Layers
 import com.jetbrains.python.allure.Subsystems
+import com.jetbrains.python.codeInsight.dataflow.scope.impl.ScopeImpl
 import com.jetbrains.python.fixtures.PyCodeInsightTestCase
 import com.jetbrains.python.psi.LanguageLevel
 import com.jetbrains.python.psi.impl.PyBinaryExpressionImpl
 import com.jetbrains.python.psi.impl.PyConditionalExpressionImpl
 import com.jetbrains.python.psi.impl.PyKeywordArgumentImpl
 import com.jetbrains.python.psi.impl.PyReprExpressionImpl
+import com.jetbrains.python.psi.types.PyTypeChecker
 import org.junit.jupiter.api.Disabled
 import org.junit.jupiter.api.Nested
 import org.junit.jupiter.api.Test
@@ -245,6 +247,23 @@ class PyInferenceMiscTypeTest : PyCodeInsightTestCase() {
             foo = 0
             ''':type: int'''
         """.trimIndent())
+
+    @Test
+    @TestFor(classes = [ScopeImpl::class])
+    fun `comprehension variable does not change the module name of the same spelling`() = test("""
+      name = "module"
+      lst = [name for name in range(3)]
+      res = name
+      # └ TYPE Literal["module"] | int FIXME Literal["module"]
+      """.trimIndent())
+
+    @Test
+    @TestFor(classes = [ScopeImpl::class])
+    fun `comprehension variable does not leak into the function scope`() = test("""
+      def func() -> None:
+          lst = [idx for idx in range(3)]
+          print(idx) # ERROR Unresolved reference 'idx'
+      """.trimIndent())
   }
 
   @Nested
@@ -886,6 +905,19 @@ class PyInferenceMiscTypeTest : PyCodeInsightTestCase() {
   @Nested
   inner class DecoratedMethodsAndClassDecorators {
     @Test
+    @TestFor(issues = ["PY-85200"])
+    fun `classmethod is still known when the file has a star import`() = test("""
+      from os.path import *
+
+      class C:
+          @classmethod
+          def make(cls) -> "C": ...
+
+      expr = C.make()
+      #└ TYPE C
+      """.trimIndent())
+
+    @Test
     @TestFor(issues = ["PY-51321"])
     fun `class decorated function`() = test("""
       class A:
@@ -1401,6 +1433,41 @@ class PyInferenceMiscTypeTest : PyCodeInsightTestCase() {
       """.trimIndent())
 
     @Test
+    @TestFor(issues = ["PY-92230"])
+    @TestCaseOptions(additionalSdkRoots = [SdkRoot("types/unannotatedStubFunction", OrderRootTypeEnum.CLASSES)])
+    fun `structural type through unannotated stub function does not parse the stub`() = test("""
+      import unannotated_stub
+
+      def f(x):
+          x.foo
+          g(x)
+          unannotated_stub.forward(x)
+
+      def g(y):
+          return y.bar
+
+      f('string')
+      # ^^^^^^^^ WARNING Type 'Literal["string"]' doesn't have expected attributes 'foo', 'bar'
+      """.trimIndent())
+
+    @Test
+    @TestFor(issues = ["PY-92230"])
+    fun `structural type through function in another file uses only the origin file`() = test("""
+      from other import g
+
+      def f(x):
+          x.foo
+          g(x)
+
+      f('string')
+      # ^^^^^^^^ WARNING Type 'Literal["string"]' doesn't have expected attribute 'foo'
+      """.trimIndent(),
+      "other.py" to """
+      def g(y):
+          return y.bar
+      """.trimIndent())
+
+    @Test
     fun `get attribute against structural type`() = test("""
       def f(x):
           return x.foo
@@ -1592,47 +1659,6 @@ class PyInferenceMiscTypeTest : PyCodeInsightTestCase() {
       #      ^^^^ WARNING Type 'None' doesn't have expected attribute '__mul__'
       func34(None)
       #      ^^^^ WARNING Type 'None' doesn't have expected attribute '__mul__'
-      """.trimIndent())
-  }
-
-  @Nested
-  inner class DocstringTypeForms {
-    @Test
-    fun `no resolve to functions in docstring types`() = test("""
-      class C(object):
-          def bar(self):
-              pass
-
-      def foo(x):
-          '''
-          :type x: C | C.bar | foo
-          '''
-          expr = x
-      #   └ TYPE C | Unknown
-      """.trimIndent())
-
-    @Test
-    fun `parameter of function type and return value from docstring`() = test("""
-      def func(f):
-          '''
-          :type f: (unknown) -> str
-          '''
-          return 1
-
-      expr = func(foo)
-      #│          ^^^ ERROR Unresolved reference 'foo'
-      #└ TYPE Literal[1]
-      """.trimIndent())
-
-    @Test
-    @TestFor(issues = ["PY-21474"])
-    fun `reassigning optional list with default value from docstring`() = test("""
-      def x(things):
-          '''
-          :type things: None | list[str]
-          '''
-          expr = things if things else []
-      #   └ TYPE list[str] | list[Unknown]
       """.trimIndent())
   }
 
@@ -2889,6 +2915,58 @@ class PyInferenceMiscTypeTest : PyCodeInsightTestCase() {
       def f(n: int):
           n +=
       #       └ ERROR Expression expected
+      """.trimIndent())
+
+    @Test
+    @TestFor(classes = [PyTypeChecker::class])
+    fun `classes with the same short name from two modules are not assignable`() = test("""
+      from pkg_a import Foo as FooA
+      from pkg_b import Foo as FooB
+
+      val: FooA = FooB() # WARNING FIXME Expected type 'Foo', got 'Foo' instead
+      """.trimIndent(),
+      "pkg_a.py" to """
+      class Foo:
+          x: int = 0
+      """.trimIndent(),
+      "pkg_b.py" to """
+      class Foo:
+          y: str = ''
+      """.trimIndent())
+
+    @Test
+    @TestFor(issues = ["PY-85653"])
+    fun `type parameter is not assignable to int`() = test("""
+      def func[T](x: T) -> int:
+          return x # WARNING FIXME Expected type 'int', got 'T' instead
+      """.trimIndent())
+
+    @Test
+    @TestFor(classes = [PyTypeChecker::class])
+    fun `user class named Sequence is not a typing Sequence`() = test("""
+      from typing import Sequence as TSeq
+
+      class Sequence:
+          def __getitem__(self, i: int) -> int: ...
+          def __len__(self) -> int: ...
+
+      val: TSeq[int] = Sequence() # WARNING FIXME Expected type 'Sequence[int]', got 'Sequence' instead
+      """.trimIndent())
+
+    @Test
+    @TestFor(classes = [PyTypeChecker::class])
+    fun `bytearray is not assignable to bytes`() = test("""
+      def take(data: bytes) -> None: ...
+
+      take(bytearray(b"x")) # WARNING FIXME Expected type 'bytes', got 'bytearray' instead
+      """.trimIndent())
+
+    @Test
+    @TestFor(classes = [PyTypeChecker::class])
+    fun `list of int from a call is not assignable to list of float`() = test("""
+      def make() -> list[int]: ...
+
+      val: list[float] = make() # WARNING FIXME Expected type 'list[float]', got 'list[int]' instead
       """.trimIndent())
   }
 
