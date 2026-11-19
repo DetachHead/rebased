@@ -1,6 +1,7 @@
 // Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.vcs.console
 
+import com.intellij.ide.impl.ProjectUtil.isRealProject
 import com.intellij.openapi.actionSystem.ActionUpdateThread
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.components.serviceIfCreated
@@ -14,7 +15,7 @@ internal class ShowVcsConsoleTabAction : DumbAwareAction() {
   }
 
   override fun update(e: AnActionEvent) {
-    val project = e.project?.takeIf { !it.isDefault }
+    val project = e.project?.takeIf { isRealProject(it) }
     if (project == null) {
       e.presentation.isEnabledAndVisible = false
       return

@@ -52,11 +52,14 @@ rust_lints_as_errors = rule(
     },
 )
 
-# The rendered `[workspace.lints]` of the community workspaces: the dev-dist tools (`@ddt`) and BT (`@bt`). A `Label`
-# resolves each hub through the repository mapping of this module, so the ultimate root can name them too.
+# The rendered `[workspace.lints]` of the community workspaces: the dev-dist tools (`@ddt`), BT (`@bt`) and the Air
+# UI-lane controller (`@avl`). A `Label` resolves each hub through the repository mapping of this module, so the
+# ultimate root can name them too.
 COMMUNITY_WORKSPACE_LINTS = [
     Label("@ddt//:workspace_cargo_lints"),
     Label("@bt//:workspace_cargo_lints"),
+    Label("@avl//:workspace_cargo_lints"),
+    Label("@yonder//:workspace_cargo_lints"),
 ]
 
 _LINT_FIELDS = ["rustc_lint_flags", "clippy_lint_flags", "rustdoc_lint_flags"]
@@ -122,12 +125,15 @@ def _cross_module(dep, cross_module_crates):
         return dep
     return cross_module_crates.get(target.rpartition("-")[0], dep)
 
-def _cross_module_deps(dep_data, kinds, cross_module_crates):
+def _cross_module_deps(dep_data, kinds, cross_module_crates, as_labels = False):
     """What `all_crate_deps` of a hub returns for `kinds` of `dep_data`, with `cross_module_crates` substituted.
 
     That function returns a list plus a `select`, which a macro cannot rewrite, so the merge is done here from the
     `DEP_DATA` entry. A dependency every platform shares stays out of the `select`, because a label in both fails.
+    With `as_labels`, each dependency and each platform condition is a `Label` of this module, for a caller in another
+    module.
     """
+    resolve = Label if as_labels else (lambda dep: dep)
     shared = {}
     by_platform = {}
     for kind in kinds:
@@ -141,11 +147,26 @@ def _cross_module_deps(dep_data, kinds, cross_module_crates):
     for platform, deps in sorted(by_platform.items()):
         only_here = sorted([dep for dep in deps if dep not in shared])
         if only_here:
-            branches[platform] = only_here
+            branches[resolve(platform)] = [resolve(dep) for dep in only_here]
+    shared_deps = [resolve(dep) for dep in sorted(shared)]
     if not branches:
-        return sorted(shared)
+        return shared_deps
     branches["//conditions:default"] = []
-    return sorted(shared) + select(branches)
+    return shared_deps + select(branches)
+
+def rust_tool_test_deps(hub, package, cross_module_crates):
+    """The dependencies that the unit test of the crate in `package` adds to those of the crate.
+
+    A package of another module needs them to run the unit test of the crate again with `crate =`, for example with
+    data that only that module has. Each dependency is a `Label` of this module, so it resolves in the module of the
+    hub, and a crate of `cross_module_crates` replaces its hub copy as it does in `rust_tool_crate`.
+
+    Args:
+      hub: the hub of `rust_tool_hub`, with its `dep_data`.
+      package: the package of the crate, such as `tools/vm/crates/air-trace`.
+      cross_module_crates: the crates of another workspace, as `rust_tool_crate` takes them.
+    """
+    return _cross_module_deps(hub.dep_data[package], ["dev_deps"], cross_module_crates, as_labels = True)
 
 _PLATFORMS = "//command_line_option:platforms"
 
@@ -217,6 +238,7 @@ def rust_tool_crate(
         cross_module_crates = {},
         test_data = [],
         compile_data = [],
+        native_deps = [],
         test_sharding = False,
         testdata_env = None,
         closure = False,
@@ -273,6 +295,8 @@ def rust_tool_crate(
       test_data: more run-time data of the unit test, such as the `<name>_testdata` filegroup of another crate.
       compile_data: the files that the crate reads at compile time (`include_str!`). Its unit test gets them as
         run-time data too.
+      native_deps: the C libraries that the crate links, which a `build.rs` of the crate builds under cargo. Bazel runs
+        no build script of a crate of the workspace.
       test_sharding: lets the rules_rust wrapper split the libtest cases across the shards of the unit test.
       testdata_env: the environment variable that gives a test the path of `testdata/`. The test also gets
         `testdata/` as compile data and as run-time data.
@@ -321,6 +345,9 @@ def rust_tool_crate(
         deps = hub.all_crate_deps(normal = True)
         test_deps = hub.all_crate_deps(normal_dev = True)
         integration_test_deps = hub.all_crate_deps(normal = True, normal_dev = True)
+    if native_deps:
+        deps = deps + native_deps
+        integration_test_deps = integration_test_deps + native_deps
 
     is_binary = bins_prefix != None and package.startswith(bins_prefix)
     binaries = {}
@@ -366,6 +393,17 @@ def rust_tool_crate(
         test_size = test_size,
         test_tags = test_tags,
     )
+
+def rust_tool_sources(*dep_data):
+    """The `<crate>_sources` filegroups of every crate of the given crate hubs, by the package keys of their `DEP_DATA`.
+
+    A crate that a hub lists gets into the copy-paste test by itself, and a crate that two hubs list counts once.
+
+    Args:
+      *dep_data: the `DEP_DATA` of each crate hub.
+    """
+    packages = {package: None for data in dep_data for package in data}
+    return [Label("//{}:{}_sources".format(package, package.rsplit("/", 1)[-1])) for package in sorted(packages)]
 
 def rust_tool_binary(name, deps, lints, edition, test_deps = [], testdata_env = None):
     """Declares one binary of a Rust tool workspace that Bazel builds without a crate hub, its unit test, and its clippy.
@@ -431,6 +469,14 @@ def _rust_tool_targets(
     package = native.package_name()
     repo = native.repo_name()
     crate_target = crate_target or name
+
+    # Every Rust file of the package, for the copy-paste test `//build/rust-tools:duplicate-code_test`. A glob stops at
+    # a subpackage, so each crate declares its own, and `rust_tool_sources` names them.
+    native.filegroup(
+        name = name + "_sources",
+        srcs = native.glob(["**/*.rs"], exclude = ["testdata/**"]),
+        visibility = ["//visibility:public"],
+    )
 
     # An argument that the caller left unset stays out of the call, so that a target renders as it did before the
     # argument existed.
@@ -601,8 +647,9 @@ def _optimized_binary_impl(ctx):
 optimized_binary = rule(
     doc = """One shipped binary, optimized, for the host or for one named platform.
 
-    Its only file is the binary. `bazel run --script_path` (the wrappers), `$(rlocationpath)` (`ui_lane_ide.bzl`), the
-    controller's `cquery ... [0]` for the guest agent, and `bazel-build-run.cmd` each need exactly one. The test of the
+    Its only file is the binary. The wrappers (their build event file, or `bazel run --script_path`), `$(rlocationpath)`
+    (`ui_lane_ide.bzl`), the controller's `cquery ... [0]` for the guest agent, and `bazel-build-run.cmd` each need
+    exactly one. The test of the
     binary stays on the `rust_binary` in the configuration of the build. The Air UI-lane workspace loads this rule as
     `avl_binary`.""",
     implementation = _optimized_binary_impl,

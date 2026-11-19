@@ -243,6 +243,7 @@ jvm_library(
         ":main-tests",
         "//platform/platform-util-io-native:ide-util-io-native-tests_test_lib",
         "//platform/platform-impl/concurrency:ide-concurrency-tests_test_lib",
+        "//platform/platform-impl/initial-config-import:ide-initialConfigImport-tests_test_lib",
         "//platform/platform-impl/presentation-assistant:presentation-assistant_test_lib",
     ],
     deps = [
@@ -372,6 +373,7 @@ jvm_library(
         "//platform/external-process-auth-helper:externalProcessAuthHelper-tests",
         "//platform/external-process-auth-helper:externalProcessAuthHelper-tests_test_lib",
         "//platform/platform-impl/concurrency:ide-concurrency-tests",
+        "//platform/platform-impl/initial-config-import:ide-initialConfigImport-tests",
         "//platform/build-scripts/usages:buildScripts-usages-tests",
         "//platform/build-scripts/usages:buildScripts-usages-tests_test_lib",
         "//platform/ijent:ijent-tests",

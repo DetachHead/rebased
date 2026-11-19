@@ -13,6 +13,7 @@ import com.intellij.codeInsight.daemon.impl.analysis.FileHighlightingSetting
 import com.intellij.codeInsight.daemon.impl.analysis.HighlightingSettingsPerFile
 import com.intellij.codeInsight.hints.InlayHintsUtils
 import com.intellij.codeInsight.multiverse.EditorContextManager
+import com.intellij.codeInsight.multiverse.codeInsightContext
 import com.intellij.codeInsight.navigation.actions.GotoDeclarationAction
 import com.intellij.ide.scratch.ScratchUtil
 import com.intellij.openapi.application.ApplicationManager
@@ -57,7 +58,10 @@ abstract class RenameAwareReferencesCodeVisionProvider : CodeVisionProvider<Noth
     val cacheService = project.service<CodeVisionCacheService>()
     val cached = cacheService.getVisionDataForEditor(editor, id)
     val stamp = ModificationStampUtil.getModificationStamp(editor)
-    if (stamp != null && cached?.modificationStamp == stamp) return CodeVisionState.Ready(cached.codeVisionEntries)
+    if (stamp != null && cached?.modificationStamp == stamp &&
+        cached.context == EditorContextManager.getCachedEditorContext(editor, project)) {
+      return CodeVisionState.Ready(cached.codeVisionEntries)
+    }
 
     return InlayHintsUtils.computeCodeVisionUnderReadAction(expectsIndicator = true) ra@{
       if (DumbService.isDumb(project)) {
@@ -100,14 +104,15 @@ abstract class RenameAwareReferencesCodeVisionProvider : CodeVisionProvider<Noth
       val hint = getHint(element, file)
       if (hint == null) continue
       val range = InlayHintsUtils.getTextRangeWithoutLeadingCommentsAndWhitespaces(element)
-      lenses.add(range to ClickableTextCodeVisionEntry(hint, id, { event, sourceEditor ->
-        handleClick(sourceEditor, element, event)
-        logClickToFUS(element, hint)
-      }))
+      val handler = PsiElementClickHandler(element) { clicked, event, sourceEditor ->
+        handleClick(sourceEditor, clicked, event)
+        logClickToFUS(clicked, hint)
+      }
+      lenses.add(range to ClickableTextCodeVisionEntry(hint, id, handler))
     }
 
     if (stamp != null) {
-      cacheService.storeVisionDataForEditor(editor, id, CodeVisionCacheService.CodeVisionWithStamp(lenses, stamp))
+      cacheService.storeVisionDataForEditor(editor, id, CodeVisionCacheService.CodeVisionWithStamp(lenses, stamp, file.codeInsightContext))
     }
     return CodeVisionState.Ready(lenses)
   }

@@ -24,7 +24,9 @@ export const manifestPaths = [
   "community/build/dev-dist-tools/Cargo.toml",
   "build/dev-dist-tools/Cargo.toml",
   "community/tools/bt/Cargo.toml",
-  "plugins/air/tests/integration/vm-lane/Cargo.toml",
+  "community/tools/vm/Cargo.toml",
+  "community/tools/yonder/Cargo.toml",
+  "docs/ij-void/portal-server/Cargo.toml",
 ]
 
 /**

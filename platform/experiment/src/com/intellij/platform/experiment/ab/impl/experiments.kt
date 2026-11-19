@@ -25,6 +25,8 @@ enum class ABExperimentOption {
   SHOW_TRIAL_SURVEY,
   NEW_USERS_ONBOARDING,
   CLION_WIZARD_REMOVAL,
+  SEARCH_EVERYWHERE_NO_ML_SORTING,
+  CLION_DFA_DISABLE_COMPUTATION,
 
   /**
    * A group for users which are not assigned to any experiment.
@@ -70,20 +72,47 @@ val experimentsPartition: List<ExperimentAssignment> = listOf(
   //  controlBuckets = (128 until 256).toSet(),
   //  majorVersion = "2025.2"
   //),
+  //ExperimentAssignment(
+  //  experiment = ABExperimentOption.CLION_WIZARD_REMOVAL,
+  //  experimentBuckets = (256 until 768).toSet(),
+  //  controlBuckets = (0 until 256).toSet() + (768 until 1024).toSet(),
+  //  majorVersion = "2026.2",
+  //  products = EnumSet.of(IntelliJPlatformProduct.CLION),
+  //),
   ExperimentAssignment(
-    experiment = ABExperimentOption.CLION_WIZARD_REMOVAL,
-    experimentBuckets = (256 until 768).toSet(),
-    controlBuckets = (0 until 256).toSet() + (768 until 1024).toSet(),
-    majorVersion = "2026.2",
-    products = EnumSet.of(IntelliJPlatformProduct.CLION),
+    experiment = ABExperimentOption.SEARCH_EVERYWHERE_NO_ML_SORTING,
+    experimentBuckets = (0 until 512).toSet(),
+    controlBuckets = (512 until 1024).toSet(),
+    // We run this experiment only on the pre-release builds (EAP, Beta, RC). See [isAllowed]
+    majorVersion = "2026.3",
   ),
+  //ExperimentAssignment(
+  //  experiment = ABExperimentOption.CLION_DFA_DISABLE_COMPUTATION,
+  //  experimentBuckets = (0 until 256).toSet(),
+  //  controlBuckets = (256 until 512).toSet(),
+  //  majorVersion = "2026.3",
+  //  products = EnumSet.of(IntelliJPlatformProduct.CLION),
+  //),
   // the rest belongs to the "unassigned" experiment
 )
 
 /**
  * This method can be configured to allow options only in particular IDEs.
  */
-fun isAllowed(option: ABExperimentOption): Boolean = true
+fun isAllowed(option: ABExperimentOption): Boolean = when (option) {
+  ABExperimentOption.SEARCH_EVERYWHERE_NO_ML_SORTING -> isMajorPreRelease()
+  else -> true
+}
+
+/**
+ * Returns `true` for the EAP, Beta and RC builds of a major release, for example `2026.3 RC`.
+ * These builds have a version suffix, so the full version is longer than the short version.
+ * Returns `false` for the release and for the builds of a minor update, for example `2026.3.1 RC` and `2026.3.1`.
+ */
+private fun isMajorPreRelease(): Boolean {
+  val appInfo = ApplicationInfo.getInstance()
+  return !appInfo.minorVersion.contains('.') && appInfo.fullVersion != appInfo.shortVersion
+}
 
 // ================= IMPLEMENTATION ====================
 

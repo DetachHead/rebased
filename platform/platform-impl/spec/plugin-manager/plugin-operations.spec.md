@@ -4,12 +4,17 @@ description: Stable behavior for plugin changes started or presented by the Plug
 targets:
   - ../../src/com/intellij/ide/plugins/UnifiedPluginsPageApplyState.kt
   - ../../src/com/intellij/ide/plugins/UnifiedPluginsPageSession.kt
+  - ../../src/com/intellij/ide/plugins/newui/DefaultPluginUpdatesProvider.kt
   - ../../src/com/intellij/ide/plugins/newui/DefaultUiPluginManagerController.kt
   - ../../src/com/intellij/ide/plugins/newui/LegacyPluginUiHost.kt
+  - ../../src/com/intellij/ide/plugins/newui/ListPluginComponent.kt
   - ../../src/com/intellij/ide/plugins/newui/PluginDetailsPageComponent.kt
   - ../../src/com/intellij/ide/plugins/newui/PluginManagerCustomizer.kt
   - ../../src/com/intellij/ide/plugins/newui/PluginModelAsyncOperationsExecutor.kt
   - ../../src/com/intellij/ide/plugins/newui/PluginModelEvents.kt
+  - ../../src/com/intellij/ide/plugins/newui/PluginUpdateSourceFilter.kt
+  - ../../src/com/intellij/ide/plugins/newui/SelectionBasedPluginModelAction.java
+  - ../../src/com/intellij/ide/plugins/newui/UninstallAction.kt
   - ../../src/com/intellij/ide/plugins/unified/LegacyPluginRowFactory.kt
   - ../../src/com/intellij/ide/plugins/unified/UnifiedPluginInstallingLedger.kt
   - ../../src/com/intellij/ide/plugins/unified/UnifiedPluginLocalSourceCoordinator.kt
@@ -21,8 +26,11 @@ targets:
   - ../../testSrc/com/intellij/ide/plugins/UnifiedPluginsPageApplyStateTest.kt
   - ../../testSrc/com/intellij/ide/plugins/UnifiedPluginsPageSessionTest.kt
   - ../../testSrc/com/intellij/ide/plugins/newui/InstallPluginTerminalStateTest.kt
+  - ../../testSrc/com/intellij/ide/plugins/newui/DefaultPluginUpdatesProviderTest.kt
   - ../../testSrc/com/intellij/ide/plugins/newui/LegacyPluginUiHostTest.kt
+  - ../../testSrc/com/intellij/ide/plugins/newui/PluginManagerButtonUsageTest.kt
   - ../../testSrc/com/intellij/ide/plugins/newui/PluginModelEventPublisherTest.kt
+  - ../../testSrc/com/intellij/ide/plugins/newui/PluginUpdateSourceFilterTest.kt
   - ../../testSrc/com/intellij/ide/plugins/unified/LegacyPluginRowFactoryTest.kt
   - ../../testSrc/com/intellij/ide/plugins/unified/UnifiedPluginInstallingLedgerTest.kt
   - ../../testSrc/com/intellij/ide/plugins/unified/UnifiedPluginLocalSourceCoordinatorTest.kt
@@ -35,13 +43,15 @@ targets:
 # Plugin Operations
 
 Status: Active
-Date: 2026-09-18
+Date: 2026-10-27
 
 ## Purpose
 
 The Plugins page starts and presents plugin installation, update, state, and removal operations.
 
 This specification defines their stable lifecycle. The [UI contract](./unified-plugin-manager-ui.spec.md) defines their page presentation.
+
+[Plugin Loading Problems](./plugin-loading-problems.spec.md) defines loading explanations and offered recovery actions.
 
 ## Scope
 
@@ -58,6 +68,7 @@ This specification covers plugin operations that the Plugins page starts or pres
 - This specification does not define download or installation mechanics.
 - This specification does not require one transaction across multiple plugins.
 - This specification does not define split-mode routing.
+- This specification does not define loading problem classification or reporting.
 
 ## Operation Lifecycle
 
@@ -155,6 +166,54 @@ Untested: No focused test verifies state isolation across two page sessions.
 
 ## Install and Update
 
+- A completed update check for the current IDE build must refresh the plugin manager's cached updates.
+- Open pages and pages opened later must receive the completed result, including an empty result.
+- A completed result must replace version, repository, and download data even when the plugin IDs stay the same.
+- A check for another IDE build must preserve the current update snapshot.
+  [@test] ../../testSrc/com/intellij/ide/plugins/newui/DefaultPluginUpdatesProviderTest.kt (
+    `completed checks reach current and later subscribers`;
+    `completed checks replace versions for the same plugin ids`;
+    `completed checks replace repositories for the same plugin ids`;
+    `an empty completed check clears cached updates`;
+    `checks for another IDE build keep the current snapshot`
+  )
+
+- A saved update source change must request a new plugin update check.
+- Saving the same source again must not request another check.
+  [@test] ../../testSrc/com/intellij/ide/plugins/newui/DefaultPluginUpdatesProviderTest.kt (
+    `saved source changes refresh updates`
+  )
+
+- A check must deliver fresh updates to UI callbacks while a modal task is active.
+  [@test] ../../../platform-tests/testSrc/com/intellij/openapi/application/PluginUpdateFilteringBasedOnPluginUpdateSourceTest.kt (
+    `applying source changes publishes fresh results from the selected repository`
+  )
+
+- A plugin with a pending update source change must not offer Update in its rows or details.
+- Update All must exclude this plugin until the source change is applied or reverted.
+- Reverting the source change or resetting the session must restore the latest cached update.
+- Pending source changes must not affect another page session or the shared update snapshot.
+  [@test] ../../testSrc/com/intellij/ide/plugins/UnifiedPluginsPageSessionTest.kt (
+    `pending source changes suppress row details and Update All availability`;
+    `Update All excludes plugins with pending source changes`
+  )
+  [@test] ../../testSrc/com/intellij/ide/plugins/newui/PluginUpdateSourceFilterTest.kt (
+    `pending sources suppress enabled and disabled updates without changing the shared snapshot`;
+    `returning to the initial source restores updates after several source changes`;
+    `unknown sources participate in pending changes`;
+    `reset restores the latest snapshot and persistence clears only its plugin`
+  )
+
+- When source filtering is enabled, the page must accept cached updates only from the saved update source.
+- Apply must not restore an update from the previous source while a fresh check runs.
+  [@test] ../../testSrc/com/intellij/ide/plugins/UnifiedPluginsPageSessionTest.kt (
+    `Apply keeps updates from the previous source hidden`
+  )
+  [@test] ../../testSrc/com/intellij/ide/plugins/newui/PluginUpdateSourceFilterTest.kt (
+    `cached updates must match the saved source when filtering is enabled`;
+    `disabled source filtering retains cached updates after pending changes clear`
+  )
+
 - Before the trust check starts, an operation must load incomplete Marketplace details.
 - An operation must stop before the trust check when complete Marketplace details are unavailable.
 - The page must report the failure when complete Marketplace details are unavailable.
@@ -167,6 +226,20 @@ Untested: No focused test verifies state isolation across two page sessions.
 - A retained Update action must use the current descriptors after a source refresh.
   [@test] ../../testSrc/com/intellij/ide/plugins/unified/LegacyPluginRowFactoryTest.kt (
     `reused update button resolves the refreshed descriptor`
+  )
+
+- A disabled plugin must not offer Update in its row or details.
+- Enabling a plugin must restore its cached Update action before Apply or restart.
+- Disabling the plugin again must hide its Update action before Apply or restart.
+  [@test] ../../testSrc/com/intellij/ide/plugins/unified/LegacyPluginRowFactoryTest.kt (
+    `disabled plugin updates appear in rows and details after enabling`
+  )
+
+- Applying a disable change must retain the known update for later session enablement.
+- If cached updates share a plugin ID, disabling must retain all their sources.
+  [@test] ../../testSrc/com/intellij/ide/plugins/newui/DefaultPluginUpdatesProviderTest.kt (
+    `disabling retains known updates for later session enablement`;
+    `disabling merges sources for cached updates with the same plugin id`
   )
 
 - An install or update must show Downloading while its operation runs.
@@ -219,6 +292,13 @@ Untested: No focused test covers every management edit and refresh path.
 
 ## Update All
 
+- The local header Restart action must commit prepared changes before it restarts the IDE.
+- If the user declines restart, the page must keep the plugin session and its prepared changes.
+  [@test] ../../testSrc/com/intellij/ide/plugins/UnifiedPluginsPageSessionTest.kt (
+    `header Restart applies the session before restart`;
+    `declining header Restart keeps the session`
+  )
+
 - Update All must remain unavailable until the local inventory resolves each update to an installed plugin.
   [@test] ../../testSrc/com/intellij/ide/plugins/UnifiedPluginsPageSessionTest.kt (
     `Update All waits for the local plugin inventory`
@@ -226,6 +306,12 @@ Untested: No focused test covers every management edit and refresh path.
 
 - Update All must capture the current enabled update set when the user starts it.
 - Disabled updates must not enter an Update All request.
+- Update All must use pending enablement changes from the current settings session.
+- Enabling a plugin must admit its cached update even when the update check classified the plugin as disabled.
+  [@test] ../../testSrc/com/intellij/ide/plugins/UnifiedPluginsPageSessionTest.kt (
+    `Update All follows session enablement with cached disabled updates`
+  )
+
 - The captured total must stay fixed while that request runs.
 - A successful prepared update must advance the prepared count.
 - A failed or cancelled update must not advance the prepared count.
@@ -257,6 +343,24 @@ Untested: No focused test covers every management edit and refresh path.
   )
 
 ## Operation Integration
+
+- The local page must report install and uninstall clicks to FUS and MP before the operation starts.
+- Each selected plugin must produce one click event, including when the operation is cancelled.
+- The event must identify a default button, dropdown item, or context menu item and use the frontend side.
+- A context install action must preserve the button listeners.
+- The local page must leave click reporting to the active product customizer when one exists.
+  [@test] ../../testSrc/com/intellij/ide/plugins/newui/PluginManagerButtonUsageTest.kt (
+    `row install button reports a click before a cancelled operation`;
+    `context install reports each selected plugin and preserves button listeners`;
+    `details install button reports a click before a cancelled operation`;
+    `uninstall dropdown reports a click before a cancelled operation`;
+    `standalone uninstall button reports a default click`;
+    `context uninstall reports each selected plugin`;
+    `keyboard install and uninstall report default clicks`;
+    `active customizer suppresses local button reporting`
+  )
+
+Untested: No focused test verifies clicks through the complete split frontend implementation.
 
 - Plugin identity must join operation events with all matching page occurrences.
 - Inventory refreshes must remain authoritative for the final installed state.

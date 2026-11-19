@@ -1,0 +1,233 @@
+use std::path::Path;
+
+use crate::bench::record::{self, LaunchFacts, RunId};
+use crate::bench::session::{self, SessionInfo};
+use crate::bench::summary::Summary;
+use crate::bench::testing::{assert_golden, fixture_session, replay};
+
+/// The digest of a replay of the fixture session equals `testdata/bench/replay-digest.txt`.
+#[test]
+fn the_replay_digest_matches_the_golden() {
+    let (_dir, session) = fixture_session();
+    let mut summary = replay(&session);
+    summary.session = "<session>".to_owned();
+    let digest = format!("{}\n", super::render(&summary));
+    assert_golden("replay-digest.txt", &digest);
+    let profile = digest
+        .lines()
+        .skip_while(|line| !line.contains(" EDT, top Java frames by samples ("))
+        .take_while(|line| !line.contains("host load"))
+        .count();
+    assert_eq!(profile, 16, "the EDT block and the trigger block of the profile");
+    assert!(
+        digest.lines().count() - profile <= 75,
+        "the digest of a welcome session without a profile is about 69 lines"
+    );
+}
+
+#[test]
+fn a_number_has_one_decimal_below_ten_and_a_clip_ends_with_an_ellipsis() {
+    use super::{clip, number, signed};
+    assert_eq!(number(4.25), "4.2");
+    assert_eq!(number(4.0), "4");
+    assert_eq!(number(1265.4), "1265");
+    assert_eq!(signed(-0.5), "-0.5");
+    assert_eq!(signed(12.0), "+12");
+    assert_eq!(clip("run activity", 20), "run activity");
+    assert_eq!(clip("run activity", 5), "run …");
+}
+
+#[test]
+fn the_header_names_the_max_load_of_the_session() {
+    let (_dir, session) = fixture_session();
+    let mut summary = replay(&session);
+    let first = |summary: &Summary| super::render(summary).lines().next().map(str::to_owned);
+    assert!(
+        first(&summary).is_some_and(|line| line.ends_with(", hold 3000 ms")),
+        "{:?}",
+        first(&summary)
+    );
+    summary.max_load = Some(10.0);
+    assert!(
+        first(&summary).is_some_and(|line| line.ends_with(", hold 3000 ms, max load 10")),
+        "{:?}",
+        first(&summary)
+    );
+}
+
+/// Renders the digest of a project session over the run directory `run` of `session`. The only arm of the session is
+/// the arm of the run, and its project is a markdown project of the template. `edit` changes the other inputs.
+fn project_digest(session: &Path, run: &str, edit: impl FnOnce(&mut SessionInfo)) -> String {
+    let id = RunId::parse(run).expect("a run");
+    let mut info = session::read_info(session).expect("the session");
+    info.command = "project".to_owned();
+    info.arms = vec![id.arm.clone()];
+    info.project = Some("<template>/projects/markdown".to_owned());
+    edit(&mut info);
+    let record = record::collect(&session.join(run), &id, LaunchFacts::default());
+    super::render(&Summary::build(&info, "<session>", &[record]))
+}
+
+/// A project session renders the editor group and the additional modules of the distribution.
+#[test]
+fn a_project_session_shows_the_editor_and_the_additional_modules() {
+    let (_dir, session_dir) = fixture_session();
+    let text = project_digest(&session_dir, "project-run-01", |info| {
+        info.project_file = Some("README.md".to_owned());
+        info.additional_modules = vec!["intellij.markdown".to_owned(), "intellij.json".to_owned()];
+    });
+    let lines: Vec<&str> = text.lines().collect();
+    assert!(lines[0].ends_with(", hold 3000 ms, with 2 additional modules"), "{}", lines[0]);
+    assert_eq!(lines[2], "project: <template>/projects/markdown, prime file README.md");
+    let editor = lines.iter().position(|line| *line == "editor:").expect("the editor group");
+    assert!(lines[editor + 1].starts_with("  editor highlighting completed "), "{text}");
+    assert!(lines[editor + 2] == "platform spans:", "{text}");
+    assert!(!text.contains("welcome spans:"), "{text}");
+    let name = |line: &str| line.chars().take(super::NAME_WIDTH).collect::<String>().trim().to_owned();
+    for row in ["editor restoring till paint", "editor restoring", "project frame creating"] {
+        assert_eq!(lines.iter().filter(|line| name(line) == row).count(), 1, "{row}: {text}");
+    }
+}
+
+/// A session with the empty-editor arm renders the composer group: its end, then each composer span in the order of
+/// its start, so a nested span such as a prologue step or an `air.emptyState.content.` part follows its parent. It
+/// names no prime file, because that arm opens none.
+#[test]
+fn an_empty_editor_session_shows_the_composer() {
+    use crate::bench::testing::{EMPTY_STATE_FIXTURE_SPANS, empty_editor_run};
+    let (_dir, session_dir) = fixture_session();
+    let mut spans = EMPTY_STATE_FIXTURE_SPANS.to_vec();
+    spans.extend([
+        ("air.emptyState.content.toolbar", 2400, 100),
+        ("air.emptyState.content.editor", 2180, 200),
+    ]);
+    empty_editor_run(&session_dir, &spans);
+    let text = project_digest(&session_dir, "empty-editor-run-01", |info| info.cold = true);
+    let lines: Vec<&str> = text.lines().collect();
+    assert!(lines[0].contains(", cold, "), "{}", lines[0]);
+    assert_eq!(lines[2], "project: <template>/projects/markdown");
+    assert!(lines[3].trim_start().starts_with("empty-editor 1/1 valid"), "{text}");
+    let name = |line: &str| line.chars().take(super::NAME_WIDTH).collect::<String>().trim().to_owned();
+    let group = lines
+        .iter()
+        .position(|line| *line == "empty-state composer:")
+        .expect("the composer group");
+    let rows: Vec<String> = lines[group + 1..]
+        .iter()
+        .take_while(|line| line.starts_with("  "))
+        .map(|line| name(line))
+        .collect();
+    assert_eq!(
+        rows,
+        [
+            "emptyStateBuilt",
+            "air.emptyState.createComponent",
+            "air.emptyState.prologue",
+            "air.emptyState.prologue.aiSource",
+            "air.emptyState.prologue.promptDocument",
+            "air.emptyState.buildOnEdt",
+            "air.emptyState.createContent",
+            "air.emptyState.content.editor",
+            "air.emptyState.content.toolbar",
+            "air.emptyState.initializeContent",
+        ]
+    );
+    assert!(!lines.contains(&"editor:"), "the editor group needs the project arm: {text}");
+    assert!(text.contains("  classes.named@emptyStateBuilt "), "{text}");
+}
+
+/// A session with the modal arm renders the modal spans in their order and the report metrics of the exit report.
+/// The span ends follow the span groups, with the ends of the application callbacks and of the welcome frame.
+#[test]
+fn a_modal_session_shows_the_modal_spans_and_their_ends() {
+    use crate::bench::arm::Arm;
+    use crate::bench::record::{self, LaunchFacts, MODAL_SPANS, RunId};
+    use crate::bench::session;
+    use crate::bench::summary::Summary;
+    let (_dir, session_dir) = fixture_session();
+    let mut info = session::read_info(&session_dir).expect("the session");
+    info.arms = vec![Arm::MODAL];
+    let run_dir = session_dir.join("modal-run-01");
+    let id = RunId::parse("modal-run-01").expect("a run");
+    let run = record::collect(&run_dir, &id, LaunchFacts::default());
+    let summary = Summary::build(&info, "<session>", &[run]);
+    let text = super::render(&summary);
+    let lines: Vec<&str> = text.lines().collect();
+    let name = |line: &str| line.chars().take(super::NAME_WIDTH).collect::<String>().trim().to_owned();
+    let group = |title: &str| {
+        let start = lines
+            .iter()
+            .position(|line| *line == title)
+            .unwrap_or_else(|| panic!("{title}: {text}"));
+        let rows: Vec<String> = lines[start + 1..]
+            .iter()
+            .take_while(|line| line.starts_with("  "))
+            .map(|line| name(line))
+            .collect();
+        (start, rows)
+    };
+    let (modal, modal_rows) = group("modal spans:");
+    assert_eq!(modal_rows, MODAL_SPANS);
+    let (ends, end_rows) = group("span ends (ms from the process start):");
+    assert_eq!(
+        end_rows,
+        [
+            "app initialization end",
+            "app initialized callback end",
+            "app frame created callback end",
+            "welcome frame creating end"
+        ]
+    );
+    assert!(modal < ends, "{text}");
+    assert!(
+        lines[ends + 4].ends_with("   1863    1863    1863"),
+        "the end of the frame creating: {text}"
+    );
+    let (_, report_rows) = group("events and report:");
+    assert!(
+        report_rows.contains(&"jvm.loadingTime".to_owned()) && !report_rows.contains(&"totalDuration".to_owned()),
+        "the report of the exit, without its negative totalDuration: {text}"
+    );
+    assert!(!text.contains("welcome spans:"), "{text}");
+}
+
+/// A profile with stacks of the profiler's own symbol parsing names them in a note of its arm, and neither block of
+/// the profile holds them.
+#[test]
+fn the_digest_notes_the_samples_of_the_symbol_parsing_of_the_profiler() {
+    use crate::bench::arm::Arm;
+    use crate::bench::profile::ExcludedSamples;
+    use crate::bench::record::{self, LaunchFacts, RunId};
+    use crate::bench::session;
+    use crate::bench::summary::Summary;
+    let (_dir, session_dir) = fixture_session();
+    let mut info = session::read_info(&session_dir).expect("the session");
+    info.arms = vec![Arm::NON_MODAL];
+    let run_dir = session_dir.join("non-modal-run-01");
+    std::fs::write(
+        run_dir.join("cpu-gate.collapsed"),
+        "[AWT-EventQueue-0 tid=1];a/A.run;Profiler::dlopen_hook(char const*, int);Symbols::parseLibraries 480\n\
+         [DefaultDispatcher-worker-1 tid=7];c/C.run;Profiler::dlopen_hook(char const*, int);CodeCache::sort 30\n\
+         [AWT-EventQueue-0 tid=1];a/A.run;b/B.paint 20\n",
+    )
+    .expect("a profile to the gate");
+    let id = RunId::parse("non-modal-run-01").expect("a run");
+    let run = record::collect(&run_dir, &id, LaunchFacts::default());
+    assert_eq!(
+        run.excluded_samples,
+        Some(ExcludedSamples {
+            samples: 510,
+            edt_samples: 480
+        })
+    );
+    let summary = Summary::build(&info, "<session>", &[run]);
+    let text = super::render(&summary);
+    assert!(
+        text.contains("\nnon-modal EDT, top Java frames by samples (20 EDT cpu samples, to the gate):\n  100.0%     20  b/B.paint\n"),
+        "{text}"
+    );
+    assert!(
+        text.contains("\nnon-modal note: profiler symbol parsing: 510 samples excluded, 480 of them on the EDT\n"),
+        "{text}"
+    );
+}

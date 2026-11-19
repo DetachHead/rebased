@@ -1,0 +1,83 @@
+{
+  "arm": "modal",
+  "kind": "measured",
+  "index": 1,
+  "dir": "modal-run-01",
+  "launch": {
+    "distDigest": "5f1c0d9e2b7a4c3e8d6f1a0b9c8e7d6f5a4b3c2d1e0f9a8b7c6d5e4f3a2b1c0d",
+    "load": {
+      "one": 2.4,
+      "five": 2.1,
+      "fifteen": 1.9,
+      "cpus": 16
+    },
+    "failure": null,
+    "terminated": false,
+    "ideExit": 0,
+    "waitedMs": 9120,
+    "openRequestUs": null
+  },
+  "valid": true,
+  "reason": null,
+  "notes": [
+    "startup-stats.json has a negative totalDuration, as a start without a project writes it, so the run has none"
+  ],
+  "metrics": {
+    "app frame created callback end": 1227.6,
+    "app initialization": 940.2,
+    "app initialization end": 1195.5,
+    "app initialized callback end": 1254.4,
+    "bootstrap": 44.1,
+    "classLoading.edtTime": 26.0,
+    "classLoading.requests": 191566.0,
+    "classLoading.time": 5240.0,
+    "classes.hidden": 3.0,
+    "classes.jar": 3.0,
+    "classes.jdk": 9.0,
+    "classes.named": 28.0,
+    "classes.named@quit": 27.0,
+    "classes.named@welcomeBecameVisible": 25.0,
+    "classes.platform": 7.0,
+    "classes.plugins": 9.0,
+    "jvm.loadingTime": 352.0,
+    "pluginClasses": 157.0,
+    "welcome frame EDT waiting": 21.3,
+    "welcome frame creating": 612.4,
+    "welcome frame creating end": 1863.0,
+    "welcome frame showing": 466.7,
+    "welcome menu bar creating": 47.3,
+    "welcome quick access panel creating": 63.8,
+    "welcome tabs creating": 418.9,
+    "welcomeBecameVisible": 2336.0
+  },
+  "classesByPlugin": {
+    "com.intellij": 3,
+    "com.intellij.dfa.analysis": 2,
+    "com.intellij.platform.images": 1,
+    "com.jetbrains.performancePlugin": 2,
+    "intellij.webp": 1
+  },
+  "classesByModule": {
+    "intellij.platform.kernel.impl": 1,
+    "intellij.platform.settings.local": 2
+  },
+  "classesByPluginAt": {
+    "quit": {
+      "com.intellij": 3,
+      "com.intellij.dfa.analysis": 2,
+      "com.intellij.platform.images": 1,
+      "com.jetbrains.performancePlugin": 2,
+      "intellij.webp": 1
+    },
+    "welcomeBecameVisible": {
+      "com.intellij": 3,
+      "com.intellij.platform.images": 1,
+      "com.jetbrains.performancePlugin": 2,
+      "intellij.webp": 1
+    }
+  },
+  "edtSamples": null,
+  "edtFrames": [],
+  "triggers": [],
+  "defineShare": null
+}

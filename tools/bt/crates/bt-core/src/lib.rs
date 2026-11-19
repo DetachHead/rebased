@@ -25,15 +25,18 @@ pub mod areas;
 pub mod bep;
 pub mod catalog;
 pub mod details;
+pub mod evidence;
 pub mod exit;
 pub mod fake;
 pub mod lanes;
+pub mod modules;
 pub mod os_runtime;
 pub mod paths;
 pub mod result;
 pub mod runtime;
 pub mod scan;
 pub mod selector;
+pub mod shard_plan;
 pub mod suites;
 
 /// A `&'static Regex` compiled once, on first use.
@@ -55,6 +58,7 @@ pub use areas::{AREAS_FILE, Area, Areas};
 pub use details::WithDetails;
 pub use exit::{fail_infra, fail_usage};
 pub use lanes::{LaneSpec, Lanes, bazel_command};
+pub use modules::resolve_module;
 pub use os_runtime::{OsRuntime, Spawner};
 pub use refusal::Refusal;
 pub use runtime::{Platform, Runtime};

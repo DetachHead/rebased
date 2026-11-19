@@ -2,6 +2,7 @@
 package com.intellij.vcs.console
 
 import com.intellij.execution.ui.ConsoleViewContentType
+import com.intellij.ide.impl.ProjectUtil.isRealProject
 import com.intellij.openapi.actionSystem.ActionManager
 import com.intellij.openapi.actionSystem.DefaultActionGroup
 import com.intellij.openapi.application.UiWithModelAccess
@@ -123,7 +124,7 @@ internal class VcsConsoleTabServiceImpl(
   @CalledInAny
   override fun addMessage(line: VcsConsoleLine?) {
     if (line == null) return
-    if (project.isDisposed || project.isDefault) return
+    if (project.isDisposed || !isRealProject(project)) return
 
     pendingMessages.tryEmit(line)
     showConsoleSignal.tryEmit(ShowConsoleSignal(focusLatest = false))
@@ -131,7 +132,7 @@ internal class VcsConsoleTabServiceImpl(
 
   @RequiresEdt(generateAssertion = false /* IJPL-115548 */)
   override fun isConsoleVisible(): Boolean {
-    if (project.isDisposed || project.isDefault) return false
+    if (project.isDisposed || !isRealProject(project)) return false
 
     val toolWindow = ChangesViewContentManager.getToolWindowFor(project, ChangesViewContentManager.CONSOLE) ?: return false
     val contentManager = toolWindow.contentManagerIfCreated ?: return false
@@ -141,7 +142,7 @@ internal class VcsConsoleTabServiceImpl(
 
   @CalledInAny
   override fun isConsoleEmpty(): Boolean {
-    if (project.isDisposed || project.isDefault) return true
+    if (project.isDisposed || !isRealProject(project)) return true
 
     return pendingMessages.replayCache.isEmpty()
   }
@@ -151,7 +152,7 @@ internal class VcsConsoleTabServiceImpl(
 
   @RequiresEdt(generateAssertion = false /* IJPL-115548 */)
   private fun showConsoleTab(selectContent: Boolean) {
-    if (project.isDisposed || project.isDefault) return
+    if (project.isDisposed || !isRealProject(project)) return
 
     if (selectContent) {
       ChangesViewContentManager.getInstance(project).selectContent(ChangesViewContentManager.CONSOLE)

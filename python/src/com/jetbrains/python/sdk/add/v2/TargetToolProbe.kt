@@ -6,6 +6,7 @@ import com.intellij.execution.target.FullPathOnTarget
 import com.intellij.python.community.execService.Args
 import com.intellij.python.community.execService.ExecOptions
 import com.intellij.python.community.execService.ExecService
+import com.intellij.python.community.execService.HowToReportFile.AnArgument
 import com.intellij.python.community.execService.execGetStdout
 import com.intellij.python.community.helpersLocator.PythonHelpersLocator
 import com.intellij.python.pytools.backend.ToolCommandSpec
@@ -33,6 +34,11 @@ private val TOOL_PROBE_JSON = Json {
   classDiscriminator = "status"
 }
 
+/**
+ * Runs [TOOL_VERSION_PROBE_HELPER] in the default working directory of the target, for example the Docker `WORKDIR`.
+ * When [workingDir] is not null, the helper detects the environments in the target directory of [workingDir]
+ * and in the default working directory. The probe copies no file of [workingDir].
+ */
 internal suspend fun TargetFileSystem.probeTargetTools(
   toolSpecs: List<ToolCommandSpec>,
   pythonPath: PathHolder.Target?,
@@ -96,10 +102,14 @@ private fun TargetFileSystem.prepareArgs(
   val args = Args()
     .addLocalFile(helper)
     .addArgs(PYTHON_PATH_OPTION, pythonPath?.pathString.orEmpty())
+    .addArgs(DETECT_ENVIRONMENTS_OPTION)
 
   if (workingDir != null) {
-    // Target file arguments are mapped through their parent. The "." keeps workingDir itself as the mapping root.
-    args.addArgs(DETECT_ENVIRONMENTS_OPTION).addLocalFile(workingDir.resolve("."))
+    args.addLocalDirWithoutUpload(workingDir, andReport = { it to AnArgument })
+  }
+  else {
+    // The helper requires the option. An empty value turns the detection off.
+    args.addArgs("")
   }
 
   return args.addArgs(encodeToolProbeArgs(toolSpecs))

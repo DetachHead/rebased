@@ -128,6 +128,7 @@
     <module name="intellij.toml.core"/>
     <module name="intellij.xml.psi.impl"/>
     <module name="intellij.yaml"/>
+    <module name="intellij.libraries.commons.compress"/>
   </dependencies>
   <!-- endregion -->
 
@@ -153,7 +154,6 @@
                             implementation="com.jetbrains.python.requirements.widget.PyDependenciesFileStatusBarWidgetFactory"
                             order="after CodeStyleStatusBarWidget, after EvoPySdkStatusBarWidget, after pythonInterpreterWidget, after git, after hg, after JSONSchemaSelector, before ReadOnlyAttribute"/>
 
-    <registryKey defaultValue="true" description="Support eel for local SDK" key="python.eel.native"/>
     <registryKey defaultValue="20" description="How often conda environments cache must be refreshed (seconds)"
                  key="python.conda.envs.refresh.seconds" restartRequired="true"/>
     <registryKey defaultValue="60" description="TTL of conda environments cache (seconds)" key="python.conda.envs.cache.ttl.seconds"
@@ -165,9 +165,6 @@
     <registryKey defaultValue="false"
                  description="Master switch for the new Python formatter defaults (PY-85946). When off, the feature is fully disabled: classic formatting everywhere, no migration, no balloon."
                  key="python.formatter.new.defaults.enabled" restartRequired="true"/>
-    <registryKey defaultValue="false"
-                 description="Whether this installation uses the new Python formatter defaults (PY-85946). Set automatically per installation (on for new installs, off for upgrades until the user switches); requires the master switch python.formatter.new.defaults.enabled."
-                 key="python.formatter.new.defaults" restartRequired="true"/>
     <fileType name="PyTyped"
               implementationClass="com.jetbrains.python.codeInsight.typing.PyTypedFileType"
               fieldName="INSTANCE"
@@ -321,6 +318,8 @@
   <applicationListeners>
     <listener class="com.jetbrains.python.sdk.PySdkTransferredRootsListener"
               topic="com.jetbrains.python.sdk.PySdkListener"/>
+    <listener class="com.jetbrains.python.formatter.PyNewFormatterDefaultsReformatListener"
+              topic="com.intellij.openapi.actionSystem.ex.AnActionListener"/>
   </applicationListeners>
 
   <extensions defaultExtensionNs="com.intellij">
@@ -377,8 +376,8 @@
                     testServiceImplementation="com.jetbrains.python.codeInsight.completion.runtime.patProvider.DummyRemoteFilePathRetrievalService"/>
 
     <applicationService serviceImplementation="com.jetbrains.python.packaging.PyPackageService"/>
-    <applicationService serviceInterface="com.jetbrains.python.sdk.add.v2.EelFileSystemFactory"
-                        serviceImplementation="com.jetbrains.python.sdk.add.v2.EelFileSystemFactoryImpl"/>
+    <applicationService serviceInterface="com.jetbrains.python.sdk.add.v2.FileSystemFactory"
+                        serviceImplementation="com.jetbrains.python.sdk.add.v2.FileSystemFactoryImpl"/>
     <applicationService serviceInterface="com.jetbrains.python.psi.resolve.PackageAvailabilityService"
                         serviceImplementation="com.jetbrains.python.packaging.PackageAvailabilityServiceImpl"/>
     <typedHandler implementation="com.jetbrains.python.codeInsight.PyMethodNameTypedHandler" id="pyMethodNameTypedHandler"/>
@@ -441,6 +440,9 @@
     <advancedSetting id="python.debugger.attach.timeout" default="20000" groupKey="group.advanced.settings.python"/>
     <advancedSetting id="python.type.ignore.suppress.include.code" default="true" groupKey="group.advanced.settings.python"/>
     <advancedSetting id="python.type.ignore.suppress.pycharm.namespace" default="false" groupKey="group.advanced.settings.python"/>
+    <advancedSetting id="python.typing.strict.unions" default="true" groupKey="group.advanced.settings.python"/>
+    <advancedSetting id="python.formatter.use.new.defaults" default="false" groupKey="group.advanced.settings.python"
+                     service="com.jetbrains.python.formatter.PyNewFormatterDefaultsSettings" property="useNewDefaults"/>
     <runLineMarkerContributor language="Python"
                               implementationClass="com.jetbrains.python.testing.PyTestLineMarkerContributor"/>
     <toolWindow id="Python Console" anchor="right" icon="com.jetbrains.python.icons.PythonIcons.Python.PythonConsoleToolWindow"
@@ -759,10 +761,6 @@
     <registryKey defaultValue="true" description="Halt variable resolve threads on step/resume" restartRequired="false"
                  key="python.debug.halt.variable.resolve.threads.on.step.resume"/>
 
-    <!-- Retaining the feature flag for FL-29868 -->
-    <registryKey defaultValue="false" description="Use a single port for communication between PyCharm and the debugger"
-                 restartRequired="false" key="python.debug.use.single.port"/>
-
     <registryKey defaultValue="1000" description="Timeout between attempts to connect to remote debugger server"
                  restartRequired="false" key="python.debugger.remote.connect.retry.timeout.ms"/>
     <registryKey defaultValue="30" description="Max attempts to connect to remote debugger server"
@@ -964,8 +962,6 @@
     <registryKey key="python.activate.virtualenv.on.run" defaultValue="true"
                  description="Whether enabled activates virtualenv before script execution and passes environment to the process"/>
 
-    <registryKey key="python.typing.strict.unions" defaultValue="true" description="Enable strict union types semantics"/>
-
     <python.processOutput.common.processOutputIconMapping implementation="com.jetbrains.python.sdk.SdkIconMapping"/>
 
     <!-- Debugger Show value tooltip -->
@@ -1163,7 +1159,8 @@
 
     <!-- PyDocstring -->
     <visitorFilter language="Doctest" implementationClass="com.jetbrains.python.documentation.PyDoctestVisitorFilter"/>
-    <visitorFilter language="PythonDocstringCodeBlock" implementationClass="com.jetbrains.python.documentation.PyDocstringCodeBlockVisitorFilter"/>
+    <visitorFilter language="PythonDocstringCodeBlock"
+                   implementationClass="com.jetbrains.python.documentation.PyDocstringCodeBlockVisitorFilter"/>
 
     <!-- Console -->
     <visitorFilter language="Python" implementationClass="com.jetbrains.python.console.ConsoleVisitorFilter"/>
@@ -1304,6 +1301,7 @@
     </action>
 
     <action id="ReloadPyPiCacheAction" class="com.jetbrains.python.packaging.pip.actions.ReloadPyPiCacheAction"/>
+    <action id="ReloadCondaPackageCacheAction" class="com.jetbrains.python.packaging.conda.actions.ReloadCondaCacheAction"/>
 
     <action id="PyRunFileInConsole" class="com.jetbrains.python.actions.PyRunFileInConsoleAction">
       <add-to-group group-id="EditorPopupMenu" anchor="after" relative-to-action="ExecuteInPyConsoleAction"/>

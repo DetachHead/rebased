@@ -25,6 +25,8 @@ import javax.swing.JTree;
 import java.awt.Color;
 import java.awt.Graphics2D;
 
+import static com.intellij.ide.impl.ProjectUtil.isRealProject;
+
 public class ChangesBrowserNodeRenderer extends ColoredTreeCellRenderer {
 
   private final @NotNull BooleanGetter myShowFlatten;
@@ -64,8 +66,10 @@ public class ChangesBrowserNodeRenderer extends ColoredTreeCellRenderer {
   }
 
   public void appendFileName(@Nullable VirtualFile vFile, @NotNull @NlsSafe String fileName, Color color) {
-    ChangesFileNameDecorator decorator = myProject != null && !myProject.isDefault() && !myProject.isDisposed()
-                                         ? ChangesFileNameDecorator.getInstance(myProject) : null;
+    ChangesFileNameDecorator decorator =
+      myProject != null && isRealProject(myProject) && !myProject.isDisposed()
+      ? ChangesFileNameDecorator.getInstance(myProject)
+      : null;
 
     if (decorator != null) {
       decorator.appendFileName(this, vFile, fileName, color, myHighlightProblems);

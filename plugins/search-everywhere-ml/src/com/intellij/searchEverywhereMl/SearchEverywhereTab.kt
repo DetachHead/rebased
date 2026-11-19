@@ -100,9 +100,17 @@ sealed interface SearchEverywhereTab {
      *
      * If the current tab does not support experiments, the result only considers the user-defined and
      * default states of the advanced setting.
+     *
+     * For every tab [SearchEverywhereMlExperiment.isNoMlSortingPlatformAbExperimentGroup] disables ML ranking.
+     * This platform A/B experiment has priority over the experiments of [experiments].
+     * It does not change [currentExperimentType], so it has no effect on the settings UI.
      */
     val isMlRankingEnabled: Boolean
       get() {
+        if (SearchEverywhereMlExperiment.isNoMlSortingPlatformAbExperimentGroup) {
+          return false
+        }
+
         val isMlRankingEnabled = AdvancedSettings.getBoolean(advancedSettingKey)
 
         val experiment = currentExperimentType
@@ -152,11 +160,7 @@ sealed interface SearchEverywhereTab {
     override val localModelPathRegistryKey: String = "search.everywhere.ml.all.model.path"
     override val disableExperimentRegistryKey: String = "search.everywhere.force.disable.experiment.all.ml"
 
-    override val experiments: Map<Int, ExperimentType> = mapOf(
-      1 to ExperimentType.EssentialContributorPrediction,
-      2 to ExperimentType.CombinedExperiment,
-    )
-
+    override val experiments: Map<Int, ExperimentType> = emptyMap()
 
     override val currentExperimentType: ExperimentType
       get() {
@@ -180,7 +184,6 @@ sealed interface SearchEverywhereTab {
 
     override val experiments: Map<Int, ExperimentType> = mapOf(
       1 to ExperimentType.ExactMatchManualFix,
-      2 to ExperimentType.NoMl,
     )
 
     override val useExperimentalModel: Boolean
@@ -195,7 +198,6 @@ sealed interface SearchEverywhereTab {
 
     override val experiments: Map<Int, ExperimentType> = mapOf(
       1 to ExperimentType.SemanticSearch,
-      2 to ExperimentType.NoMl,
     )
 
     override val useExperimentalModel: Boolean
@@ -212,7 +214,6 @@ sealed interface SearchEverywhereTab {
 
     override val experiments: Map<Int, ExperimentType> = mapOf(
       1 to ExperimentType.SemanticSearch,
-      3 to ExperimentType.NoMl
     )
 
     override val useExperimentalModel: Boolean
