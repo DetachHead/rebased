@@ -7,6 +7,8 @@ body:
       value: |
         > [!IMPORTANT]
         > I only speak English so please use English when opening issues on this project. If you aren't fluent in English, please use a translation tool if possible.
+        > 
+        > (Translation: 我只会说英语，所以请在提交项目问题时使用英语。如果您英语不够流利，请尽可能使用翻译工具。)
         
         > [!NOTE]
         > I would prefer to make minimal changes to the platform to reduce the risk of unintended bugs or other complications when merging upstream, so if your bug or feature request affects the upstream IntelliJ platform, please find or open an issue on [YouTrack](https://youtrack.jetbrains.com).
