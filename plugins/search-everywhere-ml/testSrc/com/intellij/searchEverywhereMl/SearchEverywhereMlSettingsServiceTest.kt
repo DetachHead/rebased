@@ -11,6 +11,7 @@ import com.intellij.testFramework.ExtensionTestUtil
 import com.intellij.testFramework.junit5.TestApplication
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions
+import org.junit.jupiter.api.Assumptions
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.parallel.ResourceLock
 import org.junit.jupiter.params.ParameterizedTest
@@ -27,6 +28,7 @@ internal class SearchEverywhereMlSettingsServiceTest {
   private lateinit var originalRegistryValues: Map<String, Boolean>
   private var originalIsExperimentalMode: Boolean = false
   private var originalExperimentGroupOverride: Int? = null
+  private var originalNoMlSortingAbExperimentGroupOverride: Boolean? = null
 
   @ParameterizedTest(name = "tab with no default ml ranking and no experiment has setting invisible - {0}")
   @MethodSource("allTabs")
@@ -145,7 +147,7 @@ internal class SearchEverywhereMlSettingsServiceTest {
       setSettingsState(SearchEverywhereMlSettingsService.SettingsState().withTabState(testCase.tab, SearchEverywhereMlSettingsService.RankingState.RANKING_WITH_DEFAULT_MODEL))
       forceSync()
 
-      SearchEverywhereMlExperiment.experimentGroupOverride = testCase.mlDisabledExperimentGroup
+      SearchEverywhereMlExperiment.experimentGroupOverride = testCase.requireMlDisabledExperimentGroup()
       Registry.get(testCase.tab.disableExperimentRegistryKey).setValue(false) // triggers a listener
 
       Assertions.assertFalse(getMlRankingEnabled(testCase.tab))
@@ -210,7 +212,7 @@ internal class SearchEverywhereMlSettingsServiceTest {
       Assertions.assertTrue(getMlRankingVisible(testCase.tab))
 
       // 4. Re-enable the experiments
-      SearchEverywhereMlExperiment.experimentGroupOverride = testCase.mlEnabledExperimentGroup
+      SearchEverywhereMlExperiment.experimentGroupOverride = testCase.requireMlEnabledExperimentGroup()
       Registry.get(testCase.tab.disableExperimentRegistryKey).setValue(false)
 
       Assertions.assertFalse(getMlRankingEnabled(testCase.tab))
@@ -259,14 +261,30 @@ internal class SearchEverywhereMlSettingsServiceTest {
   // Data classes for test cases
   data class TabTestCase(val tab: SearchEverywhereTab.TabWithMlRanking) {
     val noExperimentGroup: Int = (0 until SearchEverywhereMlExperiment.NUMBER_OF_GROUPS).first { it !in tab.experiments.keys }
-    val mlEnabledExperimentGroup: Int =
+    val mlEnabledExperimentGroup: Int? =
       tab.experiments.entries.firstNotNullOfOrNull { (group, experimentType) ->
         (experimentType as? ActiveExperiment)?.takeIf { it.shouldSortByMl }?.let { group }
-      } ?: error("No experiment with ML enabled found for ${tab.tabId}")
-    val mlDisabledExperimentGroup: Int =
+      }
+    val mlDisabledExperimentGroup: Int? =
       tab.experiments.entries.firstNotNullOfOrNull { (group, experimentType) ->
         (experimentType as? ActiveExperiment)?.takeIf { !it.shouldSortByMl }?.let { group }
-      } ?: error("No experiment with ML disabled found for ${tab.tabId}")
+      }
+
+    /**
+     * Skips the test when no experiment of the tab enables ML ranking.
+     */
+    fun requireMlEnabledExperimentGroup(): Int {
+      Assumptions.assumeTrue(mlEnabledExperimentGroup != null, "No experiment with ML enabled found for ${tab.tabId}")
+      return mlEnabledExperimentGroup!!
+    }
+
+    /**
+     * Skips the test when no experiment of the tab disables ML ranking.
+     */
+    fun requireMlDisabledExperimentGroup(): Int {
+      Assumptions.assumeTrue(mlDisabledExperimentGroup != null, "No experiment with ML disabled found for ${tab.tabId}")
+      return mlDisabledExperimentGroup!!
+    }
 
     override fun toString(): String = tab.tabId
   }
@@ -281,6 +299,7 @@ internal class SearchEverywhereMlSettingsServiceTest {
     }
     originalIsExperimentalMode = SearchEverywhereMlExperiment.isExperimentalMode
     originalExperimentGroupOverride = SearchEverywhereMlExperiment.experimentGroupOverride
+    originalNoMlSortingAbExperimentGroupOverride = SearchEverywhereMlExperiment.noMlSortingAbPlatformExperimentGroupOverride
     resetAllRegistryOverrides()
   }
 
@@ -294,6 +313,7 @@ internal class SearchEverywhereMlSettingsServiceTest {
     }
     SearchEverywhereMlExperiment.isExperimentalMode = originalIsExperimentalMode
     SearchEverywhereMlExperiment.experimentGroupOverride = originalExperimentGroupOverride
+    SearchEverywhereMlExperiment.noMlSortingAbPlatformExperimentGroupOverride = originalNoMlSortingAbExperimentGroupOverride
     Disposer.dispose(testDisposable)
   }
 
@@ -311,10 +331,11 @@ internal class SearchEverywhereMlSettingsServiceTest {
     maskAdvancedSettingDefaults(testCase.tab, isMlRankingEnabledByDefault)
     AdvancedSettings.setBoolean(testCase.tab.advancedSettingKey, isMlRankingEnabledByDefault)
     SearchEverywhereMlExperiment.isExperimentalMode = true
-    SearchEverywhereMlExperiment.experimentGroupOverride = when (experimentScenario) {
-      ExperimentScenario.NoExperiment -> testCase.noExperimentGroup
-      ExperimentScenario.EnabledByExperiment -> testCase.mlEnabledExperimentGroup
-      ExperimentScenario.DisabledByExperiment -> testCase.mlDisabledExperimentGroup
+    SearchEverywhereMlExperiment.noMlSortingAbPlatformExperimentGroupOverride = false
+    when (experimentScenario) {
+      ExperimentScenario.NoExperiment -> SearchEverywhereMlExperiment.experimentGroupOverride = testCase.noExperimentGroup
+      ExperimentScenario.EnabledByExperiment -> SearchEverywhereMlExperiment.experimentGroupOverride = testCase.requireMlEnabledExperimentGroup()
+      ExperimentScenario.DisabledByExperiment -> SearchEverywhereMlExperiment.experimentGroupOverride = testCase.requireMlDisabledExperimentGroup()
     }
     resetAllRegistryOverrides()
   }

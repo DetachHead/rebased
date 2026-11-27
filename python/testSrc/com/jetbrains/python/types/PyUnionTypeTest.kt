@@ -5,9 +5,22 @@ import com.jetbrains.python.allure.Subsystems
 import com.jetbrains.python.allure.Layers
 import com.jetbrains.python.allure.Components
 import com.intellij.idea.TestFor
+import com.intellij.openapi.Disposable
+import com.intellij.openapi.options.advanced.AdvancedSettings
+import com.intellij.openapi.options.advanced.AdvancedSettingsImpl
+import com.intellij.openapi.util.Disposer
+import com.intellij.openapi.util.registry.Registry
+import com.intellij.openapi.util.registry.RegistryValueSource
+import com.intellij.openapi.util.registry.ValueWithSource
+import com.intellij.openapi.util.registry.migrateRegistryToAdvSettings
+import com.intellij.testFramework.common.timeoutRunBlocking
+import com.intellij.testFramework.junit5.TestDisposable
 import com.jetbrains.python.fixtures.PyCodeInsightTestCase
 import com.jetbrains.python.inspections.unresolvedReference.PyUnresolvedReferencesInspection
 import com.jetbrains.python.psi.LanguageLevel
+import com.jetbrains.python.psi.types.PyUnionType
+import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Nested
 import org.junit.jupiter.api.Test
 
@@ -380,6 +393,29 @@ class PyUnionTypeTest : PyCodeInsightTestCase() {
   @Nested
   inner class BitwiseOrUnions {
     @Test
+    @TestFor(issues = ["PY-92882"])
+    @TestCaseOptions(testFileName = "aaa.pyi")
+    fun `string operand of union in stub`() = test("""
+      class A: ...
+
+      def f(x: "A" | None) -> "A" | int: ...
+      #            └ WARNING Class 'Literal["A"]' does not define '__or__', so the '|' operator cannot be used on its instances FIXME # PY-92882
+      y: "A" | None
+      #      └ WARNING Class 'Literal["A"]' does not define '__or__', so the '|' operator cannot be used on its instances FIXME # PY-92882
+      """)
+
+    @Test
+    @TestFor(issues = ["PY-92883"])
+    @TestCaseOptions(languageLevel = LanguageLevel.PYTHON314)
+    fun `isinstance with bare Union since 314`() = test("""
+      from typing import Union
+
+      def f(x: object) -> bool:
+          return isinstance(x, Union)
+      #                        ^^^^^ WARNING Expected type 'type | UnionType | tuple[Unknown, ...]', got '_SpecialForm' instead FIXME # PY-92883
+      """)
+
+    @Test
     @TestFor(issues = ["PY-44974"])
     @TestCaseOptions(languageLevel = LanguageLevel.PYTHON39, assertRecursionPrevention = false)
     fun `bitwise-or union from branches with from future import`() = test("""
@@ -451,7 +487,6 @@ class PyUnionTypeTest : PyCodeInsightTestCase() {
       
       Alias = Foo | None
       expr: Alias
-      #│    ^^^^^ WARNING Invalid type annotation
       #└ TYPE Unknown
       """.trimIndent())
 
@@ -468,7 +503,6 @@ class PyUnionTypeTest : PyCodeInsightTestCase() {
           ...
       
       expr: Foo | None
-      # │   ^^^^^^^^^^ WARNING Invalid type annotation
       # └ TYPE Unknown
       """.trimIndent())
 
@@ -1255,5 +1289,82 @@ class PyUnionTypeTest : PyCodeInsightTestCase() {
       #       └ TYPE Base & AddsBoth
               _ = x + y
       """)
+  }
+
+  /**
+   * With [PyUnionType.STRICT_UNIONS_SETTING] off, a union is compatible with a type when one of its members is.
+   */
+  @Nested
+  @TestFor(issues = ["PY-92878"])
+  inner class StrictUnionsSettingOff {
+    @TestDisposable
+    lateinit var testDisposable: Disposable
+
+    @BeforeEach
+    fun disableStrictUnions() {
+      (AdvancedSettings.getInstance() as AdvancedSettingsImpl).setSetting(PyUnionType.STRICT_UNIONS_SETTING, false, testDisposable)
+    }
+
+    @Test
+    fun `binary operator supported by one member`() = test("""
+      class LeftOperand:
+          pass
+
+      class RightOperand:
+          pass
+
+      class AddsLeftOperand:
+          def __add__(self, other: LeftOperand) -> "AddsLeftOperand": ...
+
+      class AddsRightOperand:
+          def __add__(self, other: RightOperand) -> "AddsRightOperand": ...
+
+      def f(x: AddsLeftOperand | AddsRightOperand, arg: LeftOperand):
+          _ = x + arg
+      """)
+
+    @Test
+    fun `argument matches one member`() = test("""
+      def expects_int(y: int):
+          pass
+
+      def f(x: int | str):
+          expects_int(x)
+      """)
+
+    @Test
+    fun `attribute exists on one member`() = test("""
+      def f(x: int | str):
+          x.upper()
+      """)
+
+    @Test
+    fun `attribute initialised to None yields union with Unknown`() = test("""
+      class C:
+          def __init__(self): self.foo = None
+      expr = C().foo
+      # └ TYPE Unknown | None
+      """.trimIndent())
+  }
+
+  @Nested
+  @TestFor(issues = ["PY-92878"])
+  inner class StrictUnionsRegistryKeyMigration {
+    @TestDisposable
+    lateinit var testDisposable: Disposable
+
+    @Test
+    fun `stored registry value moves to the advanced setting`() = timeoutRunBlocking {
+      val settings = AdvancedSettings.getInstance() as AdvancedSettingsImpl
+      settings.setSetting(PyUnionType.STRICT_UNIONS_SETTING, true, testDisposable)
+      val storedProperties = Registry.getInstance().getStoredProperties()
+      storedProperties[PyUnionType.STRICT_UNIONS_SETTING] = ValueWithSource("false", RegistryValueSource.USER)
+      Disposer.register(testDisposable) { storedProperties.remove(PyUnionType.STRICT_UNIONS_SETTING) }
+
+      migrateRegistryToAdvSettings()
+
+      assertFalse(AdvancedSettings.getBoolean(PyUnionType.STRICT_UNIONS_SETTING))
+      assertFalse(PyUnionType.STRICT_UNIONS_SETTING in storedProperties)
+    }
   }
 }

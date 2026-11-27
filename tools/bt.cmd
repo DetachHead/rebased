@@ -9,7 +9,7 @@ GOTO :CMDSCRIPT
 # It lives in `community/tools` so that every tree of the monorepo runs it from one path, and so does its source,
 # so both checkout layouts build it. `bt.json` at the checkout root names the areas it resolves in.
 #
-# Same shape as `plugins/air/scripts/vm.cmd`, for the same reasons, and the differences from the bun wrapper
+# Same shape as `community/tools/vm.cmd`, for the same reasons, and the differences from the bun wrapper
 # this replaced on 2026-08-24 are decisions rather than simplifications.
 # `plugins/air/docs/decisions/0107-bt-is-the-go-binary.md` records them, and ADR 0174 keeps them for the Rust
 # binary; the two that change what a caller sees:
@@ -19,7 +19,8 @@ GOTO :CMDSCRIPT
 #    became unreachable rather than wrong. This wrapper resolves a binary built from working-copy sources,
 #    which change on every edit and are keyed by nothing. There is no honest cache key, and a wrong one is
 #    silent: BT would report a verdict about test-selection code it did not run. So every invocation runs
-#    `bazel run --script_path` and the build *is* the freshness guarantee. ADR 0105 records that trap already
+#    `bazel build`, the build's event file names the binary, and the build *is* the freshness guarantee. It is no
+#    `bazel run`, for the reason of note 1 of vm.cmd: a `bazel run` drops the analysis that the last build made. ADR 0105 records that trap already
 #    paid for once - an `lstat` freshness check that degraded to "always reinstall", passed its whole suite,
 #    and failed on hardware.
 #
@@ -44,21 +45,17 @@ GOTO :CMDSCRIPT
 
 set -eu
 
-# Resolve the Community root in either layout, then use its parent only for an Ultimate checkout. `root` reaches
-# the binary as BUILD_WORKSPACE_DIRECTORY, which is what every path BT builds is relative to.
 case "$0" in
   */*) self_dir="${0%/*}" ;;
   *) self_dir="." ;;
 esac
-community_root="$(cd -- "$self_dir/.." && pwd)"
-parent="$(cd -- "$community_root/.." && pwd)"
-root="$community_root"
-target="//tools/bt:bt"
-if [ -f "$parent/MODULE.bazel" ] && [ -f "$parent/bazel.cmd" ] && [ -d "$parent/community" ] &&
-   [ "$(cd -- "$parent/community" && pwd)" = "$community_root" ]; then
-  root="$parent"
-  target="@community//tools/bt:bt"
-fi
+# The shared steps of the polyglot wrappers: the Git Bash hand-off, the override, the roots, the real path.
+. "$self_dir/polyglot-wrapper.sh"
+polyglot_hand_off_to_cmd "$0" "$@"
+
+# `root` reaches the binary as BUILD_WORKSPACE_DIRECTORY, which is what every path BT builds is relative to.
+polyglot_find_roots "$self_dir"
+target="${label_prefix}tools/bt:bt"
 
 if [ $# -gt 0 ] && [ "$1" = "--refresh" ]; then
   echo "bt: --refresh no longer exists; the wrapper rebuilds on every invocation" >&2
@@ -73,19 +70,10 @@ unset JAVA_RUNFILES RUNFILES_DIR RUNFILES_MANIFEST_FILE RUNFILES_MANIFEST_ONLY T
 
 # The override is checked before Bazel is consulted at all: naming a binary that is not there is a mistake
 # worth reporting, not a reason to quietly build a different one.
-if [ -n "${AIR_BT_BIN:-}" ]; then
-  if [ ! -x "$AIR_BT_BIN" ]; then
-    echo "bt: AIR_BT_BIN is not an executable file: $AIR_BT_BIN" >&2
-    exit 6
-  fi
-  exec "$AIR_BT_BIN" "$@"
-fi
+polyglot_exec_override bt AIR_BT_BIN 6 "$@"
 
-mkdir -p "$root/out/air"
-launcher="$root/out/air/bt.launcher.$$"
-# `--config=bt` (`community/common.bazelrc`) keeps Bazel's progress and result lines out of the wrapper's output contract,
-# and `>&2` keeps whatever is left off stdout, where a `--json` run writes exactly one payload. A failure
-# here is infrastructure, which this wrapper reports as 6 - BT's own code for a run that said nothing about
+# The build output goes to stderr as it comes, so stdout stays for the one payload a `--json` run writes. A failure
+# of the build is infrastructure, which this wrapper reports as 6 - BT's own code for a run that said nothing about
 # the tests.
 #
 # 6 is right *here* and wrong in vm.cmd, which uses 78 for the same class of failure. Both wrappers report
@@ -93,23 +81,7 @@ launcher="$root/out/air/bt.launcher.$$"
 # 6 as `exit::INFRA`, which already means "the run said nothing", so wrapper and binary agree; the VM
 # controller defines 6 as `Exit::TESTS_FAILED`, a red lane. **The asymmetry is deliberate; do not harmonize
 # the two wrappers on one number.**
-if ! (cd "$root" && ./bazel.cmd run --config=bt --script_path="$launcher" "$target" >&2); then
-  rm -f "$launcher"
-  echo "bt: could not build $target; see the bazel output above" >&2
-  exit 6
-fi
-
-# `bazel run --script_path` writes `<binary> <args> "$@"` as the last line; only its first token is wanted.
-# Reading it beats adding a second way to ask Bazel where its output went.
-resolved="$(awk 'END { print $1 }' "$launcher")"
-rm -f "$launcher"
-# The launcher points at a symlink under the output base; resolving through it reaches the real file. Where
-# readlink -f is unavailable the unresolved path still works.
-resolved="$(readlink -f "$resolved" 2>/dev/null || printf '%s' "$resolved")"
-if [ ! -x "$resolved" ]; then
-  echo "bt: could not resolve BT from $target (got '$resolved')" >&2
-  exit 6
-fi
+polyglot_build_binary bt "$target" 6 bt
 
 exec "$resolved" "$@"
 
@@ -117,24 +89,13 @@ exec "$resolved" "$@"
 
 setlocal
 
-REM Same design as the POSIX half: no cache, AIR_BT_BIN honored first, otherwise resolve through
-REM `bazel run --script_path` on every invocation and exec the launcher's binary. The launcher is only read
-REM for its last line, never executed, so the Windows formatter's leading `cd /d <runfiles dir>` does not
-REM force a separate code path. BT is a developer tool used on Windows, which is why nothing on this
-REM target's dependency path may be Windows-incompatible.
+REM Same design as the POSIX half: no cache, AIR_BT_BIN honored first, otherwise a `bazel build` on every
+REM invocation, and the binary from the build event file (the `build` step of polyglot-wrapper.cmd). BT is a
+REM developer tool used on Windows, which is why nothing on this target's dependency path may be
+REM Windows-incompatible.
 
-for %%d in ("%~dp0..") do set "COMMUNITY_ROOT=%%~fd"
-for %%d in ("%COMMUNITY_ROOT%\..") do set "PARENT=%%~fd"
-for %%d in ("%PARENT%\community") do set "PARENT_COMMUNITY=%%~fd"
-set "ROOT=%COMMUNITY_ROOT%"
-set "TARGET=//tools/bt:bt"
-if not exist "%PARENT%\MODULE.bazel" goto :ROOTREADY
-if not exist "%PARENT%\bazel.cmd" goto :ROOTREADY
-if not exist "%PARENT_COMMUNITY%\" goto :ROOTREADY
-if /I not "%PARENT_COMMUNITY%"=="%COMMUNITY_ROOT%" goto :ROOTREADY
-set "ROOT=%PARENT%"
-set "TARGET=@community//tools/bt:bt"
-:ROOTREADY
+call "%~dp0polyglot-wrapper.cmd"
+set "TARGET=%LABEL_PREFIX%tools/bt:bt"
 
 if "%~1"=="--refresh" (
   echo bt: --refresh no longer exists; the wrapper rebuilds on every invocation 1>&2
@@ -166,29 +127,10 @@ if defined AIR_BT_BIN (
   exit /B %ERRORLEVEL%
 )
 
-if not exist "%ROOT%\out\air" mkdir "%ROOT%\out\air"
-REM One %RANDOM% read, reused: two reads would produce two different names.
-set "LAUNCHER=%ROOT%\out\air\bt.launcher.%RANDOM%"
-pushd "%ROOT%"
-call bazel.cmd run --config=bt --script_path="%LAUNCHER%" "%TARGET%" 1>&2
-set "STATUS=%ERRORLEVEL%"
-popd
-if not "%STATUS%"=="0" (
-  if exist "%LAUNCHER%" del /q "%LAUNCHER%"
-  echo bt: could not build %TARGET%; see the bazel output above 1>&2
-  exit /B 6
-)
-
-REM Only the last line is wanted - `<binary> <args> %*` - so the loop deliberately overwrites.
-set "RESOLVED="
-for /f "usebackq tokens=1" %%b in ("%LAUNCHER%") do set "RESOLVED=%%~b"
-del /q "%LAUNCHER%"
-if not defined RESOLVED goto :RESOLVEFAILED
-if not exist "%RESOLVED%" goto :RESOLVEFAILED
+REM The build output goes to stderr as it comes, as in the POSIX half. A failure exits 6, for the reason the POSIX
+REM half gives.
+call "%POLYGLOT_WRAPPER%" build bt "%TARGET%" 6 bt.exe
+if not "%ERRORLEVEL%"=="0" exit /B %ERRORLEVEL%
 
 "%RESOLVED%"%ARGS%
 exit /B %ERRORLEVEL%
-
-:RESOLVEFAILED
-echo bt: could not resolve BT from %TARGET% ^(got '%RESOLVED%'^) 1>&2
-exit /B 6

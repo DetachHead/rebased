@@ -5,26 +5,51 @@ import com.intellij.codeInspection.ProblemHighlightType
 import com.intellij.codeInspection.ProblemsHolder
 import com.intellij.openapi.util.Ref
 import com.intellij.psi.PsiElementVisitor
+import com.intellij.psi.PsiNameIdentifierOwner
+import com.jetbrains.python.PyElementTypes
+import com.jetbrains.python.PyNames
 import com.jetbrains.python.PyPsiBundle
 import com.jetbrains.python.codeInsight.stdlib.PyStdlibTypeProvider
+import com.jetbrains.python.codeInsight.stdlib.PyStdlibTypeProvider.EnumAttributeInfo
 import com.jetbrains.python.codeInsight.stdlib.PyStdlibTypeProvider.EnumAttributeKind
 import com.jetbrains.python.codeInsight.typing.PyTypingTypeProvider
 import com.jetbrains.python.inspections.PyInspectionMessages.CodifiedParam
+import com.jetbrains.python.psi.LanguageLevel
 import com.jetbrains.python.psi.PyClass
+import com.jetbrains.python.psi.PyElement
+import com.jetbrains.python.psi.PyExpression
+import com.jetbrains.python.psi.PyKnownDecorator
+import com.jetbrains.python.psi.PyKnownDecoratorUtil
+import com.jetbrains.python.psi.PyNumericLiteralExpression
+import com.jetbrains.python.psi.PyTargetExpression
 import com.jetbrains.python.psi.PyTupleExpression
 import com.jetbrains.python.psi.impl.PyClassImpl
 import com.jetbrains.python.psi.impl.PyPsiUtils
 import com.jetbrains.python.psi.types.PyClassType
+import com.jetbrains.python.psi.types.PyLiteralType
 import com.jetbrains.python.psi.types.PyType
 import com.jetbrains.python.psi.types.PyTypeChecker
 import com.jetbrains.python.psi.types.TypeEvalContext
+import com.jetbrains.python.pyi.PyiUtil
+import java.math.BigDecimal
 
 class PyEnumInspection : PyInspection() {
   override fun buildVisitor(holder: ProblemsHolder, isOnTheFly: Boolean, session: LocalInspectionToolSession): PsiElementVisitor {
     return object : PyInspectionVisitor(holder, getContext(session)) {
       override fun visitPyClass(node: PyClass) {
         validateSuperClasses(node)
-        validateEnumMembers(node)
+        if (!PyStdlibTypeProvider.isCustomEnum(node, myTypeEvalContext)) return
+
+        // Every check below reads the kind of each attribute, so read it once
+        val attributes = node.classAttributes.mapNotNull { attribute ->
+          PyStdlibTypeProvider.getEnumAttributeInfo(node, attribute, myTypeEvalContext)?.let { attribute to it }
+        }
+        validateEnumMembers(node, attributes)
+        // A stub declares an enum but does not run its class body, so a definition error cannot occur there
+        if (PyiUtil.isInsideStub(node)) return
+        validateEnumBaseOrder(node)
+        validateSunderNames(node)
+        validateUniqueValues(node, attributes)
       }
 
       private fun validateSuperClasses(node: PyClass) {
@@ -41,14 +66,33 @@ class PyEnumInspection : PyInspection() {
         }
       }
 
-      private fun validateEnumMembers(pyClass: PyClass) {
-        if (!PyStdlibTypeProvider.isCustomEnum(pyClass, myTypeEvalContext)) return
+      /**
+       * The enum base must be the last base class, as in `class E(Mixin, Enum)`.
+       */
+      private fun validateEnumBaseOrder(pyClass: PyClass) {
+        val superClassExpressions = PyClassImpl.getUnfoldedSuperClassExpressions(pyClass)
+        val lastBaseClass = superClassExpressions.lastOrNull()?.let { getBaseClass(it) } ?: return
+        // The enum machinery accepts any enum as the last base. Another order of two enums breaks the MRO instead.
+        if (PyStdlibTypeProvider.isEnum(lastBaseClass, myTypeEvalContext)) return
 
+        for (base in superClassExpressions.asReversed()) {
+          val baseClass = getBaseClass(base) ?: continue
+          if (!PyStdlibTypeProvider.isEnum(baseClass, myTypeEvalContext)) continue
+          registerProblem(base,
+                          PyPsiBundle.problemMessage("INSP.enum.enum.base.class.must.be.last", CodifiedParam.ofReference(baseClass)),
+                          ProblemHighlightType.GENERIC_ERROR)
+          return
+        }
+      }
+
+      private fun getBaseClass(superClassExpression: PyExpression): PyClass? =
+        (myTypeEvalContext.getType(superClassExpression) as? PyClassType)?.takeIf { it.isDefinition }?.pyClass
+
+      private fun validateEnumMembers(pyClass: PyClass, attributes: List<Pair<PyTargetExpression, EnumAttributeInfo>>) {
         val declaredType = getDeclaredEnumMemberType(pyClass, myTypeEvalContext)
 
-        for (attribute in pyClass.classAttributes) {
-          val info = PyStdlibTypeProvider.getEnumAttributeInfo(pyClass, attribute, myTypeEvalContext)
-          if (info == null || info.attributeKind == EnumAttributeKind.NONMEMBER) continue
+        for ((attribute, info) in attributes) {
+          if (info.attributeKind == EnumAttributeKind.NONMEMBER) continue
 
           if (declaredType != null && info.attributeKind == EnumAttributeKind.MEMBER) {
             val value = attribute.findAssignedValue()
@@ -68,9 +112,78 @@ class PyEnumInspection : PyInspection() {
           }
         }
       }
+
+      /**
+       * The enum class body rejects a `_sunder_` name that the enum machinery does not use.
+       */
+      private fun validateSunderNames(pyClass: PyClass) {
+        val allowedNames = allowedSunderNames(LanguageLevel.forElement(pyClass))
+        val definitions: List<PyElement> = pyClass.classAttributes.filter { it.hasAssignedValue() } +
+                                           pyClass.methods + pyClass.nestedClasses
+        for (definition in definitions) {
+          val name = definition.name ?: continue
+          if (!PyNames.isSunder(name) || name in allowedNames) continue
+          if (name.startsWith("_repr_") && LanguageLevel.forElement(pyClass).isAtLeast(LanguageLevel.PYTHON313)) continue
+          registerProblem(definition.nameIdentifierOrSelf(),
+                          PyPsiBundle.problemMessage("INSP.enum.sunder.name.is.reserved", name),
+                          ProblemHighlightType.GENERIC_ERROR)
+        }
+      }
+
+      /**
+       * An enum class decorated with `@enum.unique` rejects a member alias and a member with the value of another member.
+       */
+      private fun validateUniqueValues(pyClass: PyClass, attributes: List<Pair<PyTargetExpression, EnumAttributeInfo>>) {
+        if (PyKnownDecorator.ENUM_UNIQUE !in PyKnownDecoratorUtil.getKnownDecorators(pyClass, myTypeEvalContext)) return
+
+        val membersByValue = mutableMapOf<Any, String>()
+        for ((attribute, info) in attributes) {
+          val name = attribute.name ?: continue
+          val original = when (info.attributeKind) {
+            EnumAttributeKind.MEMBER_ALIAS -> (info.assignedValueType as? PyLiteralType)?.enumMemberName
+            EnumAttributeKind.MEMBER -> memberValueKey(attribute, info)?.let { membersByValue.putIfAbsent(it, name) }
+            EnumAttributeKind.NONMEMBER -> null
+          } ?: continue
+          registerProblem(attribute.findAssignedValue() ?: attribute,
+                          PyPsiBundle.problemMessage("INSP.enum.unique.enum.has.duplicate.value", name, original),
+                          ProblemHighlightType.GENERIC_ERROR)
+        }
+      }
+
+      /**
+       * A key that equal member values share. Python compares the values, so `1`, `True` and `1.0` are one value.
+       * Returns `null` for a value that the inspection cannot compare.
+       */
+      private fun memberValueKey(attribute: PyTargetExpression, info: EnumAttributeInfo): Any? {
+        val literalType = info.assignedValueType as? PyLiteralType
+        literalType?.intValue?.let { return BigDecimal(it).stripTrailingZeros() }
+        literalType?.boolValue?.let { return if (it) BigDecimal.ONE else BigDecimal.ZERO }
+        // A str and a bytes literal with the same text differ
+        literalType?.stringValue?.let { return literalType.pyClass to it }
+        val number = PyPsiUtils.flattenParens(attribute.findAssignedValue()) as? PyNumericLiteralExpression ?: return null
+        if (number.node.elementType == PyElementTypes.IMAGINARY_LITERAL_EXPRESSION) return null
+        return number.bigDecimalValue.stripTrailingZeros()
+      }
     }
   }
 }
+
+/**
+ * The `_sunder_` names that the enum machinery of [level] uses. Every other one is reserved.
+ */
+private fun allowedSunderNames(level: LanguageLevel): Set<String> = when {
+  level.isAtLeast(LanguageLevel.PYTHON313) -> SUNDER_NAMES_311 + setOf("_add_alias_", "_add_value_alias_")
+  level.isAtLeast(LanguageLevel.PYTHON311) -> SUNDER_NAMES_311
+  else -> setOf("_order_", "_create_pseudo_member_", "_generate_next_value_", "_missing_", "_ignore_")
+}
+
+private val SUNDER_NAMES_311 = setOf(
+  "_order_", "_generate_next_value_", "_numeric_repr_", "_missing_", "_ignore_",
+  "_iter_member_", "_iter_member_by_value_", "_iter_member_by_def_",
+)
+
+private fun PyElement.nameIdentifierOrSelf() =
+  (this as? PsiNameIdentifierOwner)?.nameIdentifier ?: this
 
 private fun getDeclaredEnumMemberType(enumClass: PyClass, context: TypeEvalContext): PyType? {
   val targetExpression = enumClass.findClassAttribute("_value_", true, context) ?: return null

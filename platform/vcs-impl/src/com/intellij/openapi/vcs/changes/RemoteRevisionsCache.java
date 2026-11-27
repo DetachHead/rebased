@@ -21,6 +21,8 @@ import org.jetbrains.annotations.NotNull;
 import java.util.ArrayList;
 import java.util.Collection;
 
+import static com.intellij.ide.impl.ProjectUtil.isRealProject;
+
 @Service(Service.Level.PROJECT)
 public final class RemoteRevisionsCache implements VcsListener {
 
@@ -70,7 +72,7 @@ public final class RemoteRevisionsCache implements VcsListener {
     connection.subscribe(ProjectLevelVcsManager.VCS_CONFIGURATION_CHANGED, this);
     connection.subscribe(ProjectLevelVcsManager.VCS_CONFIGURATION_CHANGED_IN_PLUGIN, this);
 
-    if ((!myProject.isDefault()) && vcsConfiguration.isChangedOnServerEnabled()) {
+    if (isRealProject(myProject) && vcsConfiguration.isChangedOnServerEnabled()) {
       myVcsManager.runAfterInitialization(() -> {
         // do not start if there're no vcses
         if (!myVcsManager.hasActiveVcss() || !vcsConfiguration.isChangedOnServerEnabled()) return;
@@ -85,7 +87,7 @@ public final class RemoteRevisionsCache implements VcsListener {
 
   private void manageAlarm() {
     final VcsConfiguration vcsConfiguration = VcsConfiguration.getInstance(myProject);
-    if ((! myProject.isDefault()) && myVcsManager.hasActiveVcss() && vcsConfiguration.isChangedOnServerEnabled()) {
+    if (isRealProject(myProject) && myVcsManager.hasActiveVcss() && vcsConfiguration.isChangedOnServerEnabled()) {
       // will check whether is already started inside
       // interval is checked further, this is small and constant
       myControlledCycle.startIfNotStarted();

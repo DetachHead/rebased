@@ -2,6 +2,8 @@
 package com.intellij.openapi.vcs.impl
 
 import com.intellij.diagnostic.CoroutineTracerShim
+import com.intellij.ide.impl.ProjectUtil.isRealProject
+import com.intellij.ide.welcomeScreen.WelcomeUtils
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
@@ -80,6 +82,7 @@ class VcsInitialization(private val project: Project, private val coroutineScope
 
   private val future: Job = coroutineScope.launch(CoroutineName("VcsInitialization"), CoroutineStart.LAZY) {
     if (project.isDefault) throw CancellationException("VCS is not initialized for default project")
+    if (WelcomeUtils.isWelcomeProject(project)) return@launch
     execute()
   }
 
@@ -98,6 +101,9 @@ class VcsInitialization(private val project: Project, private val coroutineScope
   fun add(vcsInitObject: VcsInitObject, runnable: Runnable) {
     if (project.isDefault) {
       LOG.warn("ignoring initialization activity for default project", Throwable())
+      return
+    }
+    if (WelcomeUtils.isWelcomeProject(project)) {
       return
     }
 
@@ -136,7 +142,7 @@ class VcsInitialization(private val project: Project, private val coroutineScope
   }
 
   private suspend fun execute() {
-    LOG.assertTrue(!project.isDefault)
+    LOG.assertTrue(isRealProject(project))
     try {
       runInitStep(current = Status.PENDING,
                   next = Status.RUNNING_INIT,
@@ -237,7 +243,7 @@ class VcsInitialization(private val project: Project, private val coroutineScope
   }
 
   private fun waitFor(predicate: (Status) -> Boolean): Boolean {
-    require(!project.isDefault)
+    require(isRealProject(project))
     // have to wait for task completion to avoid running it in the background for a closed project
     val start = System.currentTimeMillis()
     while (System.currentTimeMillis() < start + 10000) {

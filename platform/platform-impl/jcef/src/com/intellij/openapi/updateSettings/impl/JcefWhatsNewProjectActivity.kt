@@ -3,7 +3,7 @@ package com.intellij.openapi.updateSettings.impl
 
 import com.intellij.ide.RegionSettingsService
 import com.intellij.ide.actions.WhatsNewAction
-import com.intellij.ide.actions.WhatsNewUtil
+import com.intellij.ide.whatsNew.WhatsNewUtil
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.EDT
 import com.intellij.openapi.application.ex.ApplicationInfoEx
@@ -30,17 +30,12 @@ internal class JcefWhatsNewProjectActivity : ProjectActivity {
     val appInfo = ApplicationInfoEx.getInstanceEx()
     if (
       url != null &&
-      WhatsNewUtil.isWhatsNewAvailable() &&
-      UpdateCheckerService.shouldShowWhatsNew(appInfo.build, appInfo.isMajorEAP)
+      WhatsNewUtil.isWhatsNewEnabled() &&
+      UpdateCheckerService.shouldShowWhatsNew(appInfo.build, appInfo.isMajorEAP) &&
+      UpdateSettings.getInstance().isShowWhatsNewEditor
     ) {
-      if (UpdateSettings.getInstance().isShowWhatsNewEditor) {
-        withContext(Dispatchers.EDT) {
-          WhatsNewAction.openWhatsNewPage(project, url.toExternalForm(), true)
-        }
-        IdeUpdateUsageTriggerCollector.majorUpdateHappened(true)
-      }
-      else {
-        IdeUpdateUsageTriggerCollector.majorUpdateHappened(false)
+      withContext(Dispatchers.EDT) {
+        WhatsNewAction.openWhatsNewPage(project, url.toExternalForm())
       }
     }
   }

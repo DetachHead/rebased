@@ -67,13 +67,13 @@ import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.TestOnly;
 
 import java.util.Collections;
-import java.util.Date;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
+import static com.intellij.ide.impl.ProjectUtil.isRealProject;
 import static com.intellij.util.concurrency.AppJavaExecutorUtil.executeOnPooledIoThread;
 
 /**
@@ -126,7 +126,7 @@ public final class GitVcs extends AbstractVcs {
 
   @Override
   public @Nullable CheckinEnvironment getCheckinEnvironment() {
-    if (myProject.isDefault()) return null;
+    if (!isRealProject(myProject)) return null;
     return myProject.getService(GitCheckinEnvironment.class);
   }
 

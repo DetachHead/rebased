@@ -33,6 +33,8 @@ internal data class UnifiedPluginMarketplaceSourceState(
   val suggestedFacetsLoading: Boolean = false,
   val popularTags: List<String> = emptyList(),
   val popularTagsLoading: Boolean = false,
+  val marketplaceVendors: List<String> = emptyList(),
+  val marketplaceVendorsLoading: Boolean = false,
 )
 
 internal data class UnifiedPluginsPageSourceState(
@@ -554,7 +556,7 @@ internal fun composeUnifiedPluginsSearchControls(
   cancellationCheck: () -> Unit = {},
 ): UnifiedPluginsSearchControlsState {
   val parsedQuery = UnifiedPluginsQuery.parse(query.rawQuery)
-  val facetItems = buildList {
+  val localFacetItems = buildList {
     localState.sections.asSequence()
       .filter { it.id == PluginSectionId.Installed || it.id == PluginSectionId.Bundled }
       .flatMap(PluginSectionState::items)
@@ -562,6 +564,9 @@ internal fun composeUnifiedPluginsSearchControls(
         cancellationCheck()
         add(item)
       }
+  }
+  val facetItems = buildList {
+    addAll(localFacetItems)
     internalState?.section?.items.orEmpty().forEach { item ->
       cancellationCheck()
       add(item)
@@ -577,9 +582,13 @@ internal fun composeUnifiedPluginsSearchControls(
       }
     }
   }
-  val vendors = facetItems.asSequence().mapNotNull(PluginItemState::searchVendor)
-    .plus(parsedQuery.vendors.asSequence())
-    .normalizedFacetValues()
+  val vendors = LinkedHashSet(localFacetItems.asSequence().mapNotNull(PluginItemState::searchVendor).normalizedFacetValues())
+  vendors.addAll(
+    facetItems.asSequence().mapNotNull(PluginItemState::searchVendor)
+      .plus(marketplaceState?.marketplaceVendors.orEmpty().asSequence())
+      .plus(parsedQuery.vendors.asSequence())
+      .normalizedFacetValues()
+  )
   val categories = facetItems.asSequence().mapNotNull(PluginItemState::searchCategory)
     .plus(parsedQuery.categories.asSequence())
     .normalizedFacetValues()
@@ -595,7 +604,7 @@ internal fun composeUnifiedPluginsSearchControls(
   }.distinct()
   return UnifiedPluginsSearchControlsState(
     options = UnifiedPluginFilterOptions(
-      vendors = vendors,
+      vendors = vendors.toList(),
       categories = categories,
       tags = tags,
       repositories = repositories,
@@ -603,6 +612,7 @@ internal fun composeUnifiedPluginsSearchControls(
                            internalState?.facetsLoading == true ||
                            marketplaceState?.suggestedFacetsLoading == true ||
                            marketplaceState?.popularTagsLoading == true ||
+                           marketplaceState?.marketplaceVendorsLoading == true ||
                            repositoryState?.facetsLoading == true,
       repositoriesLoading = repositoryState?.catalogLoading == true,
     ),
@@ -638,6 +648,7 @@ internal fun mergePluginListModelData(
   return PluginListModelData(
     installedModels = remote.installedModels + local.installedModels,
     errors = remote.errors + local.errors,
+    expectedExplanations = remote.expectedExplanations + local.expectedExplanations,
     installationStates = remote.installationStates + local.installationStates,
     updateSources = remote.updateSources + local.updateSources,
   )
@@ -666,7 +677,7 @@ private fun filterPluginItems(
       (!parser.updatedBundled || model.isBundledUpdate) &&
       (!parser.userInstalled || !model.isBundled && !model.isBundledUpdate) &&
       (!parser.invalid || input?.errors?.isNotEmpty() == true) &&
-      (!parser.needUpdate || input?.updateDescriptor != null) &&
+      (!parser.needUpdate || input?.enabled == true && input.updateDescriptor != null) &&
       (parser.updateSources.isEmpty() ||
        (parser.updateSources.contains(item.updateSourceId.getPresentableName()) &&
         input?.installedPlugin?.isUpdateable == true))

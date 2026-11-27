@@ -1,0 +1,22 @@
+[package]
+name = "avl-junit"
+description = "The files of a run that the controller and the guest agent both write from its run stream: the JUnit XML, the TeamCity messages and the IJ Perf file."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+avl-wire.workspace = true
+jiff.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+avl-testkit.workspace = true
+bt-junit.workspace = true
+expect-test.workspace = true
+pretty_assertions.workspace = true

@@ -31,6 +31,7 @@ import com.intellij.platform.eel.environmentVariables
 import com.intellij.platform.eel.provider.LocalEelDescriptor
 import com.intellij.platform.eel.provider.asEelPath
 import com.intellij.platform.eel.provider.asNioPath
+import com.intellij.platform.eel.provider.equalsMayBeUsingMachine
 import com.intellij.platform.eel.provider.getEelDescriptor
 import com.intellij.platform.eel.provider.localEel
 import com.intellij.platform.eel.provider.toEelApi
@@ -84,12 +85,12 @@ import com.jetbrains.python.sdk.PyRemoteSdkAdditionalDataMarker
 import com.jetbrains.python.sdk.PySdkSettings
 import com.jetbrains.python.sdk.PythonSdkAdditionalData
 import com.jetbrains.python.sdk.PythonSdkType
-import com.jetbrains.python.sdk.PythonSdkUtil
 import com.jetbrains.python.sdk.ToolProbeResult
 import com.jetbrains.python.sdk.associatedModulePath
 import com.jetbrains.python.sdk.createSdk
 import com.jetbrains.python.sdk.getSdksToInstall
 import com.jetbrains.python.sdk.isSystemWide
+import com.jetbrains.python.sdk.legacy.PythonSdkUtil
 import com.jetbrains.python.target.PyTargetAwareAdditionalData
 import com.jetbrains.python.target.PythonLanguageRuntimeConfiguration
 import com.jetbrains.python.target.ui.TargetPanelExtension
@@ -203,7 +204,7 @@ data class EelFileSystem(
     if (!isLocal) return@withContext emptyList()
 
     val allValidSdks = PythonSdkUtil
-      .getAllSdks()
+      .getAllSdksOn(eelApi.descriptor)
       .filter { sdk ->
         if (sdk.isCondaVirtualEnv) return@filter false
         if (sdk.sdkAdditionalData is PyRemoteSdkAdditionalDataMarker) return@filter false
@@ -235,7 +236,7 @@ data class EelFileSystem(
     catch (_: InvalidPathException) {
       null
     }
-    if (mayBeFull != null && mayBeFull.getEelDescriptor() == eelDescriptor) {
+    if (mayBeFull != null && mayBeFull.getEelDescriptor().equalsMayBeUsingMachine(eelDescriptor)) {
       return PyResult.success(PathHolder.Eel(mayBeFull))
     }
     else {
@@ -329,7 +330,7 @@ data class EelFileSystem(
     val context: UserDataHolder = UserDataHolderBase()
     context.putUserData(BASE_DIR, projectPathPrefix)
     val pythonBinaries = VirtualEnvSdkFlavor.getInstance().suggestLocalHomePaths(null, context)
-      .filter { it.getEelDescriptor() == this.eelDescriptor }
+      .filter { it.getEelDescriptor().equalsMayBeUsingMachine(this.eelDescriptor) }
     val suggestedPythonBinaries = VanillaPythonWithPythonInfoImpl.createByPythonBinaries(pythonBinaries)
 
     val venvs: List<VanillaPythonWithPythonInfo> = suggestedPythonBinaries.mapNotNull { (venv, r) ->

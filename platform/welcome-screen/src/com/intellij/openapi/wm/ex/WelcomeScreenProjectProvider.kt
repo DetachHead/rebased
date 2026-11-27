@@ -20,7 +20,9 @@ import kotlin.io.path.absolute
 import kotlin.io.path.createDirectories
 import kotlin.io.path.deleteRecursively
 import kotlin.io.path.exists
+import kotlin.io.path.extension
 import kotlin.io.path.forEachDirectoryEntry
+import kotlin.io.path.isRegularFile
 import kotlin.io.path.name
 
 private val LOG = logger<WelcomeScreenProjectProvider>()
@@ -83,11 +85,6 @@ abstract class WelcomeScreenProjectProvider {
       return extension.doIsWelcomeScreenProject(project) && extension.doIsEditableProject(project)
     }
 
-    fun isVcsEnabled(project: Project): Boolean {
-      val isEditable = isEditableWelcomeProject(project)
-      return isEditable && getWelcomeScreenProjectProvider()?.doIsVcsEnabled() ?: false
-    }
-
     fun isForceDisabledFileColors(): Boolean {
       val extension = getWelcomeScreenProjectProvider() ?: return false
       return extension.doIsForceDisabledFileColors()
@@ -100,6 +97,14 @@ abstract class WelcomeScreenProjectProvider {
 
     fun getWelcomeScreenProjectPath(): Path? {
       return getWelcomeScreenProjectProvider()?.getWelcomeScreenProjectPath()
+    }
+
+    /**
+     * Tells if the welcome project of the registered provider opens as a welcome-experience frame, see
+     * [doOwnsWelcomeExperienceProject]. Returns `false` when no provider is registered.
+     */
+    fun ownsWelcomeExperienceProject(): Boolean {
+      return getWelcomeScreenProjectProvider()?.doOwnsWelcomeExperienceProject() ?: false
     }
 
     @Suppress("unused")
@@ -165,6 +170,9 @@ abstract class WelcomeScreenProjectProvider {
           if (name == ".idea") {
             return@forEachDirectoryEntry
           }
+          if (child.extension == "iml" && child.isRegularFile(LinkOption.NOFOLLOW_LINKS)) {
+            return@forEachDirectoryEntry
+          }
           if (PlatformUtils.isPyCharm() && name == ".venv") {
             return@forEachDirectoryEntry
           }
@@ -201,6 +209,20 @@ abstract class WelcomeScreenProjectProvider {
     return name == getWelcomeScreenProjectName() || name == getWelcomeScreenProjectDirName()
   }
 
+  /**
+   * Return true if the welcome project opens as a welcome-experience frame.
+   *
+   * Such a frame is the project that [doIsWelcomeScreenProject] recognizes, and the platform gives it the
+   * [ProjectFrameCapability.WELCOME_EXPERIENCE] capability. A feature that puts a window of its own into that frame
+   * reads this fact before the welcome project opens, for example the Agent Sessions window.
+   *
+   * Return false if the project at the welcome-project path opens as an ordinary project frame, as the DataGrip
+   * default project does. A provider that returns false must also return false from [doIsWelcomeScreenProject].
+   *
+   * [doIsEditableProject] is a separate fact. An editable welcome project, such as the PyCharm one, still returns true.
+   */
+  protected open fun doOwnsWelcomeExperienceProject(): Boolean = true
+
   open fun showHomeActionInProjectWidget(): Boolean = true
 
   /**
@@ -211,12 +233,6 @@ abstract class WelcomeScreenProjectProvider {
   protected open fun doIsEditableProject(project: Project): Boolean {
     return false
   }
-
-  /**
-   * Return true if your project is a welcome screen that supports version control operations. This setting will be ignored unless the
-   * project is also editable. See [doIsEditableProject]
-   */
-  protected open fun doIsVcsEnabled(): Boolean = false
 
   protected abstract fun doIsForceDisabledFileColors(): Boolean
 
@@ -238,11 +254,6 @@ abstract class WelcomeScreenProjectProvider {
    */
   protected open suspend fun doCreateOrOpenWelcomeScreenProjectInNewFrame(path: Path): Project {
     return serviceAsync<WelcomeScreenProjectSupport>().openProject(path, getWelcomeScreenProjectName(), forceOpenInNewFrame = true)
-  }
-
-  @Internal
-  suspend fun doCreateOrOpenWelcomeScreenProjectForInternalUsage(path: Path): Project {
-    return doCreateOrOpenWelcomeScreenProject(path, projectToClose = null)
   }
 
   @Internal

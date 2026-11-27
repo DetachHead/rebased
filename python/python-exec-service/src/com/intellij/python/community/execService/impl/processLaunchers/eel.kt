@@ -9,6 +9,7 @@ import com.intellij.openapi.diagnostic.debug
 import com.intellij.openapi.diagnostic.fileLogger
 import com.intellij.openapi.diagnostic.trace
 import com.intellij.openapi.project.ProjectManager
+import com.intellij.platform.eel.EelApi
 import com.intellij.platform.eel.EelExecApi
 import com.intellij.platform.eel.EelProcess
 import com.intellij.platform.eel.ExecuteProcessException
@@ -17,6 +18,7 @@ import com.intellij.platform.eel.impl.base.ProcessFunctions
 import com.intellij.platform.eel.path.EelPath
 import com.intellij.platform.eel.provider.asEelPath
 import com.intellij.platform.eel.provider.asNioPath
+import com.intellij.platform.eel.provider.equalsMayBeUsingMachine
 import com.intellij.platform.eel.provider.getEelDescriptor
 import com.intellij.platform.eel.provider.toEelApi
 import com.intellij.platform.eel.provider.utils.EelFileTransferAttributesStrategy
@@ -31,6 +33,7 @@ import com.intellij.python.community.execService.impl.PathMapper
 import com.intellij.python.community.execService.impl.PyExecBundle
 import com.intellij.python.community.execService.impl.Uploader
 import com.intellij.python.community.execService.impl.resolveAgainst
+import com.intellij.python.community.helpersLocator.PythonHelpersLocator
 import com.jetbrains.python.Result
 import com.jetbrains.python.errorProcessing.Exe
 import com.jetbrains.python.errorProcessing.ExecErrorReason
@@ -42,6 +45,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import org.jetbrains.annotations.ApiStatus
 import java.io.IOException
 import java.nio.file.Path
 import java.security.MessageDigest
@@ -69,7 +73,7 @@ internal suspend fun createProcessLauncherOnEel(binOnEel: BinOnEel, launchReques
   }
   val eel = exePath.descriptor.toEelApi()
 
-  // Local directory to its copy on the remote eel. There is no copy for a directory on the same eel.
+  // Local directory to the directory that stands for it on the remote eel. A directory on the same eel has no entry.
   val remoteCopies = mutableMapOf<Directory, Path>()
 
   val (args, env) = launchRequest.args.getArgsAndEnv(object : Uploader {
@@ -81,35 +85,17 @@ internal suspend fun createProcessLauncherOnEel(binOnEel: BinOnEel, launchReques
     }
 
 
-    override suspend fun uploadDir(localDir: Directory): PathMapper {
-      val remoteDir = if (eel.descriptor == localDir.getEelDescriptor()) {
+    override suspend fun uploadDir(localDir: Directory, upload: Boolean): PathMapper {
+      val remoteDir = if (eel.descriptor.equalsMayBeUsingMachine(localDir.getEelDescriptor())) {
         // In persistent mode, `transferLocalContentToRemote` copies the files also when the eel is local.
         // Do this check to prevent a copy from local to local.
         localDir
       }
+      else if (upload) {
+        uploadToEelOnce(eel, localDir).also { remoteCopies[localDir] = it }
+      }
       else {
-        val build = ApplicationInfo.getInstance().build.toString()
-        val home = eel.userInfo.home.resolve(".pycharm").resolve(build)
-        val remoteDir = home.resolve(localDir.toHash()).asNioPath()
-        withContext(Dispatchers.IO) {
-          // Two concurrent uploads to the same directory are not necessary.
-          // A mutex for each eel or directory is possible, but usually there is only one. Thus, one global mutex is sufficient.
-          uploadMutex.withLock {
-            val pathDirKey = remoteDir.pathString
-            if (pathDirKey !in remoteDirCheck || !remoteDir.exists()) {
-              remoteDir.createDirectories()
-              val time = measureTime {
-                EelPathUtils.transferLocalContentToRemote(
-                  source = localDir,
-                  target = EelPathUtils.TransferTarget.Explicit(remoteDir)
-                )
-              }
-              log.debug { "Uploaded $localDir to $remoteDir in $time" }
-              remoteDirCheck.add(pathDirKey)
-            }
-            remoteDir
-          }
-        }.also { remoteCopies[localDir] = it }
+        getRemoteDir(eel, localDir).also { remoteCopies[localDir] = it }
       }
       log.debug { "$localDir mapped to $remoteDir" }
       return PathMapper {
@@ -237,6 +223,52 @@ private suspend fun getProhibitedPaths(): List<Path> = withContext(Dispatchers.D
   return@withContext untrustedProjects.flatMap { project ->
     setOf(project.stateStore.projectBasePath) + project.getModuleRoots().map { it.toNioPath() }
   }.map { it.toAbsolutePath() }
+}
+
+/**
+ * Returns the copy of [helpersRoot] on [eel]. Helpers run from this copy in the eel native mode.
+ * Use it for a process that [com.intellij.python.community.execService.ExecService] does not start, for example the debugger.
+ * The copy is uploaded once and then reused. A helpers root that is already on [eel] is returned as is.
+ */
+@ApiStatus.Internal
+suspend fun getHelpersRootOnEel(eel: EelApi, helpersRoot: Path = PythonHelpersLocator.getCommunityHelpersRoot()): EelPath =
+  if (eel.descriptor.equalsMayBeUsingMachine(helpersRoot.getEelDescriptor())) helpersRoot.asEelPath() else uploadToEelOnce(eel, helpersRoot).asEelPath()
+
+/**
+ * Returns `~/.pycharm/<build>/<hash>` on [eel]. This directory stands for [localDir] on [eel].
+ * The function does not create the directory.
+ */
+private suspend fun getRemoteDir(eel: EelApi, localDir: Directory): Path {
+  val build = ApplicationInfo.getInstance().build.toString()
+  val home = eel.userInfo.home.resolve(".pycharm").resolve(build)
+  return home.resolve(localDir.toHash()).asNioPath()
+}
+
+/**
+ * Uploads [localDir] to the [getRemoteDir] directory on [eel] and returns the copy.
+ * The upload runs once after startup, and again when the entry in [remoteDirCheck] expires.
+ */
+private suspend fun uploadToEelOnce(eel: EelApi, localDir: Directory): Path {
+  val remoteDir = getRemoteDir(eel, localDir)
+  return withContext(Dispatchers.IO) {
+    // Two concurrent uploads to the same directory are not necessary.
+    // A mutex for each eel or directory is possible, but usually there is only one. Thus, one global mutex is sufficient.
+    uploadMutex.withLock {
+      val pathDirKey = remoteDir.pathString
+      if (pathDirKey !in remoteDirCheck || !remoteDir.exists()) {
+        remoteDir.createDirectories()
+        val time = measureTime {
+          EelPathUtils.transferLocalContentToRemote(
+            source = localDir,
+            target = EelPathUtils.TransferTarget.Explicit(remoteDir)
+          )
+        }
+        log.debug { "Uploaded $localDir to $remoteDir in $time" }
+        remoteDirCheck.add(pathDirKey)
+      }
+      remoteDir
+    }
+  }
 }
 
 private suspend fun Directory.toHash(): String = withContext(Dispatchers.Default) {

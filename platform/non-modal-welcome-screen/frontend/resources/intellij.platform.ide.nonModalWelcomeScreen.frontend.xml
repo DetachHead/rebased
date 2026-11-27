@@ -9,9 +9,11 @@
     <module name="intellij.platform.ide.core"/>
     <module name="intellij.platform.ide.impl"/>
     <module name="intellij.platform.ide.nonModalWelcomeScreen"/>
+    <module name="intellij.platform.ide.progress"/>
     <module name="intellij.platform.ide.rpc"/>
     <module name="intellij.platform.lang.impl"/>
     <module name="intellij.platform.project"/>
+    <module name="intellij.platform.projectModel"/>
     <module name="intellij.platform.projectView"/>
     <module name="intellij.platform.projectView.frontend"/>
     <module name="intellij.platform.util.ui"/>
@@ -22,5 +24,12 @@
     <project.view.pane.pure.ui
       implementation="com.intellij.platform.ide.nonModalWelcomeScreen.frontend.leftPanel.FrontendWelcomeScreenLeftPanelProvider"
     />
+    <virtualFilePreCloseCheck implementation="com.intellij.platform.ide.nonModalWelcomeScreen.frontend.welcomeFiles.WelcomeFilePreCloseCheck"/>
+    <projectCloseHandler implementation="com.intellij.platform.ide.nonModalWelcomeScreen.frontend.welcomeFiles.FrontendWelcomeProjectCloseHandler"/>
   </extensions>
+
+  <projectListeners>
+    <listener class="com.intellij.platform.ide.nonModalWelcomeScreen.frontend.welcomeFiles.WelcomeFilesEditorListener"
+              topic="com.intellij.openapi.fileEditor.FileEditorManagerListener"/>
+  </projectListeners>
 </idea-plugin>

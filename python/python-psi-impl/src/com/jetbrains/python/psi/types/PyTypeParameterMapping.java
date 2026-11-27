@@ -17,6 +17,7 @@ import java.util.EnumSet;
 import java.util.List;
 import java.util.NoSuchElementException;
 
+import static com.jetbrains.python.psi.types.PyTypeUtilKt.isAnyOrUnknown;
 import static com.jetbrains.python.psi.types.PyTypeUtilKt.isUnknown;
 
 public final class PyTypeParameterMapping {
@@ -26,7 +27,7 @@ public final class PyTypeParameterMapping {
     for (Couple<PyType> couple : mapping) {
       PyType expectedType = couple.getFirst();
       PyType actualType = couple.getSecond();
-      if (!isUnknown(expectedType) && !isUnknown(actualType) && haveIncompatibleVariadicKinds(expectedType, actualType)) {
+      if (!isAnyOrUnknown(expectedType) && !isAnyOrUnknown(actualType) && haveIncompatibleVariadicKinds(expectedType, actualType)) {
         throw new IllegalArgumentException("Mapping of incompatible types: " + expectedType + " -> " + actualType);
       }
     }
@@ -64,7 +65,7 @@ public final class PyTypeParameterMapping {
       }
       PyType leftmostActual = actualTypesDeque.peekFirst();
       if (leftmostExpected != null &&
-          !isUnknown(leftmostActual) &&
+          !isAnyOrUnknown(leftmostActual) &&
           leftmostExpected instanceof PyCallableParameterVariadicType ^ leftmostActual instanceof PyCallableParameterVariadicType) {
         break;
       }
@@ -84,7 +85,7 @@ public final class PyTypeParameterMapping {
       }
       PyType rightmostActual = actualTypesDeque.peekLast();
       if (rightmostExpected != null &&
-          !isUnknown(rightmostActual) &&
+          !isAnyOrUnknown(rightmostActual) &&
           rightmostExpected instanceof PyCallableParameterVariadicType ^ rightmostActual instanceof PyCallableParameterVariadicType) {
         break;
       }
@@ -184,11 +185,13 @@ public final class PyTypeParameterMapping {
   }
 
   // [**P] <- [int, str, bool] is equivalent to [**P] <- [[int, str, bool]]
+  // [**P] <- [...] keeps a single unknown type argument, which stands for any parameters
   // See https://typing.readthedocs.io/en/latest/spec/generics.html#user-defined-generic-classes
   private static @NotNull List<PyType> replaceExpectedTypesWithParameterList(@NotNull List<PyType> expectedTypes,
                                                                              @NotNull List<PyType> actualTypes) {
     if (ContainerUtil.getOnlyItem(expectedTypes) instanceof PyParamSpecType &&
-        !actualTypes.isEmpty() && !ContainerUtil.exists(actualTypes, o -> o instanceof PyVariadicType)) {
+        !actualTypes.isEmpty() && !ContainerUtil.exists(actualTypes, o -> o instanceof PyVariadicType) &&
+        !(actualTypes.size() == 1 && isUnknown(actualTypes.getFirst()))) {
       PyCallableParameterListType callableParameterListType =
         new PyCallableParameterListTypeImpl(ContainerUtil.map(actualTypes, PyCallableParameterImpl::nonPsi));
       return Collections.singletonList(callableParameterListType);
@@ -203,7 +206,7 @@ public final class PyTypeParameterMapping {
       PyType defaultType = Ref.deref(typeParameterType.getDefaultType());
       // A malformed default (e.g. a parameter list `[int]` used as the default of a regular TypeVar) would yield a
       // variadic-incompatible mapping that the constructor rejects; ignore such a default and fall back below.
-      if (defaultType == null || !haveIncompatibleVariadicKinds(unmatchedExpectedType, defaultType)) {
+      if (defaultType == null || isUnknown(defaultType) || !haveIncompatibleVariadicKinds(unmatchedExpectedType, defaultType)) {
         return Couple.of(unmatchedExpectedType, defaultType);
       }
     }
