@@ -26,7 +26,7 @@ public final class GitVcsApplicationSettings implements PersistentStateComponent
 
     public boolean ANNOTATE_IGNORE_SPACES = true;
     public AnnotateDetectMovementsOption ANNOTATE_DETECT_INNER_MOVEMENTS = AnnotateDetectMovementsOption.NONE;
-    public boolean USE_CREDENTIAL_HELPER = false;
+    public boolean USE_CREDENTIAL_HELPER = true;
     public boolean STAGING_AREA_ENABLED = false;
     public boolean COMBINED_STASHES_AND_SHELVES_ENABLED = false;
     public boolean COMPARE_WITH_LOCAL_IN_STASHES_ENABLED = true;
